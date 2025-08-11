@@ -1,5 +1,5 @@
 import Redis, { RedisOptions } from "ioredis";
-import logger from "@/utils/logger";
+import logger from "../utils/logger";
 import { json, templateLiteral } from "zod";
 
 
@@ -30,9 +30,11 @@ class RedisManager {
             password: process.env.REDIS_PASSWORD || undefined,
             db: type === 'cache' ? 0 : 1,
             lazyConnect: true,
-            maxRetriesPerRequest: 3,
+            maxRetriesPerRequest: type === 'queue' ? null : 3, // BullMQ requires null for queue connections
             connectTimeout: 10000,
-            commandTimeout: 5000,
+            commandTimeout: type === 'queue' ? 30000 : 5000, // 30 seconds for queue, 5 seconds for cache
+            enableReadyCheck: false
+
         };
         return new Redis(config);
     }
@@ -53,8 +55,22 @@ class RedisManager {
         this.queueRedis.on('connect', () => {
             logger.info('Redis queue connected successfully');
         });
+
         this.queueRedis.on('error', (err) => {
-            logger.error('Redis queue connection error', err);
+            // Only log if it's not a timeout error (to avoid spam)
+            if (!err.message.includes('Command timed out')) {
+                logger.error('Redis queue connection error', err);
+            } else {
+                logger.warn('Redis queue command timeout (this is normal during heavy load)');
+            }
+        });
+
+        this.queueRedis.on('reconnecting', () => {
+            logger.info('Redis queue reconnecting...');
+        });
+
+        this.queueRedis.on('ready', () => {
+            logger.info('Redis queue ready for commands');
         });
     }
 
@@ -169,6 +185,24 @@ class RedisManager {
         } catch (error) {
             logger.error(`Error disconnecting Redis clients`, error);
         }
+    }
+    // Method to wait for Redis connection to be ready
+    public async waitForConnection(timeoutMs: number = 10000): Promise<boolean> {
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < timeoutMs) {
+            try {
+                await this.queueRedis.ping();
+                logger.info('✅ Redis queue connection verified');
+                return true;
+            } catch (error) {
+                logger.warn('⏳ Waiting for Redis queue connection...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+
+        logger.error('❌ Redis queue connection timeout');
+        return false;
     }
 }
 

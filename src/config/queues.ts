@@ -1,7 +1,6 @@
 import { Queue, Worker,QueueOptions,WorkerOptions } from "bullmq";
 import {redis} from './redis';
 import logger from '../utils/logger';
-import { de } from "zod/v4/locales/index.cjs";
 
 //Queue connection config
 const queueConnection = redis.getQueueConnection();

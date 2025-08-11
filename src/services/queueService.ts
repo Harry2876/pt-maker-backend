@@ -1,6 +1,6 @@
 import { otpQueue,screenshotQueue,emailQueue } from "../config/queues";
 import { OTPSendingJob,ScreenshotProcessingJob,EmailNotificationJob } from "../types/queue";
-import logger from "@/utils/logger";
+import logger from "../utils/logger";
 
 export class QueueService {
     //add otp sending job to thew queue

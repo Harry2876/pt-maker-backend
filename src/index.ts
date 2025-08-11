@@ -27,11 +27,17 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-enc
 // Start Redis and Workers
 async function initializeServices() {
     try {
-        // Test Redis connection
+        // Test Redis cache connection
         await redis.set('server:status', 'running', 60);
-        logger.info('✅ Redis connection tested successfully');
+        logger.info('✅ Redis cache connection tested successfully');
         
-        // Start queue workers
+        // Wait for Redis queue connection to be ready
+        const queueReady = await redis.waitForConnection(15000);
+        if (!queueReady) {
+            throw new Error('Redis queue connection failed');
+        }
+        
+        // Start queue workers after Redis is confirmed ready
         await workersManager.startAllWorkers();
         
     } catch (error) {
