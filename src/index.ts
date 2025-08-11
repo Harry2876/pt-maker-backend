@@ -8,8 +8,11 @@ import { dbManager } from './config/database';
 // import projectRouter from './routes/projectRoutes';
 import matchRouter from './routes/matchRoutes';
 import adminRouter from './routes/adminRoutes';
+import redis from './config/redis';
+import { WorkersManager } from './workers';
+import { QueueService } from './services/queueService';
 
-
+const workersManager = new WorkersManager();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +24,34 @@ app.use(express.json({ limit: '50mb' })); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies
 
 
+// Start Redis and Workers
+async function initializeServices() {
+    try {
+        // Test Redis connection
+        await redis.set('server:status', 'running', 60);
+        logger.info('✅ Redis connection tested successfully');
+        
+        // Start queue workers
+        await workersManager.startAllWorkers();
+        
+    } catch (error) {
+        logger.error('❌ Failed to initialize services:', error);
+        process.exit(1);
+    }
+}
+
+// Call before starting server
+(async () => {
+    await initializeServices();
+})();
+
+// Add graceful shutdown
+process.on('SIGTERM', async () => {
+    logger.info('🛑 Received SIGTERM, shutting down gracefully');
+    await workersManager.stopAllWorkers();
+    await redis.disconnect();
+    process.exit(0);
+});
 app.use((req, res, next) => {
     const startTime = Date.now();
 
@@ -37,7 +68,30 @@ app.use((req, res, next) => {
 
     next();
 });
-
+app.get('/test-queue', async (req, res) => {
+    try {
+        // Test Redis
+        await redis.set('test:key', 'Hello Redis!', 60);
+        const value = await redis.get('test:key');
+        
+        // Test Queue
+        await QueueService.sendOTP({
+            phoneNumber: '+919876543210',
+            otp: '123456',
+            type: 'registration',
+            userId: 'test-user-123'
+        });
+        
+        res.json({
+            success: true,
+            redis: { testValue: value },
+            queue: { otpJobQueued: true },
+            message: 'Redis and Queue system working!'
+        });
+    } catch (error:any) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // Basic health check route
 // Health check endpoint
 app.get('/health', (req, res) => {
