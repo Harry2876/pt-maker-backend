@@ -1,4 +1,4 @@
-import { otpQueue,screenshotQueue,emailQueue } from "../config/queues";
+import { otpQueue,screenshotQueue,emailQueue,userSyncQueue } from "../config/queues";
 import { OTPSendingJob,ScreenshotProcessingJob,EmailNotificationJob } from "../types/queue";
 import logger from "../utils/logger";
 

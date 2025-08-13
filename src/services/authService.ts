@@ -2,22 +2,11 @@ import { BaseService } from "./baseService";
 import { QueueService } from "./queueService";
 import redis from "../config/redis";
 import jwt from "jsonwebtoken";
+import { AuthData, OTPVerificationData, CachedUser, AuthUser, AuthResponse } from '../types/auth';
+import { PasswordService } from "./passwordService";
 import { success } from "zod";
 import { stat } from "fs";
-
-interface AuthData {
-    phoneNumber: string;
-    username: string;
-    fullName: string;
-    organization?: string;
-    password: string;
-}
-
-interface OTPVerificationData {
-    phoneNumber: string;
-    otp: string;
-    password?: string;
-}
+import { isMapIterator } from "util/types";
 
 export class AuthService extends BaseService {
 
@@ -87,7 +76,7 @@ export class AuthService extends BaseService {
                 throw new Error("Invalid or OTP Expired");
             }
             //check if the user exists
-            let user = await this.db.user.findFirst({
+            let dbUser = await this.db.user.findFirst({
                 where: {
                     phoneNumber: verificationData.phoneNumber
                 },
@@ -96,19 +85,30 @@ export class AuthService extends BaseService {
                 }
             });
 
-            if (user) {
+            if (dbUser) {
                 //existing user, just update the last login time
                 await this.db.user.update({
-                    where: { id: user.id },
+                    where: { id: dbUser.id },
                     data: {
                         updatedAt: new Date()
                     }
                 });
 
-                this.logger.info(`User ${user.id} logged in with phone ${verificationData.phoneNumber}`);
+                this.logger.info(`User ${dbUser.id} logged in with phone ${verificationData.phoneNumber}`);
+
+                // Return consistent AuthUser format
+                const authUser: AuthUser = {
+                    id: dbUser.id,
+                    phoneNumber: dbUser.phoneNumber,
+                    username: dbUser.username,
+                    fullName: dbUser.fullName || '',
+                    organization: dbUser.organization || undefined,
+                    fromCache: false,
+                    subscription: dbUser.subscription
+                };
                 return {
                     type: 'login',
-                    user,
+                    user: authUser,
                     message: 'Login successful'
                 };
             } else {
@@ -130,16 +130,25 @@ export class AuthService extends BaseService {
                 }
 
                 //store user in Redis Cache
-                const newUser = await this.storeNewUserData(userData, verificationData.phoneNumber);
+                const newUserCache = await this.storeNewUserData(userData, verificationData.phoneNumber);
 
                 // Also cache by username for quick lookup
                 await redis.setObject(`user_cache_by_username:${userData.username}`, { phoneNumber: verificationData.phoneNumber }, 3600);
 
                 this.logger.info(`New user ${userData.username} registered and cached for phone ${verificationData.phoneNumber}`);
 
+                const authUser: AuthUser = {
+                    id: `cache_${verificationData.phoneNumber}`, // Temporary cache ID
+                    phoneNumber: newUserCache.phoneNumber,
+                    username: newUserCache.username,
+                    fullName: newUserCache.fullName,
+                    organization: newUserCache.organization,
+                    fromCache: true
+                };
+
                 return {
                     type: 'registration',
-                    user: newUser,
+                    user: authUser,
                     message: 'Registration successful'
                 };
             }
@@ -152,12 +161,13 @@ export class AuthService extends BaseService {
     async storeNewUserData(userData: AuthData, phoneNumber: string) {
         try {
             const userCacheKey = `user_cache:${phoneNumber}`;
+            const hashedPassword = await PasswordService.hashPassword(userData.password);
             const userObject = {
                 phoneNumber: userData.phoneNumber,
                 username: userData.username,
                 fullName: userData.fullName,
                 organization: userData.organization,
-                password: userData.password,
+                password: hashedPassword,
                 isPhoneVerified: true,
                 registeredAt: new Date().toISOString(),
                 lastLoginAt: new Date().toISOString(),
@@ -201,35 +211,34 @@ export class AuthService extends BaseService {
     }
 
     //get user from redis cache then db
-    async getUserByPhone(phoneNumber: string, checkCacheFirst: boolean = true) {
+    async getUserByPhone(phoneNumber: string, checkCacheFirst: boolean = true): Promise<AuthUser | null> {
         try {
             if (checkCacheFirst) {
-                //checking cache first
                 const cacheKey = `user_cache:${phoneNumber}`;
-                const cachedUser = await redis.getObject(cacheKey);
+                const cachedUser = await redis.getObject<CachedUser>(cacheKey);
 
                 if (cachedUser) {
                     this.logger.info(`User ${phoneNumber} found in Redis cache`);
                     return {
-                        id: `cache_${phoneNumber}`, //temp id for cached users
-                        ...cachedUser,
+                        id: `cache_${phoneNumber}`,
+                        phoneNumber: cachedUser.phoneNumber,
+                        username: cachedUser.username,
+                        fullName: cachedUser.fullName,
+                        organization: cachedUser.organization,
                         fromCache: true
                     };
                 }
             }
 
-            //if not in cache check db
             const dbUser = await this.db.user.findFirst({
-                where: {
-                    phoneNumber
-                },
+                where: { phoneNumber },
                 include: {
                     subscription: true,
                     _count: {
                         select: {
-                            tournaments : true,
-                            teams:true,
-                            templates:true
+                            tournaments: true,
+                            teams: true,
+                            templates: true
                         }
                     }
                 }
@@ -238,13 +247,18 @@ export class AuthService extends BaseService {
             if (dbUser) {
                 this.logger.info(`User ${phoneNumber} found in database`);
                 return {
-                    ...dbUser,
-                    fromCache: false
+                    id: dbUser.id,
+                    phoneNumber: dbUser.phoneNumber,
+                    username: dbUser.username,
+                    fullName: dbUser.fullName || '',
+                    organization: dbUser.organization || undefined,
+                    fromCache: false,
+                    subscription: dbUser.subscription
                 };
             }
-            return null; //user not found
+            return null;
         } catch (error) {
-            this.logger.error(`Failed to get user ${phoneNumber} from database:`, error);
+            this.logger.error(`Failed to get user ${phoneNumber}:`, error);
             return null;
         }
     }

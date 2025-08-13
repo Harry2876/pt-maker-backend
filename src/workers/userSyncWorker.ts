@@ -50,14 +50,8 @@ export class UserSyncWorker extends BaseWorker<any> {
             const pattern = 'pending_users_list_for_dbWrite:*';
 
             //scan  and get keys safely
-            const keys: string[] = [];
-            let cursor = 0;
-            
-            do {
-                const result = await redis.scan(cursor,'MATCH',pattern,'COUNT',100);
-                cursor = result[0];
-                keys.push(...result[1]);
-            } while (cursor !== 0);
+            const keys = await redis.keys(pattern);
+
             return keys.map(key => key.replace('pending_users_list_for_dbWrite:',''));
         }catch(error) {
             logger.error(`Error getting pending users from Redis:`, error);

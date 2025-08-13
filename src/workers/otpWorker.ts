@@ -20,7 +20,7 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
             await this.storeOTPInRedis(phoneNumber, otp);
 
             //smart otp sending with multiple fallbacks
-            const success = await this.sendOTPSmartWay(phoneNumber, otp,type);
+            const success = await this.sendOTPSmartWay(phoneNumber, otp, type);
 
             if(success){
                 logger.info(`✅ OTP sent successfully for user ${userId} with phone ${phoneNumber}`);
@@ -42,6 +42,17 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
             logger.info(`✅ OTP stored in Redis for phone ${phoneNumber}`);
         }else{
             logger.error(`❌ Failed to store OTP in Redis for phone ${phoneNumber}`);
+        }
+    }
+
+    private async sendOTPSmartWay(phoneNumber: string, otp: string, type:string): Promise<boolean> { 
+        try {
+            //for dev just log the otp
+            logger.info(`🔧 Sending OTP ${otp} for ${type} to phone ${phoneNumber} is Valid for 5 Mins`);
+            return true;
+        } catch (error){
+            logger.error(`❌ Failed to send OTP ${type} for phone ${phoneNumber}`, error);
+            return false;
         }
     }
 

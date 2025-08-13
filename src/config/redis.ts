@@ -161,6 +161,15 @@ class RedisManager {
             return false;
         }
     }
+    public async scan(cursor: number, ...args: any[]): Promise<[number, string[]]> {
+        try {
+            const result = await this.redisClient.scan(cursor, ...args);
+            return [parseInt(result[0]), result[1]];
+        }catch(error){
+            logger.error(`Error scanning Redis keys:`, error);
+            return [0, []];
+        }
+    }
     //get time to live for key
     public async ttl(key: string): Promise<number> {
         try {
@@ -204,6 +213,15 @@ class RedisManager {
         logger.error('❌ Redis queue connection timeout');
         return false;
     }
+    async keys(pattern: string): Promise<string[]> {
+    try {
+        const keys = await this.redisClient.keys(pattern);
+        return keys;
+    } catch (error) {
+        logger.error(`Error getting keys with pattern ${pattern}:`, error);
+        return [];
+    }
+}
 }
 
 export const redis = RedisManager.getInstance();

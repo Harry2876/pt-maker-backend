@@ -4,13 +4,8 @@ import logger from '../utils/logger';
 class DatabaseManager {
   private static instance: DatabaseManager;
   private prisma: PrismaClient;
-
   private constructor() {
-    this.prisma = new PrismaClient({
-      log: process.env.NODE_ENV === 'development' 
-        ? ['query', 'info', 'warn', 'error']
-        : ['error'],
-    });
+    this.prisma = new PrismaClient();
 
     // Initialize database connection
     this.initializeConnection();

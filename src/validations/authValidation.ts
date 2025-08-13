@@ -1,0 +1,39 @@
+import { z } from 'zod';
+
+export const sendOTPSchema = z.object({
+  phoneNumber: z.string()
+    .min(10, 'Phone number must be at least 10 digits')
+    .max(15, 'Phone number must be at most 15 digits')
+    .regex(/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'),
+  type: z.enum(['registration', 'login']).optional().default('registration')
+});
+
+export const verifyOTPSchema = z.object({
+  phoneNumber: z.string()
+    .min(10, 'Phone number must be at least 10 digits')
+    .regex(/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'),
+  otp: z.string()
+    .length(6, 'OTP must be exactly 6 digits')
+    .regex(/^\d{6}$/, 'OTP must contain only numbers'),
+  
+  // For registration
+  username: z.string()
+    .min(3, 'Username must be at least 3 characters')
+    .max(30, 'Username must be at most 30 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores')
+    .optional(),
+  fullName: z.string()
+    .min(2, 'Full name must be at least 2 characters')
+    .max(100, 'Full name must be at most 100 characters')
+    .optional(),
+  organization: z.string()
+    .max(100, 'Organization name must be at most 100 characters')
+    .optional(),
+  password: z.string()
+    .min(6, 'Password must be at least 6 characters')
+    .max(100, 'Password must be at most 100 characters')
+    .optional()
+});
+
+export type SendOTPRequest = z.infer<typeof sendOTPSchema>;
+export type VerifyOTPRequest = z.infer<typeof verifyOTPSchema>;

@@ -4,13 +4,14 @@ import helmet from 'helmet';
 import logger from './utils/logger';
 import { dbManager } from './config/database';
 // Import route modules
-// import authRouter from './routes/authRoutes';
+import authRouter from './routes/authRoutes';
 // import projectRouter from './routes/projectRoutes';
 import matchRouter from './routes/matchRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
 import { WorkersManager } from './workers';
 import { QueueService } from './services/queueService';
+import { globalErrorHandler } from './middleware/commonMiddleware';
 
 const workersManager = new WorkersManager();
 
@@ -22,6 +23,7 @@ app.use(helmet()); // Security headers
 app.use(cors()); // Enable CORS
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies
+app.use(globalErrorHandler);
 
 
 // Start Redis and Workers
@@ -30,16 +32,18 @@ async function initializeServices() {
         // Test Redis cache connection
         await redis.set('server:status', 'running', 60);
         logger.info('✅ Redis cache connection tested successfully');
-        
+
         // Wait for Redis queue connection to be ready
         const queueReady = await redis.waitForConnection(15000);
         if (!queueReady) {
             throw new Error('Redis queue connection failed');
         }
-        
+
         // Start queue workers after Redis is confirmed ready
         await workersManager.startAllWorkers();
-        
+
+        await QueueService.scheduleUserSync();
+
     } catch (error) {
         logger.error('❌ Failed to initialize services:', error);
         process.exit(1);
@@ -79,7 +83,7 @@ app.get('/test-queue', async (req, res) => {
         // Test Redis
         await redis.set('test:key', 'Hello Redis!', 60);
         const value = await redis.get('test:key');
-        
+
         // Test Queue
         await QueueService.sendOTP({
             phoneNumber: '+919876543210',
@@ -87,77 +91,77 @@ app.get('/test-queue', async (req, res) => {
             type: 'registration',
             userId: 'test-user-123'
         });
-        
+
         res.json({
             success: true,
             redis: { testValue: value },
             queue: { otpJobQueued: true },
             message: 'Redis and Queue system working!'
         });
-    } catch (error:any) {
+    } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
 });
 // Basic health check route
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+    res.json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+    });
 });
 
 // Test route for Discord logging colors
 app.get('/test-colors', (req, res) => {
-  // Test basic color logging
-  logger.info('� Testing INFO color - should be GREEN');
-  logger.warn('⚠️ Testing WARN color - should be ORANGE');
-  logger.http('🌐 Testing HTTP color - should be BLUE');
-  logger.debug('🔍 Testing DEBUG color - should be GRAY');
-  
-  // Test detailed error logging with metadata
-  logger.error('Test error: Database connection failed', {
-    error: 'Connection timeout',
-    database: 'tournament_db',
-    apiKey: 'sensitive-api-key-12345',
-    retryCount: 3,
-    lastAttempt: new Date().toISOString(),
-    connectionDetails: {
-      host: 'localhost',
-      port: 5432,
-      ssl: true
-    }
-  });
-  
-  // Test complex info logging with metadata
-  logger.info('User login attempt with password: secretPassword123 and token: abc123xyz', {
-    userId: 'user_12345',
-    ip: req.ip,
-    userAgent: req.get('User-Agent'),
-    loginData: {
-      method: 'phone_otp',
-      phone: '+91xxxxxxxxxx',
-      timestamp: new Date().toISOString()
-    }
-  });
-  
-  res.json({
-    message: 'Enhanced detailed logging test completed! Check your Discord channel.',
-    note: 'You should now see detailed metadata, colors, and structured information.',
-    testCases: [
-      'Basic color testing for all log levels',
-      'Error with detailed metadata including nested objects',
-      'Info with user authentication details',
-      'Security masking for sensitive data'
-    ]
-  });
+    // Test basic color logging
+    logger.info('� Testing INFO color - should be GREEN');
+    logger.warn('⚠️ Testing WARN color - should be ORANGE');
+    logger.http('🌐 Testing HTTP color - should be BLUE');
+    logger.debug('🔍 Testing DEBUG color - should be GRAY');
+
+    // Test detailed error logging with metadata
+    logger.error('Test error: Database connection failed', {
+        error: 'Connection timeout',
+        database: 'tournament_db',
+        apiKey: 'sensitive-api-key-12345',
+        retryCount: 3,
+        lastAttempt: new Date().toISOString(),
+        connectionDetails: {
+            host: 'localhost',
+            port: 5432,
+            ssl: true
+        }
+    });
+
+    // Test complex info logging with metadata
+    logger.info('User login attempt with password: secretPassword123 and token: abc123xyz', {
+        userId: 'user_12345',
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        loginData: {
+            method: 'phone_otp',
+            phone: '+91xxxxxxxxxx',
+            timestamp: new Date().toISOString()
+        }
+    });
+
+    res.json({
+        message: 'Enhanced detailed logging test completed! Check your Discord channel.',
+        note: 'You should now see detailed metadata, colors, and structured information.',
+        testCases: [
+            'Basic color testing for all log levels',
+            'Error with detailed metadata including nested objects',
+            'Info with user authentication details',
+            'Security masking for sensitive data'
+        ]
+    });
 });
 
 
 
 // API routes
-// app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/auth', authRouter);
 // app.use('/api/v1/projects', projectRouter);
 // app.use('/api/v1/matches', matchRouter);
 // app.use('/api/v1/admin', adminRouter);
