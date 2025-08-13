@@ -3,35 +3,49 @@ import { BaseWorker } from './baseWorker';
 import { OTPSendingJob } from '../types/queue';
 import { Queues } from '../config/queues';
 import logger from '../utils/logger';
+import {redis} from '../config/redis';
 
 export class OTPWorker extends BaseWorker<OTPSendingJob> {
     constructor() {
-        super(Queues.OTP_SENDING, {concurrency: 10});
+        super(Queues.OTP_SENDING, { concurrency: 10 });
     }
 
     protected async processJob(job: Job<OTPSendingJob>): Promise<void> {
-        const {phoneNumber,otp,type,userId} = job.data;
+        const { phoneNumber, otp, type, userId } = job.data;
 
         logger.info(`Processing OTP job for user ${userId} with phone ${phoneNumber} and type ${type}`);
 
         try {
-            //just logging the otp for now
-                        logger.info(`📱 OTP for ${phoneNumber}: ${otp} (Type: ${type})`);
+            //store otp in redis for verification
+            await this.storeOTPInRedis(phoneNumber, otp);
 
-                        //TODO : Replace with actual OTP sending logic
-                                    // await this.sendViaSMS(phoneNumber, otp);
-            // await this.sendViaWhatsApp(phoneNumber, otp);
+            //smart otp sending with multiple fallbacks
+            const success = await this.sendOTPSmartWay(phoneNumber, otp,type);
 
-            //simulating process
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            logger.info(`✅ OTP sent successfully for user ${userId} with phone ${phoneNumber}`);
+            if(success){
+                logger.info(`✅ OTP sent successfully for user ${userId} with phone ${phoneNumber}`);
+            }else {
+                throw new Error("All OTP sending methods failed");
+            }
         } catch (error) {
             logger.error(`❌ Failed to process OTP job for user ${userId} with phone ${phoneNumber}`, error);
             throw error;
         }
     }
 
-       // TODO: Implement when you get SMS service
+    private async storeOTPInRedis(phoneNumber: string, otp: string): Promise<void> {
+        const key = `phone_otp:${phoneNumber}`;
+        const ttl = 300; // 5 minutes
+        const success = await redis.set(key, otp, ttl);
+
+        if(success){
+            logger.info(`✅ OTP stored in Redis for phone ${phoneNumber}`);
+        }else{
+            logger.error(`❌ Failed to store OTP in Redis for phone ${phoneNumber}`);
+        }
+    }
+
+    // TODO: Implement when you get SMS service
     private async sendViaSMS(phoneNumber: string, otp: string): Promise<void> {
         // Implementation for SMS sending
     }

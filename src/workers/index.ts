@@ -1,5 +1,6 @@
 import logger from '../utils/logger';
 import { OTPWorker } from './otpWorker';
+import { UserSyncWorker } from './userSyncWorker';
 // import { ScreenshotWorker } from './screenshotWorker'; // TODO: Create later
 // import { EmailWorker } from './emailWorker'; // TODO: Create later
 
@@ -13,6 +14,7 @@ export class WorkersManager {
         try {
             // Start OTP worker
             await this.startWorker('OTP', () => new OTPWorker());
+            await this.startWorker('User Sync', () => new UserSyncWorker());
 
             // TODO: Add other workers when ready
             // await this.startWorker('Screenshot', () => new ScreenshotWorker());

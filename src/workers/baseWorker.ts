@@ -22,6 +22,9 @@ export abstract class BaseWorker<T = any> {
             connection: redis.getQueueConnection(),
             concurrency: 3,
             autorun: true,
+            drainDelay: 5,
+            stalledInterval: 30000,
+            maxStalledCount: 1, // Retry stalled jobs only once
             ...options,
         };
 
@@ -29,14 +32,14 @@ export abstract class BaseWorker<T = any> {
 
 
         try {
-    this.worker = new Worker(queueName, this.processJob.bind(this), workerOptions);
-    this.setupEventHandlers();
-    this.setupConnectionRetry();
-    logger.info(`✅ ${this.workerName} initialized and ready to process jobs`);
-} catch (error) {
-    logger.error(`❌ ${this.workerName} failed to initialize:`, error);
-    throw error;
-}
+            this.worker = new Worker(queueName, this.processJob.bind(this), workerOptions);
+            this.setupEventHandlers();
+            this.setupConnectionRetry();
+            logger.info(`✅ ${this.workerName} initialized and ready to process jobs`);
+        } catch (error) {
+            logger.error(`❌ ${this.workerName} failed to initialize:`, error);
+            throw error;
+        }
     }
 
     //abstract method - each worker must implement this
@@ -64,22 +67,22 @@ export abstract class BaseWorker<T = any> {
         return true;
     }
 
-// Setup connection monitoring through Redis manager
-private setupConnectionRetry(): void {
-    // We can monitor connection through the Redis manager
-    // The Redis manager already handles connection events
-    
-    // Monitor worker's internal connection state through worker events
-    this.worker.on('closing', () => {
-        logger.info(`🔌 ${this.workerName} is closing connection`);
-    });
-    
-    this.worker.on('closed', () => {
-        logger.info(`🔌 ${this.workerName} connection closed`);
-    });
-    
-    logger.info(`🔌 ${this.workerName} connection monitoring setup complete`);
-}
+    // Setup connection monitoring through Redis manager
+    private setupConnectionRetry(): void {
+        // We can monitor connection through the Redis manager
+        // The Redis manager already handles connection events
+
+        // Monitor worker's internal connection state through worker events
+        this.worker.on('closing', () => {
+            logger.info(`🔌 ${this.workerName} is closing connection`);
+        });
+
+        this.worker.on('closed', () => {
+            logger.info(`🔌 ${this.workerName} connection closed`);
+        });
+
+        logger.info(`🔌 ${this.workerName} connection monitoring setup complete`);
+    }
 
     private setupEventHandlers(): void {
         this.worker.on('ready', () => {

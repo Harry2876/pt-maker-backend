@@ -35,6 +35,7 @@ export const Queues = {
     REPORT_GENERATION : 'report-generation',
     CLEANUP_TASKS : 'cleanup-tasks',
     PAYMENT_PROCESSING : 'payment-processing',
+    USER_SYNC : 'user-sync',
 } as const;
 
 export const screenshotQueue = new Queue(Queues.SCREENSHOT_PROCESSING,defaultQueueOptions);
@@ -44,3 +45,4 @@ export const imageQueue = new Queue(Queues.IMAGE_PROCESSING,defaultQueueOptions)
 export const reportQueue = new Queue(Queues.REPORT_GENERATION,defaultQueueOptions);
 export const cleanupQueue = new Queue(Queues.CLEANUP_TASKS,defaultQueueOptions);
 export const paymentQueue = new Queue(Queues.PAYMENT_PROCESSING,defaultQueueOptions);
+export const userSyncQueue = new Queue(Queues.USER_SYNC,defaultQueueOptions);

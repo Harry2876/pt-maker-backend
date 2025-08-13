@@ -8,7 +8,7 @@ export interface ScreenshotProcessingJob {
 export interface OTPSendingJob {
     phoneNumber: string;
     otp: string;
-    type: 'registration' | 'forgot_password';
+    type: 'registration' | 'forgot_password' | 'login';
     userId?: string;
 }
 

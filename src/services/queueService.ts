@@ -44,4 +44,18 @@ export class QueueService {
             throw error;
         }
     }
+    static async scheduleUserSync(): Promise<void> {
+    try {
+        await userSyncQueue.add('sync-users-to-db', {}, {
+            repeat: { 
+                every: 60000 // Every 60 seconds
+            },
+            priority: 5 // Low priority
+        });
+        logger.info('User sync job scheduled to run every 60 seconds');
+    } catch (error) {
+        logger.error('Failed to schedule user sync job:', error);
+        throw error;
+    }
+}
 }
