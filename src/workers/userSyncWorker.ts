@@ -51,7 +51,6 @@ export class UserSyncWorker extends BaseWorker<any> {
 
             //scan  and get keys safely
             const keys = await redis.keys(pattern);
-
             return keys.map(key => key.replace('pending_users_list_for_dbWrite:',''));
         }catch(error) {
             logger.error(`Error getting pending users from Redis:`, error);
@@ -117,4 +116,6 @@ export class UserSyncWorker extends BaseWorker<any> {
             logger.error(`Error cleaning up cache for user ${phoneNumber}:`, error);
         }
     }
+
+    private async syncPendingSessionsToDb() : Promise<void> {}
 }

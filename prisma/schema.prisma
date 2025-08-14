@@ -54,23 +54,23 @@ enum PurchaseType {
 }
 
 enum ScreenshotType {
-  SLOT_LIST      // Team slot assignments
-  RESULT_SCREEN  // Match results
+  SLOT_LIST // Team slot assignments
+  RESULT_SCREEN // Match results
 }
 
 enum TemplateType {
-  PREDEFINED     // Pre-designed templates provided by platform
-  CUSTOM         // User-uploaded custom designs
+  PREDEFINED // Pre-designed templates provided by platform
+  CUSTOM // User-uploaded custom designs
 }
 
 enum DataFieldType {
-  TEAM_NAME      // Team name field
-  PLAYER_NAME    // Player name field
-  KILLS          // Kill count field
-  POSITION       // Position/rank field
-  POINTS         // Points field
-  MATCH_TITLE    // Match title field
-  DATE           // Date field
+  TEAM_NAME // Team name field
+  PLAYER_NAME // Player name field
+  KILLS // Kill count field
+  POSITION // Position/rank field
+  POINTS // Points field
+  MATCH_TITLE // Match title field
+  DATE // Date field
   TOURNAMENT_NAME // Tournament name field
 }
 
@@ -88,32 +88,32 @@ enum TextAlignment {
 model User {
   id                  String             @id @default(cuid())
   username            String             @unique
-  phoneNumber         String             @unique  // Primary authentication field
+  phoneNumber         String             @unique // Primary authentication field
   fullName            String
-  organization       String?
-  passwordHash        String?            // Optional for future email auth
-  otp                 String?            // Current OTP for phone verification
-  otpExpiresAt        DateTime?          // OTP expiration time
+  organization        String?
+  passwordHash        String? // Optional for future email auth
+  otp                 String? // Current OTP for phone verification
+  otpExpiresAt        DateTime? // OTP expiration time
   credits             Int                @default(0) // Credits for generating graphics
   subscriptionStatus  SubscriptionStatus @default(INACTIVE)
-  subscriptionEndDate DateTime?          // When subscription expires
+  subscriptionEndDate DateTime? // When subscription expires
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
   // Relations
-  subscriptionId      String?
-  subscription        Subscription?      @relation(fields: [subscriptionId], references: [id])
-  
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
   // User-owned entities
-  tournaments         Tournament[]
-  teams               Team[]
-  templates           Template[]
-  payments            Payment[]
-  activityLogs        ActivityLog[]
+  tournaments  Tournament[]
+  teams        Team[]
+  templates    Template[]
+  payments     Payment[]
+  activityLogs ActivityLog[]
 
   // Better Auth relations (keeping for compatibility)
-  accounts            Account[]
-  sessions            Session[]
+  accounts Account[]
+  sessions Session[]
 
   @@map("users")
 }
@@ -121,34 +121,34 @@ model User {
 // Subscription Plans (Free, Pro, Enterprise)
 model Subscription {
   id            String       @id @default(cuid())
-  planName      String       // "Free", "Pro", "Enterprise"
-  price         Float        // Monthly/Yearly price
+  planName      String // "Free", "Pro", "Enterprise"
+  price         Float // Monthly/Yearly price
   stripePriceId String?      @unique // Stripe price ID for billing
   billingCycle  BillingCycle // MONTHLY or YEARLY
-  features      Json         // {"maxTournaments": 10, "maxCreditsPerMonth": 100}
+  features      Json // {"maxTournaments": 10, "maxCreditsPerMonth": 100}
   isActive      Boolean      @default(true)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
   // Relations
-  users         User[]
+  users User[]
 
   @@map("subscriptions")
 }
 
 // Tournament Events (e.g., "BGMI Championship 2024")
 model Tournament {
-  id          String           @id @default(cuid())
-  name        String           // "BGMI Championship 2024"
-  game        String           // "BGMI", "Free Fire", etc.
-  status      TournamentStatus @default(UPCOMING)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id        String           @id @default(cuid())
+  name      String // "BGMI Championship 2024"
+  game      String // "BGMI", "Free Fire", etc.
+  status    TournamentStatus @default(UPCOMING)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   // Relations
-  userId      String
-  user        User             @relation(fields: [userId], references: [id])
-  matches     Match[]
+  userId  String
+  user    User    @relation(fields: [userId], references: [id])
+  matches Match[]
 
   @@map("tournaments")
 }
@@ -156,14 +156,14 @@ model Tournament {
 // Teams participating in tournaments
 model Team {
   id        String   @id @default(cuid())
-  name      String   // "Team Alpha", "Mystic Warriors"
-  logoUrl   String?  // URL to team logo image
+  name      String // "Team Alpha", "Mystic Warriors"
+  logoUrl   String? // URL to team logo image
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   @@map("teams")
 }
@@ -172,16 +172,16 @@ model Team {
 model Match {
   id            String      @id @default(cuid())
   matchDate     DateTime    @default(now())
-  matchNumber   Int         // Match 1, Match 2, etc.
+  matchNumber   Int // Match 1, Match 2, etc.
   status        MatchStatus @default(PENDING_PROCESSING)
-  processedData Json?       // Final processed results from Python service
+  processedData Json? // Final processed results from Python service
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   // Relations
-  tournamentId  String
-  tournament    Tournament  @relation(fields: [tournamentId], references: [id])
-  screenshots   Screenshot[]
+  tournamentId String
+  tournament   Tournament   @relation(fields: [tournamentId], references: [id])
+  screenshots  Screenshot[]
 
   @@map("matches")
 }
@@ -189,60 +189,60 @@ model Match {
 // Screenshots uploaded for processing
 model Screenshot {
   id           String         @id @default(cuid())
-  originalName String         // Original filename
-  fileName     String         // Stored filename
-  fileSize     Int            // File size in bytes
-  mimeType     String         // image/png, image/jpeg
+  originalName String // Original filename
+  fileName     String // Stored filename
+  fileSize     Int // File size in bytes
+  mimeType     String // image/png, image/jpeg
   type         ScreenshotType // SLOT_LIST or RESULT_SCREEN
-  storageUrl   String         // URL where file is stored
+  storageUrl   String // URL where file is stored
   isProcessed  Boolean        @default(false)
   uploadedAt   DateTime       @default(now())
 
   // Relations
-  matchId      String
-  match        Match          @relation(fields: [matchId], references: [id])
+  matchId String
+  match   Match  @relation(fields: [matchId], references: [id])
 
   @@map("screenshots")
 }
 
 // Custom graphic templates
 model Template {
-  id           String   @id @default(cuid())
-  templateName String   // "Dark Theme", "Neon Style"
-  imageUrl     String   // URL to template preview image
-  configJson   Json     // Layout configuration for Python service
-  isPublic     Boolean  @default(false) // Public templates available to all
-  templateType TemplateType @default(PREDEFINED) // PREDEFINED or CUSTOM
+  id               String       @id @default(cuid())
+  templateName     String // "Dark Theme", "Neon Style"
+  imageUrl         String // URL to template preview image
+  configJson       Json // Layout configuration for Python service
+  isPublic         Boolean      @default(false) // Public templates available to all
+  templateType     TemplateType @default(PREDEFINED) // PREDEFINED or CUSTOM
   originalImageUrl String? // Original uploaded image for custom templates
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   // Relations
-  userId       String
-  user         User     @relation(fields: [userId], references: [id])
-  dataFields   TemplateDataField[] // Marked data placement areas
+  userId     String
+  user       User                @relation(fields: [userId], references: [id])
+  dataFields TemplateDataField[] // Marked data placement areas
 
   @@map("templates")
 }
 
 // Data field positioning for custom templates
 model TemplateDataField {
-  id         String        @id @default(cuid())
-  fieldType  DataFieldType // What type of data goes here
-  x          Int           // X coordinate on image
-  y          Int           // Y coordinate on image
-  width      Int           // Field width
-  height     Int           // Field height
-  fontSize   Int?          // Font size for text
-  fontColor  String?       // Hex color code for text
-  alignment  TextAlignment @default(LEFT)
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id        String        @id @default(cuid())
+  fieldType DataFieldType // What type of data goes here
+  x         Int // X coordinate on image
+  y         Int // Y coordinate on image
+  width     Int // Field width
+  height    Int // Field height
+  fontSize  Int? // Font size for text
+  fontColor String? // Hex color code for text
+  alignment TextAlignment @default(LEFT)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   // Relations
   templateId String
-  template   Template      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@map("template_data_fields")
 }
@@ -250,18 +250,18 @@ model TemplateDataField {
 // Payment transactions
 model Payment {
   id            String        @id @default(cuid())
-  amount        Float         // Payment amount
+  amount        Float // Payment amount
   currency      String        @default("INR")
   transactionId String        @unique // Payment gateway transaction ID
   status        PaymentStatus @default(PENDING)
-  purchaseType  PurchaseType  // SUBSCRIPTION or CREDIT_PACK
-  creditsAdded  Int?          // Credits added if credit pack purchase
+  purchaseType  PurchaseType // SUBSCRIPTION or CREDIT_PACK
+  creditsAdded  Int? // Credits added if credit pack purchase
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
   // Relations
-  userId        String
-  user          User          @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   @@map("payments")
 }
@@ -269,13 +269,13 @@ model Payment {
 // Activity logging for auditing
 model ActivityLog {
   id        String   @id @default(cuid())
-  action    String   // "TOURNAMENT_CREATED", "MATCH_PROCESSED", etc.
-  details   Json?    // Additional context data
+  action    String // "TOURNAMENT_CREATED", "MATCH_PROCESSED", etc.
+  details   Json? // Additional context data
   timestamp DateTime @default(now())
 
   // Relations
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   @@map("activity_logs")
 }
@@ -304,11 +304,17 @@ model Account {
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String   @id @default(cuid())
+  userId                String
+  refreshTokenHash      String   @unique
+  refreshTokenExpiresAt DateTime
+  isActive              Boolean  @default(true)
+  deviceInfo            String? // Browser/Mobile app info
+  ipAddress             String? // For suspicious login detection
+  lastUsedAt            DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }

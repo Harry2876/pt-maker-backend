@@ -48,7 +48,7 @@ export class QueueService {
     try {
         await userSyncQueue.add('sync-users-to-db', {}, {
             repeat: { 
-                every: 60000 // Every 60 seconds
+                every: 90000 // Every 60 seconds
             },
             priority: 5 // Low priority
         });

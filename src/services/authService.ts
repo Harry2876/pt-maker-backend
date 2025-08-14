@@ -2,11 +2,17 @@ import { BaseService } from "./baseService";
 import { QueueService } from "./queueService";
 import redis from "../config/redis";
 import jwt from "jsonwebtoken";
-import { AuthData, OTPVerificationData, CachedUser, AuthUser, AuthResponse } from '../types/auth';
+import { AuthData, OTPVerificationData, CachedUser, AuthUser, AuthResponse, TokenPair, AccessTokenPayload, RefreshTokenPayload, SessionData, SuspiciousLoginData } from '../types/auth';
 import { PasswordService } from "./passwordService";
+import bcrypt from 'bcrypt';
+import crypto from 'crypto'
 import { success } from "zod";
 import { stat } from "fs";
 import { isMapIterator } from "util/types";
+import { create } from "domain";
+import { createDecipheriv } from "crypto";
+import { Session } from "inspector/promises";
+import { ref } from "process";
 
 export class AuthService extends BaseService {
 
@@ -263,6 +269,44 @@ export class AuthService extends BaseService {
         }
     }
 
+    private async hashRefreshToken(refreshToken: string): Promise<string> {
+        try {
+            const saltRounds = 12;
+            const hash = await bcrypt.hash(refreshToken, saltRounds);
+            this.logger.info(`Hashed refresh token successfully`);
+            return hash;
+        } catch (error) {
+            this.logger.error(`Failed to hash refresh token:`, error);
+            throw new Error('Token Hashing Failed');
+        }
+    }
+
+    //verify refresh token against bcrypt hash
+    private async verifyRefreshTokenHash(refreshToken: string, hash: string): Promise<boolean> {
+        try {
+            const isValid = await bcrypt.compare(refreshToken, hash);
+            this.logger.info(`Refresh token verification result: ${isValid ? 'SUCCESS' : 'FAILED'}`);
+            return isValid;
+        } catch (error) {
+            this.logger.error(`Failed to verify refresh token:`, error);
+            throw new Error('Token Verification Failed');
+        }
+    }
+
+    //generate unique session identifier
+    private generateSecureSessionId(): string {
+        const timestamp = Date.now();
+        const randomBytes = crypto.randomBytes(16).toString('hex'); // Generate 16 bytes of random data
+        return `session_${timestamp}_${randomBytes}`;
+    }
+
+    //gemerate unique JWT Id for token uniqueness
+    private generateJTI(sessionId: string, tokenType: 'access' | 'refresh'): string {
+        const randomBytes = crypto.randomBytes(8).toString('hex');
+        return `${sessionId}_${tokenType}_${randomBytes}`;
+    }
+
+
     // Generate session token with cache info
     generateSessionToken(userId: string, phoneNumber: string, fromCache: boolean = false): string {
         const payload = {
@@ -276,13 +320,427 @@ export class AuthService extends BaseService {
         return jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key');
     }
 
-    // Verify session token
-    verifySessionToken(token: string): any {
+    async generateTokenPair(userId: string,
+        phoneNumber: string,
+        fromCache: boolean = false,
+        deviceInfo?: string,
+        ipAddress?: string
+    ): Promise<TokenPair> {
         try {
-            return jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+            const sessionId = this.generateSecureSessionId();
+
+            //generate access token with unique JTI
+            const accessTokenPayload: AccessTokenPayload = {
+                userId,
+                phoneNumber,
+                sessionId,
+                jti: this.generateJTI(sessionId, 'access'),
+                type: 'access',
+                iat: Math.floor(Date.now() / 1000),
+                exp: Math.floor(Date.now() / 1000) + (30 * 60) //30 mins
+            };
+
+            //doing the same for the refresh token
+            const refreshTokenPayload: RefreshTokenPayload = {
+                userId,
+                phoneNumber,
+                sessionId,
+                jti: this.generateJTI(sessionId, 'refresh'),
+                type: 'refresh',
+                iat: Math.floor(Date.now() / 1000),
+                exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) //30 days
+            };
+
+            const accessToken = jwt.sign(accessTokenPayload, process.env.JWT_SECRET || 'your-secret-key');
+            const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_SECRET || 'your-secret-key');
+
+            //doing the hybrid approach
+            //store access token in redis only
+            await redis.setObject(`access_token:${accessToken}`, accessTokenPayload, 1800); //30 minn ttl
+
+            //store refresh token both in db and redis with hashed
+            await redis.setObject(`refresh_token:${refreshToken}`, refreshTokenPayload, 2592000); //30 days ttl
+
+            //store sessiondata in redis
+            const sessionData = {
+                id: sessionId,
+                userId,
+                phoneNumber,
+                deviceInfo, ipAddress,
+                fromCache,
+                lastUsedAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(),
+                isActive: true
+            };
+
+            await redis.setObject(`session:${sessionId}`, sessionData, 2592000); // 30 days ttl
+
+            await this.addSessionToPendingList(sessionId); //add to pending list for db sync
+
+            this.logger.info(`Generated token pair for user ${userId} with session ${sessionId}`);
+
+            return {
+                accessToken,
+                refreshToken,
+                accessExpiresIn: 1800,
+                refreshExpiresIn: 2952000
+            };
+
         } catch (error) {
-            throw new Error('Invalid or expired token');
+            this.logger.error(`Failed to generate token pair for user ${userId}:`, error);
+            throw new Error('Failed to generate token pair');
+        }
+    }
+
+    private async addSessionUpdateToPendingList(sessionId: string) {
+        try {
+            const pendingUpdatesKey = `pending_session_updates_for_dbWrite`;
+            const updateData = {
+                sessionId,
+                action: 'update_last_used',
+                addedAt: Date.now()
+            };
+            await redis.set(`${pendingUpdatesKey}:${sessionId}`, JSON.stringify(updateData), 3600); //1 hour expiry
+            this.logger.info(`Added session ${sessionId} to pending session updates list for DB write`);
+        } catch (error) {
+            this.logger.error(`Failed to add session ${sessionId} to pending session updates list for DB write:`, error);
+        }
+    }
+
+    //add session to pending list for db sync 
+    private async addSessionToPendingList(sessionId: string) {
+        try {
+            const pendingSessionsKey = `pending_sessions_list_for_dbWrite`;
+            const sessionsData = {
+                sessionId,
+                addedAt: Date.now()
+            };
+            await redis.set(`${pendingSessionsKey}:${sessionId}`, JSON.stringify(sessionsData), 7200); //2 hours expiry
+            this.logger.info(`Added session ${sessionId} to pending sessions list for DB write`);
+        } catch (error) {
+            this.logger.error(`Failed to add session ${sessionId} to pending sessions list for DB write:`, error);
+        }
+    }
+
+    // Verify session token
+    async verifySessionToken(token: string): Promise<AccessTokenPayload> {
+        try {
+            //checking redis cache that is there any token data
+            const cachedTokenData = await redis.getObject<AccessTokenPayload>(`access_token:${token}`);
+            if (cachedTokenData) {
+                if (cachedTokenData.exp > Math.floor(Date.now() / 1000)) {
+                    this.logger.info(`Access Token verified from Redis Cache`);
+                    return cachedTokenData;
+                } else {
+                    //token expired, remove from cache
+                    await redis.delete(`access_token:${token}`);
+                    this.logger.error(`Access Token expired and removed from Redis Cache`);
+                    throw new Error('Access token expired');
+                }
+            }
+
+            //fallback to JWT verification if not in cache
+            const payload = jwt.verify(token, process.env.JWT_SECRET || `your-secret`) as AccessTokenPayload;
+
+            if (payload.type !== 'access') {
+                this.logger.error(`Invalid Access Token Type`);
+                throw new Error('Invalid access token type');
+            }
+            return payload;
+        } catch (error) {
+            this.logger.error('Failed to verify access token:', error);
+            throw error;
+        }
+    }
+
+    async verifyRefreshToken(token: string): Promise<RefreshTokenPayload> {
+        try {
+            //checking redis cache first
+            const cachedTokenData = await redis.getObject<RefreshTokenPayload>(`refresh_token:${token}`);
+
+            if (cachedTokenData) {
+                if (cachedTokenData.exp > Math.floor(Date.now() / 1000)) {
+                    this.logger.info(`Refresh Token verified from Redis Cache`);
+                    return cachedTokenData;
+                } else {
+                    //token expired, remove from cache
+                    await redis.delete(`refresh_token:${token}`);
+                    this.logger.error(`Refresh Token expired and removed from Redis Cache`);
+                }
+            }
+
+            //fallback to JWT verification
+            const payload = jwt.verify(token, process.env.JWT_SECRET || `your-secret`) as RefreshTokenPayload;
+
+            if (payload.type !== 'refresh') {
+                this.logger.error(`Invalid Refresh Token Type`);
+                throw new Error('Invalid refresh token type');
+            }
+            //get session from database
+            const session = await this.db.session.findFirst({
+                where: {
+                    id: payload.sessionId,
+                    isActive: true,
+                    refreshTokenExpiresAt: { gt: new Date() }
+                }
+            });
+
+            if (!session) {
+                this.logger.error(`Session not found or inactive for session ID ${payload.sessionId}`);
+                throw new Error('Session not found or inactive');
+            }
+
+            //verify the token against bcrypt hash
+            const isValidHash = await this.verifyRefreshTokenHash(token, session.refreshTokenHash);
+            if (!isValidHash) {
+                this.logger.error(`Invalid Refresh Token Hash for session ID ${payload.sessionId}`);
+                throw new Error('Invalid refresh token hash');
+            }
+
+            //restore to redis for future requests
+            const ttl = payload.exp - Math.floor(Date.now() / 1000);
+            if (ttl > 0) {
+                await redis.setObject(`refresh_token:${token}`, payload, ttl);
+            }
+
+            return payload;
+        } catch (error) {
+            this.logger.error('Failed to verify refresh token:', error);
+            throw error;
+        }
+    }
+
+    async getActiveSessions(userId: string): Promise<SessionData[]> {
+        try {
+            //getting sessions from redis
+            const pattern = `session:*`;
+            const sessionKeys = await redis.keys(pattern);
+            const activeSessions: SessionData[] = [];
+
+            for (const key of sessionKeys) {
+                const sessionData = await redis.getObject<any>(key);
+                if (sessionData && sessionData.userId === userId && sessionData.isActive) {
+                    activeSessions.push({
+                        id: sessionData.id,
+                        userId: sessionData.userId,
+                        deviceInfo: sessionData.deviceInfo,
+                        ipAddress: sessionData.ipAddress,
+                        lastUsedAt: sessionData.lastUsedAt,
+                        createdAt: sessionData.createdAt,
+                        isActive: sessionData.isActive
+                    });
+                }
+            }
+            return activeSessions;
+        } catch (error) {
+            this.logger.error(`Failed to get active sessions for user ${userId}:`, error);
+            throw error;
+        }
+    }
+
+    async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresIn: number }> {
+        try {
+            //verify refresh token using redis pattern
+            const refreshPayload = await this.verifyRefreshToken(refreshToken);
+
+            //check if the user is still active
+            const sessionData = await redis.getObject<SessionData>(`session:${refreshPayload.sessionId}`);
+            if (!sessionData || !sessionData.isActive) {
+                this.logger.error(`User session not found or is not active`);
+                throw new Error(`User session not found or is not active`);
+            }
+
+            //generate a new access token
+            const newAccessTokenPayload: AccessTokenPayload = {
+                userId: refreshPayload.userId,
+                phoneNumber: refreshPayload.phoneNumber,
+                sessionId: refreshPayload.sessionId,
+                jti: this.generateJTI(refreshPayload.sessionId, 'access'),
+                type: 'access',
+                iat: Math.floor(Date.now() / 1000),
+                exp: Math.floor(Date.now() / 1000) + (30 * 60), // 30 minutes expiration
+            };
+
+            const newAccessToken = jwt.sign(newAccessTokenPayload, process.env.JWT_SECRET || `your-secret`);
+
+            //store new access token in the redis
+            await redis.setObject(`access_token:${newAccessToken}`, newAccessTokenPayload, 1800); //30 min ttl
+
+            //update session last used time
+            sessionData.lastUsedAt = new Date();
+            await redis.setObject(`session:${refreshPayload.sessionId}`, sessionData, 2592000); //30 days
+
+            await this.addSessionUpdateToPendingList(refreshPayload.sessionId); //add to pending list for db sync
+
+            this.logger.info(`✅ Refreshed access token for session ${refreshPayload.sessionId}`);
+            return {
+                accessToken: newAccessToken,
+                expiresIn: 1800
+            };
+        } catch (error) {
+            this.logger.error('Failed to refresh access token:', error);
+            throw error;
+        }
+    }
+
+    async checkSuspiciousLogin(userId: string, ipAddress: string, deviceInfo?: string): Promise<SuspiciousLoginData | null> {
+        try {
+            //get user recent sessions from redis
+            const pattern = `session:*`;
+            const sessionKeys = await redis.keys(pattern);
+            const recentIpAddresses: string[] = [];
+
+            for (const key of sessionKeys) {
+                const sessionData = await redis.getObject<any>(key);
+                if (sessionData && sessionData.userId === userId && sessionData.ipAddress) {
+                    recentIpAddresses.push(sessionData.ipAddress);
+                }
+            }
+
+            //check if this is a new ip address
+            if (recentIpAddresses.length > 0 && !recentIpAddresses.includes(ipAddress)) {
+                this.logger.warn(`Suspicious login attempt detected for user ${userId} from new IP address ${ipAddress}`);
+                return {
+                    userId,
+                    newIpAddress: ipAddress,
+                    deviceInfo,
+                    timestamp: new Date()
+                };
+            }
+            return null;
+        } catch (error) {
+            this.logger.error(`Failed to check suspicious login for user ${userId}:`, error);
+            throw error;
+        }
+    }
+
+    async revokeSession(sessionId: string): Promise<void> {
+        try {
+            // 1. Remove from Redis immediately (instant effect)
+            const sessionData = await redis.getObject<any>(`session:${sessionId}`);
+            await redis.delete(`session:${sessionId}`);
+
+            // 2. Update database (persistent effect)
+            await this.db.session.update({
+                where: { id: sessionId },
+                data: {
+                    isActive: false,
+                    updatedAt: new Date() // Track when revocation happened
+                }
+            });
+            this.logger.info(`Session ${sessionId} revoked - Redis first, DB updated`);
+        } catch (error) {
+            this.logger.error(`Failed to revoke session ${sessionId}:`, error);
+            // Rollback: If DB update fails, restore Redis session
+            if (sessionData) {
+                await redis.setObject(`session:${sessionId}`, sessionData, 2592000);
+                this.logger.warn(`Rolled back Redis deletion for session ${sessionId} due to DB error`);
+            }
+
+            throw error;
+        }
+    }
+
+    //revoke all user sessions with secure cleanup
+    async revokeAllUserSessions(userId: string): Promise<void> {
+        try {
+            // 1. Get all user sessions from Redis first
+            const pattern = `session:*`;
+            const sessionKeys = await redis.keys(pattern);
+            const userSessionIds: string[] = [];
+            const sessionBackups: { [key: string]: any } = {};
+
+            // 2. Remove all user sessions from Redis immediately
+            for (const key of sessionKeys) {
+                const sessionData = await redis.getObject<any>(key);
+                if (sessionData && sessionData.userId === userId) {
+                    userSessionIds.push(sessionData.id);
+                    sessionBackups[key] = sessionData; // Backup for rollback
+                    await redis.delete(key);
+                }
+            }
+
+            try {
+                // 3. Update database
+                await this.db.session.updateMany({
+                    where: { userId, isActive: true },
+                    data: {
+                        isActive: false,
+                        updatedAt: new Date()
+                    }
+                });
+
+                this.logger.info(`Revoked all ${userSessionIds.length} sessions for user ${userId} - Redis first approach`);
+            } catch (dbError) {
+                // Rollback: Restore Redis sessions if DB update fails
+                for (const [key, sessionData] of Object.entries(sessionBackups)) {
+                    await redis.setObject(key, sessionData, 2592000);
+                }
+                this.logger.error(`DB update failed, restored ${Object.keys(sessionBackups).length} sessions to Redis`);
+                throw dbError;
+            }
+
+        } catch (error) {
+            this.logger.error(`Failed to revoke all sessions for user ${userId}:`, error);
+            throw error;
+        }
+    }
+
+    //check for suspicious refresh token usage
+    async auditRefreshTokenUsage(sessionId: string, ipAddress?: string): Promise<void> {
+        try {
+            const sessionData = await redis.getObject<any>(`session:${sessionId}`);
+
+            if (sessionData) {
+                //check if ip address changed
+                if (sessionData.ipAddress && sessionData.ipAddress !== ipAddress) {
+                    this.logger.warn(`Suspicious refresh token usage detected for session ${sessionId}. IP address changed from ${sessionData.ipAddress} to ${ipAddress}`);
+
+                    //add to suspicious activity queue
+                    await this.addSuspiciousActivityToQueue(sessionId, ipAddress, sessionData.ipAddress);
+                }
+            }
+        } catch (error) {
+            this.logger.error(`Failed to audit refresh token usage for session ${sessionId}:`, error);
+        }
+    }
+
+    //cleanup expired sessions from database (for cron job)
+    async cleanupExpiredSessions(): Promise<number> {
+        try {
+            const result = await this.db.session.deleteMany({
+                where: {
+                    OR: [
+                        { refreshTokenExpiresAt: { lt: new Date() } },
+                        { isActive: false, updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } // 7 days
+                    ]
+                }
+            });
+            this.logger.info(`Expired sessions cleanup completed. Total sessions deleted: ${result.count}`);
+            return result.count;
+        } catch (error) {
+            this.logger.error(`Failed to cleanup expired sessions:`, error);
+            throw error;
+        }
+    }
+
+    //add suspicious activity to queue for processing
+    private async addSuspiciousActivityToQueue(sessionId: string, newIp: string, oldIp: string): Promise<void> {
+        try {
+            const suspiciousActivityKey = `suspicious_activity:${sessionId}:${Date.now()}`;
+            const activityData = {
+                sessionId,
+                newIpAddress: newIp,
+                oldIpAddress: oldIp,
+                timestamp: new Date().toISOString(),
+                processed: false
+            };
+
+            await redis.setObject(suspiciousActivityKey, activityData, 86400); // 24 hours
+            this.logger.warn(`Suspicious activity logged for session ${sessionId}`);
+        } catch (error) {
+            this.logger.error('Failed to log suspicious activity:', error);
         }
     }
 }
-export const authService = new AuthService();
+    export const authService = new AuthService();

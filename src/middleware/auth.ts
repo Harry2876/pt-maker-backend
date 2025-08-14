@@ -12,17 +12,20 @@ declare global {
                 username: string;
                 fullName: string;
                 organization?: string;
+                fromCache: boolean;
             };
         }
     }
 }
 
+// Main authentication middleware for protected routes
 export const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const authHeader = req.headers.authorization;
         
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return res.status(401).json({ 
+                success: false,
                 error: 'Authorization token required',
                 message: 'Please provide a valid Bearer token in the Authorization header'
             });
@@ -30,16 +33,17 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
 
         const token = authHeader.substring(7);
         
-        // Verify the session token
+        // Verify the access token using your custom auth service
         const sessionData = authService.verifySessionToken(token);
         
-        // Get user details
+        // Get user details from your system (cache first, then DB)
         const user = await authService.getUserByPhone(sessionData.phoneNumber);
         
-        if (!user || !user.isActive) {
+        if (!user) {
             return res.status(401).json({ 
+                success: false,
                 error: 'Invalid or expired token',
-                message: 'User not found or account is inactive'
+                message: 'User not found'
             });
         }
 
@@ -49,38 +53,43 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
             phoneNumber: user.phoneNumber,
             username: user.username,
             fullName: user.fullName,
-            organization: user.organization || undefined
+            organization: user.organization || undefined,
+            fromCache: user.fromCache
         };
 
+        logger.info(`User ${user.username} authenticated successfully`);
         return next();
         
     } catch (error) {
         logger.error('Authentication middleware error:', error);
         return res.status(401).json({ 
+            success: false,
             error: 'Authentication failed',
-            message: error instanceof Error ? error.message : 'Invalid token'
+            message: error instanceof Error ? error.message : 'Invalid access token'
         });
     }
 };
 
-// Optional middleware - doesn't throw error if no token
+// Optional middleware - doesn't throw error if no token (for public endpoints that can benefit from user context)
 export const optionalAuth = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const authHeader = req.headers.authorization;
         
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7);
-            const sessionData = authService.verifySessionToken(token);
+            const sessionData = authService.verifyAccessToken(token);
             const user = await authService.getUserByPhone(sessionData.phoneNumber);
             
-            if (user && user.isActive) {
+            if (user) {
                 req.user = {
                     id: user.id,
                     phoneNumber: user.phoneNumber,
                     username: user.username,
                     fullName: user.fullName,
-                    organization: user.organization || undefined
+                    organization: user.organization || undefined,
+                    fromCache: user.fromCache
                 };
+                logger.info(`Optional auth successful for ${user.username}`);
             }
         }
         

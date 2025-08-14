@@ -39,10 +39,14 @@ export class AuthController {
             });
         }
 
-        const sessionToken = authService.generateSessionToken(
+        const deviceInfo = req.headers['user-agent'] || 'Unknown';
+        const ipAddress = req.ip || 'Unknown';
+        const tokenPair = await authService.generateTokenPair(
             result.user.id,
             phoneNumber,
-            result.user.fromCache
+            result.user.fromCache,
+            deviceInfo,
+            ipAddress
         );
 
         return res.json({
@@ -54,50 +58,50 @@ export class AuthController {
                 fullName: result.user.fullName,
                 organization: result.user.organization
             },
-            token: sessionToken,
+            token: tokenPair,
             type: result.type,
             message: result.message
         });
     });
 
     static async getProfile(req: Request, res: Response) {
-        try {
-            const authHeader = req.headers.authorization;
+    try {
+        const authHeader = req.headers.authorization;
 
-            if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                return res.status(401).json({
-                    success: false,
-                    message: 'Unauthorized!! Auth Token Required'
-                });
-            }
-
-            const token = authHeader.substring(7);
-            const sessionData = authService.verifySessionToken(token);
-            const user = await authService.getUserByPhone(sessionData.phoneNumber);
-
-            if (!user) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'User not found'
-                });
-            }
-
-            return res.json({
-                success: true,
-                message: 'User profile retrieved successfully',
-                user: {
-                    id: user.id,
-                    phoneNumber: user.phoneNumber,
-                    username: user.username,
-                    fullName: user.fullName,
-                    organization: user.organization
-                }
-            });
-        } catch (error: any) {
-            return res.status(500).json({
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({
                 success: false,
-                message: error.message || 'Failed to get profile'
+                message: 'Unauthorized!! Auth Token Required'
             });
         }
+
+        const token = authHeader.substring(7);
+        const sessionData = await authService.verifySessionToken(token);
+        const user = await authService.getUserByPhone(sessionData.phoneNumber);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: 'User profile retrieved successfully',
+            user: {
+                id: user.id,
+                phoneNumber: user.phoneNumber,
+                username: user.username,
+                fullName: user.fullName,
+                organization: user.organization
+            }
+        });
+    } catch (error: any) {
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to get profile'
+        });
     }
+}
 }
