@@ -16,6 +16,12 @@ import { ref } from "process";
 
 export class AuthService extends BaseService {
 
+    private generateSecureOTP(): string {
+    // Use crypto.randomInt for cryptographically secure random numbers
+    const otp = crypto.randomInt(100000, 999999).toString();
+    return otp;
+}
+
     //generate otp and send via queue
     async sendOTP(phoneNumber: string, type: 'registration' | 'login' = 'registration') {
 
@@ -269,7 +275,20 @@ export class AuthService extends BaseService {
         }
     }
 
-    private async hashRefreshToken(refreshToken: string): Promise<string> {
+    private getJWTSecret(): string {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        this.logger.error('❌ CRITICAL: JWT_SECRET environment variable is not set');
+        throw new Error('JWT_SECRET environment variable is required');
+    }
+    if (secret.length < 32) {
+        this.logger.error('❌ CRITICAL: JWT_SECRET must be at least 32 characters long');
+        throw new Error('JWT_SECRET must be at least 32 characters long');
+    }
+    return secret;
+}
+
+    async hashRefreshToken(refreshToken: string): Promise<string> {
         try {
             const saltRounds = 12;
             const hash = await bcrypt.hash(refreshToken, saltRounds);
@@ -317,7 +336,7 @@ export class AuthService extends BaseService {
             exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
         };
 
-        return jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key');
+        return jwt.sign(payload, this.getJWTSecret());
     }
 
     async generateTokenPair(userId: string,
@@ -351,8 +370,8 @@ export class AuthService extends BaseService {
                 exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) //30 days
             };
 
-            const accessToken = jwt.sign(accessTokenPayload, process.env.JWT_SECRET || 'your-secret-key');
-            const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_SECRET || 'your-secret-key');
+            const accessToken = jwt.sign(accessTokenPayload, this.getJWTSecret());
+            const refreshToken = jwt.sign(refreshTokenPayload, this.getJWTSecret());
 
             //doing the hybrid approach
             //store access token in redis only
@@ -367,6 +386,7 @@ export class AuthService extends BaseService {
                 userId,
                 phoneNumber,
                 deviceInfo, ipAddress,
+                refreshToken,
                 fromCache,
                 lastUsedAt: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
@@ -615,9 +635,10 @@ export class AuthService extends BaseService {
     }
 
     async revokeSession(sessionId: string): Promise<void> {
+        let sessionData: any = null;
         try {
             // 1. Remove from Redis immediately (instant effect)
-            const sessionData = await redis.getObject<any>(`session:${sessionId}`);
+            sessionData = await redis.getObject<any>(`session:${sessionId}`);
             await redis.delete(`session:${sessionId}`);
 
             // 2. Update database (persistent effect)
@@ -693,7 +714,7 @@ export class AuthService extends BaseService {
 
             if (sessionData) {
                 //check if ip address changed
-                if (sessionData.ipAddress && sessionData.ipAddress !== ipAddress) {
+                if (sessionData.ipAddress && ipAddress && sessionData.ipAddress !== ipAddress) {
                     this.logger.warn(`Suspicious refresh token usage detected for session ${sessionId}. IP address changed from ${sessionData.ipAddress} to ${ipAddress}`);
 
                     //add to suspicious activity queue

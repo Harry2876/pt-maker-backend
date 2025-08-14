@@ -12,6 +12,9 @@ import redis from './config/redis';
 import { WorkersManager } from './workers';
 import { QueueService } from './services/queueService';
 import { globalErrorHandler } from './middleware/commonMiddleware';
+import { validateEnvironment } from './config/envValidator';
+
+validateEnvironment();
 
 const workersManager = new WorkersManager();
 
@@ -112,53 +115,6 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Test route for Discord logging colors
-app.get('/test-colors', (req, res) => {
-    // Test basic color logging
-    logger.info('� Testing INFO color - should be GREEN');
-    logger.warn('⚠️ Testing WARN color - should be ORANGE');
-    logger.http('🌐 Testing HTTP color - should be BLUE');
-    logger.debug('🔍 Testing DEBUG color - should be GRAY');
-
-    // Test detailed error logging with metadata
-    logger.error('Test error: Database connection failed', {
-        error: 'Connection timeout',
-        database: 'tournament_db',
-        apiKey: 'sensitive-api-key-12345',
-        retryCount: 3,
-        lastAttempt: new Date().toISOString(),
-        connectionDetails: {
-            host: 'localhost',
-            port: 5432,
-            ssl: true
-        }
-    });
-
-    // Test complex info logging with metadata
-    logger.info('User login attempt with password: secretPassword123 and token: abc123xyz', {
-        userId: 'user_12345',
-        ip: req.ip,
-        userAgent: req.get('User-Agent'),
-        loginData: {
-            method: 'phone_otp',
-            phone: '+91xxxxxxxxxx',
-            timestamp: new Date().toISOString()
-        }
-    });
-
-    res.json({
-        message: 'Enhanced detailed logging test completed! Check your Discord channel.',
-        note: 'You should now see detailed metadata, colors, and structured information.',
-        testCases: [
-            'Basic color testing for all log levels',
-            'Error with detailed metadata including nested objects',
-            'Info with user authentication details',
-            'Security masking for sensitive data'
-        ]
-    });
-});
-
-
 
 // API routes
 app.use('/api/v1/auth', authRouter);
@@ -179,45 +135,6 @@ app.get('/api/v1', (req, res) => {
         }
     });
 });
-
-app.get('/test-logging', (req, res) => {
-    try {
-        // Test different log levels with various scenarios
-        logger.info('🚀 Testing enhanced Discord logging system');
-
-        logger.debug('Debug message: System status check completed');
-
-        logger.http('HTTP request received: GET /test-logging');
-
-        logger.warn('Warning: This is a test warning message');
-
-        // Test with sensitive data (should be masked)
-        logger.info('User login attempt with password: secretPassword123 and token: abc123xyz');
-
-        // Test error logging
-        logger.error('Test error: Database connection failed', {
-            metadata: {
-                error: 'Connection timeout',
-                database: 'tournament_db',
-                apiKey: 'sensitive-api-key-12345'
-            }
-        });
-
-        res.json({
-            success: true,
-            message: 'Enhanced logging test completed',
-            note: 'Check your Discord channel for colorful, formatted logs!'
-        });
-
-    } catch (error: any) {
-        logger.error('Failed to test logging', { error: error.message });
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 
 
 // Error handling middleware

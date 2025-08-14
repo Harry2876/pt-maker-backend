@@ -29,10 +29,11 @@ export const verifyOTPSchema = z.object({
   organization: z.string()
     .max(100, 'Organization name must be at most 100 characters')
     .optional(),
-  password: z.string()
-    .min(6, 'Password must be at least 6 characters')
-    .max(100, 'Password must be at most 100 characters')
-    .optional()
+password: z.string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(128, 'Password must be at most 128 characters')
+  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, 
+    'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character')
 });
 
 export type SendOTPRequest = z.infer<typeof sendOTPSchema>;
