@@ -22,6 +22,12 @@ const envSchema = z.object({
   
   // Encryption
   LOG_ENCRYPTION_KEY: z.string().min(16, 'LOG_ENCRYPTION_KEY must be at least 16 characters'),
+
+   // Security settings
+  ALLOWED_ORIGINS: z.string().optional(),
+  PRODUCTION_ORIGINS: z.string().optional(),
+  ENABLE_CSRF_PROTECTION: z.string().optional().default('true'),
+  SESSION_SECURE_COOKIES: z.string().optional().default('false'),
 });
 
 export function validateEnvironment() {

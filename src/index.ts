@@ -21,9 +21,60 @@ const workersManager = new WorkersManager();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Configure CORS securely
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production' 
+        ? ['https://yourdomain.com', 'https://www.yourdomain.com']  // Replace with your frontend domains
+        : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'], // Dev domains
+    credentials: true, // Allow cookies
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining'],
+    maxAge: 86400 // 24 hours preflight cache
+};
+
 // Middleware
-app.use(helmet()); // Security headers
-app.use(cors()); // Enable CORS
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
+            imgSrc: ["'self'", "data:", "https:"],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            mediaSrc: ["'self'"],
+            frameSrc: ["'none'"],
+        },
+    },
+    crossOriginEmbedderPolicy: false, // For API compatibility
+    hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true
+    }
+}));
+app.use(cors(corsOptions)); // Enable CORS
+
+// Add after CORS middleware
+app.use((req, res, next) => {
+    // Add security headers
+    res.header('X-Content-Type-Options', 'nosniff');
+    res.header('X-Frame-Options', 'DENY');
+    res.header('X-XSS-Protection', '1; mode=block');
+    res.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    
+    // Log request details for security monitoring
+    logger.http(`Security Check: ${req.method} ${req.url} from ${req.ip}`, {
+        userAgent: req.get('User-Agent'),
+        referer: req.get('Referer'),
+        origin: req.get('Origin')
+    });
+    
+    next();
+});
+
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies
 app.use(globalErrorHandler);

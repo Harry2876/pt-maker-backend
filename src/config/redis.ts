@@ -161,11 +161,46 @@ class RedisManager {
             return false;
         }
     }
+    // adding incr method for tracking increments
+    public async incr(key: string): Promise<number> {
+        try {
+            const result = await this.redisClient.incr(key);
+            logger.info(`Incremented key ${key}, new value: ${result}`);
+            return result;
+        } catch (error) {
+            logger.error(`Error incrementing key ${key} for Redis`, error);
+            throw error;
+        }
+    }
+
+    // Add decr method as well for completeness
+    public async decr(key: string): Promise<number> {
+        try {
+            const result = await this.redisClient.decr(key);
+            logger.info(`Decremented key ${key}, new value: ${result}`);
+            return result;
+        } catch (error) {
+            logger.error(`Error decrementing key ${key} for Redis`, error);
+            throw error;
+        }
+    }
+
+    //  Add incrby method for incrementing by specific amount
+    public async incrBy(key: string, increment: number): Promise<number> {
+        try {
+            const result = await this.redisClient.incrby(key, increment);
+            logger.info(`Incremented key ${key} by ${increment}, new value: ${result}`);
+            return result;
+        } catch (error) {
+            logger.error(`Error incrementing key ${key} by ${increment} for Redis`, error);
+            throw error;
+        }
+    }
     public async scan(cursor: number, ...args: any[]): Promise<[number, string[]]> {
         try {
             const result = await this.redisClient.scan(cursor, ...args);
             return [parseInt(result[0]), result[1]];
-        }catch(error){
+        } catch (error) {
             logger.error(`Error scanning Redis keys:`, error);
             return [0, []];
         }
@@ -214,14 +249,14 @@ class RedisManager {
         return false;
     }
     async keys(pattern: string): Promise<string[]> {
-    try {
-        const keys = await this.redisClient.keys(pattern);
-        return keys;
-    } catch (error) {
-        logger.error(`Error getting keys with pattern ${pattern}:`, error);
-        return [];
+        try {
+            const keys = await this.redisClient.keys(pattern);
+            return keys;
+        } catch (error) {
+            logger.error(`Error getting keys with pattern ${pattern}:`, error);
+            return [];
+        }
     }
-}
 }
 
 export const redis = RedisManager.getInstance();

@@ -17,17 +17,17 @@ import { ref } from "process";
 export class AuthService extends BaseService {
 
     private generateSecureOTP(): string {
-    // Use crypto.randomInt for cryptographically secure random numbers
-    const otp = crypto.randomInt(100000, 999999).toString();
-    return otp;
-}
+        // Use crypto.randomInt for cryptographically secure random numbers
+        const otp = crypto.randomInt(100000, 999999).toString();
+        return otp;
+    }
 
     //generate otp and send via queue
     async sendOTP(phoneNumber: string, type: 'registration' | 'login' = 'registration') {
 
         try {
             //generate 6 digit otp
-            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            const otp = this.generateSecureOTP();
 
             //generate temp user id for tracking
             const tempUserId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -56,6 +56,12 @@ export class AuthService extends BaseService {
     //verify otp from redis
     async verifyOTPFromRedis(phoneNumber: string, otp: string): Promise<boolean> {
         try {
+            // Check if account is locked first
+            const lockStatus = await this.isAccountLocked(phoneNumber);
+            if (lockStatus.locked) {
+                throw new Error(`Account temporarily locked due to ${lockStatus.reason}. ${lockStatus.attempts} failed attempts detected.`);
+            }
+
             const key = `phone_otp:${phoneNumber}`;
             const storedOTP = await redis.get(key);
 
@@ -71,11 +77,92 @@ export class AuthService extends BaseService {
                 return true;
             }
 
+            // Failed OTP - track attempt
+            await this.trackFailedAttempt(phoneNumber);
+
             this.logger.warn(`OTP verification failed for ${phoneNumber}. Incorrect OTP provided.`);
             return false;
         } catch (error) {
             this.logger.error(`Error verifying OTP for ${phoneNumber}:`, error);
+            // If it's a lock error, re-throw it
+        if (error instanceof Error && error.message.includes('temporarily locked')) {
+            throw error;
+        }
             return false;
+        }
+    }
+
+    // Add these methods to AuthService class
+    private async trackFailedAttempt(phoneNumber: string): Promise<void> {
+        const failKey = `failed_attempts:${phoneNumber}`;
+        const lockKey = `account_locked:${phoneNumber}`;
+
+        try {
+            // Increment failed attempts
+            const attempts = await redis.incr(failKey);
+            await redis.expire(failKey, 900); // 15 minutes expiry
+
+            this.logger.warn(`Failed OTP attempt ${attempts} for ${phoneNumber}`);
+
+            // Progressive lockout
+            if (attempts >= 10) {
+                // 10+ attempts = 24 hour lock
+                await redis.setObject(lockKey, {
+                    lockedAt: Date.now(),
+                    attempts,
+                    reason: 'excessive_attempts'
+                }, 86400); // 24 hours
+                this.logger.error(`Account ${phoneNumber} locked for 24 hours after ${attempts} attempts`);
+            } else if (attempts >= 6) {
+                // 6+ attempts = 1 hour lock  
+                await redis.setObject(lockKey, {
+                    lockedAt: Date.now(),
+                    attempts,
+                    reason: 'multiple_attempts'
+                }, 3600); // 1 hour
+                this.logger.warn(`Account ${phoneNumber} locked for 1 hour after ${attempts} attempts`);
+            } else if (attempts >= 3) {
+                // 3+ attempts = 15 min lock
+                await redis.setObject(lockKey, {
+                    lockedAt: Date.now(),
+                    attempts,
+                    reason: 'few_attempts'
+                }, 900); // 15 minutes
+                this.logger.warn(`Account ${phoneNumber} locked for 15 minutes after ${attempts} attempts`);
+            }
+        } catch (error) {
+            this.logger.error(`Error tracking failed attempt for ${phoneNumber}:`, error);
+        }
+    }
+
+    private async isAccountLocked(phoneNumber: string): Promise<{ locked: boolean; reason?: string; attempts?: number }> {
+        try {
+            const lockKey = `account_locked:${phoneNumber}`;
+            const lockData = await redis.getObject<any>(lockKey);
+
+            if (lockData) {
+                this.logger.warn(`Account ${phoneNumber} is locked: ${lockData.reason} (${lockData.attempts} attempts)`);
+                return {
+                    locked: true,
+                    reason: lockData.reason,
+                    attempts: lockData.attempts
+                };
+            }
+
+            return { locked: false };
+        } catch (error) {
+            this.logger.error(`Error checking account lock for ${phoneNumber}:`, error);
+            return { locked: false };
+        }
+    }
+
+    private async clearFailedAttempts(phoneNumber: string): Promise<void> {
+        try {
+            const failKey = `failed_attempts:${phoneNumber}`;
+            await redis.delete(failKey);
+            this.logger.info(`Cleared failed attempts for ${phoneNumber}`);
+        } catch (error) {
+            this.logger.error(`Error clearing failed attempts for ${phoneNumber}:`, error);
         }
     }
 
@@ -276,17 +363,17 @@ export class AuthService extends BaseService {
     }
 
     private getJWTSecret(): string {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-        this.logger.error('❌ CRITICAL: JWT_SECRET environment variable is not set');
-        throw new Error('JWT_SECRET environment variable is required');
+        const secret = process.env.JWT_SECRET;
+        if (!secret) {
+            this.logger.error('❌ CRITICAL: JWT_SECRET environment variable is not set');
+            throw new Error('JWT_SECRET environment variable is required');
+        }
+        if (secret.length < 32) {
+            this.logger.error('❌ CRITICAL: JWT_SECRET must be at least 32 characters long');
+            throw new Error('JWT_SECRET must be at least 32 characters long');
+        }
+        return secret;
     }
-    if (secret.length < 32) {
-        this.logger.error('❌ CRITICAL: JWT_SECRET must be at least 32 characters long');
-        throw new Error('JWT_SECRET must be at least 32 characters long');
-    }
-    return secret;
-}
 
     async hashRefreshToken(refreshToken: string): Promise<string> {
         try {
@@ -460,7 +547,7 @@ export class AuthService extends BaseService {
             }
 
             //fallback to JWT verification if not in cache
-            const payload = jwt.verify(token, process.env.JWT_SECRET || `your-secret`) as AccessTokenPayload;
+            const payload = jwt.verify(token, this.getJWTSecret()) as AccessTokenPayload;
 
             if (payload.type !== 'access') {
                 this.logger.error(`Invalid Access Token Type`);
@@ -490,7 +577,7 @@ export class AuthService extends BaseService {
             }
 
             //fallback to JWT verification
-            const payload = jwt.verify(token, process.env.JWT_SECRET || `your-secret`) as RefreshTokenPayload;
+            const payload = jwt.verify(token, this.getJWTSecret()) as RefreshTokenPayload;
 
             if (payload.type !== 'refresh') {
                 this.logger.error(`Invalid Refresh Token Type`);
@@ -581,7 +668,7 @@ export class AuthService extends BaseService {
                 exp: Math.floor(Date.now() / 1000) + (30 * 60), // 30 minutes expiration
             };
 
-            const newAccessToken = jwt.sign(newAccessTokenPayload, process.env.JWT_SECRET || `your-secret`);
+            const newAccessToken = jwt.sign(newAccessTokenPayload, this.getJWTSecret());
 
             //store new access token in the redis
             await redis.setObject(`access_token:${newAccessToken}`, newAccessTokenPayload, 1800); //30 min ttl
@@ -764,4 +851,4 @@ export class AuthService extends BaseService {
         }
     }
 }
-    export const authService = new AuthService();
+export const authService = new AuthService();
