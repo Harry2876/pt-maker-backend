@@ -36,6 +36,8 @@ export const Queues = {
     CLEANUP_TASKS : 'cleanup-tasks',
     PAYMENT_PROCESSING : 'payment-processing',
     USER_SYNC : 'user-sync',
+    DATABASE_SYNC : 'database-sync',
+    BATCH_SYNC : 'batch-sync',
 } as const;
 
 export const screenshotQueue = new Queue(Queues.SCREENSHOT_PROCESSING,defaultQueueOptions);
@@ -46,3 +48,31 @@ export const reportQueue = new Queue(Queues.REPORT_GENERATION,defaultQueueOption
 export const cleanupQueue = new Queue(Queues.CLEANUP_TASKS,defaultQueueOptions);
 export const paymentQueue = new Queue(Queues.PAYMENT_PROCESSING,defaultQueueOptions);
 export const userSyncQueue = new Queue(Queues.USER_SYNC,defaultQueueOptions);
+export const databaseSyncQueue = new Queue(Queues.DATABASE_SYNC, {
+    ...defaultQueueOptions,
+    defaultJobOptions: {
+        ...defaultQueueOptions.defaultJobOptions,
+        priority: 5,
+        delay: 5000,
+        removeOnComplete: 100,
+        removeOnFail: 20,
+        attempts: 5,
+        backoff: {
+            type: 'exponential',
+            delay: 2000,
+        }
+    }
+});
+
+export const batchSyncQueue = new Queue(Queues.BATCH_SYNC, {
+    ...defaultQueueOptions,
+    defaultJobOptions: {
+        removeOnComplete: 10,
+        removeOnFail: 5,
+        attempts: 3,
+        backoff: {
+            type: 'exponential',
+            delay: 1000,
+        }
+    }
+});

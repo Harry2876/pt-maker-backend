@@ -2,18 +2,43 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError, ZodType } from 'zod';
 import logger from '../utils/logger';
 
-// Generic validation middleware
-export const validateRequest = (schema: ZodType) => {
+// Enhanced validation middleware that can handle body, params, and query
+export const validateRequest = (schema: ZodType, target: 'body' | 'params' | 'query' = 'body') => {
     return (req: Request, res: Response, next: NextFunction): void | Response => {
         try {
-            const validatedData = schema.parse(req.body);
-            req.body = validatedData; // Replace with validated data
+            let dataToValidate;
+            
+            switch (target) {
+                case 'body':
+                    dataToValidate = req.body;
+                    break;
+                case 'params':
+                    dataToValidate = req.params;
+                    break;
+                case 'query':
+                    dataToValidate = req.query;
+                    break;
+                default:
+                    dataToValidate = req.body;
+            }
+
+            const validatedData = schema.parse(dataToValidate);
+            
+            // Replace with validated data
+            if (target === 'body') {
+                req.body = validatedData;
+            } else if (target === 'params') {
+                req.params = validatedData as { [key: string]: string };
+            } else if (target === 'query') {
+                req.query = validatedData as { [key: string]: any };
+            }
+            
             next();
         } catch (error) {
             if (error instanceof ZodError) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Invalid request data',
+                    message: `Invalid ${target} data`,
                     details: error.issues.map((issue: any) => ({
                         field: issue.path.join('.'),
                         message: issue.message

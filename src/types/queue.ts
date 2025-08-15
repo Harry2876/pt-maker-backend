@@ -1,8 +1,8 @@
 export interface ScreenshotProcessingJob {
-    matchId : string;
-    screenshotUrls : string[];
-    templateId? : string;
-    userId : string;
+    matchId: string;
+    screenshotUrls: string[];
+    templateId?: string;
+    userId: string;
 }
 
 export interface OTPSendingJob {
@@ -22,7 +22,7 @@ export interface EmailNotificationJob {
 export interface ImageProcessingJob {
     imageUrl: string;
     userId: string;
-    operations : {
+    operations: {
         resize?: { width: number; height: number };
         compress?: { quality: number };
         format?: 'jpeg' | 'png' | 'webp';
@@ -47,4 +47,21 @@ export interface PaymentProcessingJob {
     amount: number;
     type: 'subscription' | 'credit_pack';
     paymentGatewayId: string;
+}
+
+export interface DatabaseSyncJob {
+    type: 'TOURNAMENT_CREATE' | 'TOURNAMENT_UPDATE' | 'TOURNAMENT_DELETE' |
+    'MATCH_CREATE' | 'MATCH_UPDATE' | 'MATCH_DELETE' | 'SCREENSHOT_CREATE' | 'BATCH_SYNC';
+    entityId: string;
+    data: any;
+    userId: string;
+    priority: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
+    retryCount?: number;
+    timestamp: string;
+}
+
+export interface BatchSyncJob {
+    type: 'TOURNAMENT' | 'MATCHES' | 'SCREENSHOTS' | 'ALL';
+    batchSize?: number;
+    olderThan?: string;
 }

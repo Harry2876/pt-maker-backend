@@ -5,7 +5,7 @@ import logger from './utils/logger';
 import { dbManager } from './config/database';
 // Import route modules
 import authRouter from './routes/authRoutes';
-// import projectRouter from './routes/projectRoutes';
+import tournamentRouter from './routes/tournamentRoutes';
 import matchRouter from './routes/matchRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
@@ -97,6 +97,7 @@ async function initializeServices() {
         await workersManager.startAllWorkers();
 
         await QueueService.scheduleUserSync();
+        await QueueService.scheduleBatchSync(); // Runs every 10 minutes as safety net
 
     } catch (error) {
         logger.error('❌ Failed to initialize services:', error);
@@ -169,8 +170,8 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/v1/auth', authRouter);
-// app.use('/api/v1/projects', projectRouter);
-// app.use('/api/v1/matches', matchRouter);
+app.use('/api/v1/tournaments', tournamentRouter); 
+app.use('/api/v1/matches', matchRouter);
 // app.use('/api/v1/admin', adminRouter);
 
 // API info endpoint
@@ -180,9 +181,14 @@ app.get('/api/v1', (req, res) => {
         version: '1.0.0',
         endpoints: {
             auth: '/api/v1/auth',
-            projects: '/api/v1/projects',
+            tournaments: '/api/v1/tournaments',    // Updated
             matches: '/api/v1/matches',
             admin: '/api/v1/admin'
+        },
+        status: {
+            tournaments: 'active',                 // Add status indicators
+            matches: 'coming soon',
+            admin: 'coming soon'
         }
     });
 });

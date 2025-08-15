@@ -1,0 +1,236 @@
+import { BaseWorker } from "./baseWorker";
+import { Job } from "bullmq";
+import { Queues } from "../config/queues";
+import { DatabaseSyncJob, BatchSyncJob } from "../types/queue";
+import logger from "../utils/logger";
+import redis from "../config/redis";
+import {db} from "../config/database";
+
+export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
+    constructor() {
+        super(Queues.DATABASE_SYNC, { concurrency: 2 });
+    }
+
+    protected async processJob(job: Job<DatabaseSyncJob>): Promise<any> {
+        const { type, entityId, data, userId } = job.data;
+
+        logger.info(`Processing database sync job: ${type} for entity: ${entityId}`);
+
+        try {
+            switch (type) {
+                case 'TOURNAMENT_CREATE':
+                    return await this.syncTournamentCreate(data);
+
+                case 'TOURNAMENT_UPDATE':
+                    return await this.syncTournamentUpdate(entityId, data);
+
+                case 'TOURNAMENT_DELETE':
+                    return await this.syncTournamentDelete(entityId);
+                case 'MATCH_CREATE':
+                    return await this.syncMatchCreate(data);
+                case 'MATCH_UPDATE':
+                    return await this.syncMatchUpdate(entityId, data);
+                case 'SCREENSHOT_CREATE':
+                    return await this.syncScreenshotCreate(data);
+                case "BATCH_SYNC":
+                    return await this.processBatchSync();
+                default:
+                    throw new Error(`Unknown sync type: ${type}`);
+            }
+        } catch(error) {
+            logger.error(`Error processing database sync job: ${type}:`, error);
+
+            //update redis with error status
+            await redis.hset(`sync:error:${entityId}`, {
+                error: (error as any).message,
+                timestamp: new Date().toISOString(),
+                retryCount: job.attemptsMade.toString()
+            });
+
+            throw error;
+        }
+    }
+
+    private async syncTournamentCreate(tournamentData: any): Promise<void> {
+        try{
+            //create in database
+            const tournament = await db.tournament.create({
+                data: {
+                    id: tournamentData.id,
+                    name: tournamentData.name,
+                    game: tournamentData.game,
+                    status: tournamentData.status,
+                    userId: tournamentData.userId,
+                    createdAt: new Date(tournamentData.createdAt),
+                    updatedAt: new Date(tournamentData.updatedAt || tournamentData.createdAt)
+                }
+            });
+
+            //update redis status
+            await redis.hset(`tournament:${tournament.id}`,'dbStatus','SYNCED');
+            await redis.hset(`tournament:${tournament.id}`,'dbSyncedAt',new Date().toISOString());
+
+            logger.info(`Tournament ${tournament.id} created and synced to database successfully`);
+        } catch(error){
+            if((error as any).code === 'P2002') {
+                logger.error(`Tournament ${tournamentData.id} already exists in database`);
+            } else {
+                logger.error(`Error creating tournament ${tournamentData.id}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncTournamentUpdate(tournamentId: string, updateData: any): Promise<void> {
+        try{
+            await db.tournament.update({
+                where: { id: tournamentId },
+                data:{
+                    ...updateData,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`tournament:${tournamentId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Tournament ${tournamentId} updated successfully in database`);
+        } catch(error){
+            if((error as any).code === 'P2002') {
+                logger.error(`Tournament ${tournamentId} update conflict:`, error);
+            } else {
+                logger.error(`Error updating tournament ${tournamentId}:`, error);
+            }
+            throw error;
+        }
+    }
+
+    private async syncTournamentDelete(tournamentId: string): Promise<void> {
+        try{
+            await db.tournament.delete({
+                where: { id: tournamentId }
+            });
+
+            //clean up redis cache
+            await redis.delete(`tournament:${tournamentId}`);
+            logger.info(`Tournament ${tournamentId} deleted successfully from database`);
+        } catch(error){
+            logger.error(`Error deleting tournament ${tournamentId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncMatchCreate(matchData:any) : Promise<void> {
+        try{
+            const match = await db.match.create({
+                data:{
+                    id: matchData.id,
+                    matchNumber: matchData.matchNumber,
+                    status: matchData.status,
+                    tournamentId: matchData.tournamentId,
+                    matchDate: new Date(matchData.matchDate),
+                    createdAt: new Date(matchData.createdAt),
+                    updatedAt: new Date(matchData.updatedAt || matchData.createdAt)
+                }
+            });
+
+            await redis.hset(`match:${match.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Match ${match.id} created and synced to database successfully`);
+        } catch(error){
+            if((error as any).code === 'P2002') {
+                logger.error(`Match ${matchData.id} already exists in database`);
+                await redis.hset(`match:${matchData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating match ${matchData.id}:`, error);
+            }
+            throw error;
+        }
+    }
+
+    private async syncMatchUpdate(matchId: string, updateData: any): Promise<void> {
+        try{
+            await db.match.update({
+                where:{id:matchId},
+                data:{
+                    ...updateData,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`match:${matchId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Match ${matchId} updated successfully in database`);
+        } catch(error){
+            if((error as any).code === 'P2002') {
+                logger.error(`Match ${matchId} update conflict:`, error);
+            } else {
+                logger.error(`Error updating match ${matchId}:`, error);
+            }
+            throw error;
+        }
+    }
+
+    private async syncScreenshotCreate(screenshotData: any): Promise<void> {
+        try{
+            const screenshot = await db.screenshot.create({
+                data:{
+                    id:screenshotData.id,
+                    originalName:screenshotData.originalName,
+                    fileName: screenshotData.fileName,
+                    fileSize: screenshotData.fileSize,
+                    mimeType: screenshotData.mimeType,
+                    type: screenshotData.type,
+                    storageUrl: screenshotData.storageUrl,
+                    matchId: screenshotData.matchId,
+                    uploadedAt: new Date(screenshotData.uploadedAt),
+                }
+            });
+
+            await redis.hset(`screenshot:${screenshot.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Screenshot ${screenshot.id} created and synced to database successfully`);
+        }catch(error) {
+            if((error as any).code === 'P2002') {
+                logger.error(`Screenshot ${screenshotData.id} already exists in database`);
+                await redis.hset(`screenshot:${screenshotData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating screenshot ${screenshotData.id}:`, error);
+            }
+            throw error;
+        }
+    }
+
+    private async processBatchSync(): Promise<void> {
+        logger.info('Starting batch sync process');
+
+        //get all pending items from the redis
+        const tournamentKeys = await redis.keys('tournaments:*');
+        const matchKeys = await redis.keys('match:*');
+
+        let syncCount = 0;
+
+        //process tournaments
+        for(const key of tournamentKeys){
+            const tournament = await redis.hgetObject<any>(key);
+            if(tournament && tournament.dbStatus !== 'SYNCED') {
+                try{
+                    await this.syncTournamentCreate(tournament);
+                    syncCount++;
+                } catch(error) {
+                    logger.error(`Error syncing tournament ${tournament.id}:`, error);
+                }
+            }
+        }
+
+        //process matches
+        for(const key of matchKeys){
+            const match = await redis.hgetObject<any>(key);
+            if(match && match.dbStatus !== 'SYNCED') {
+                try{
+                    await this.syncMatchCreate(match);
+                    syncCount++;
+                } catch(error) {
+                    logger.error(`Error syncing match ${match.id}:`, error);
+                }
+            }
+        }
+
+        logger.info(`Batch sync process completed. Total items synced to database: ${syncCount}`);
+    }
+}

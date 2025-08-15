@@ -205,6 +205,173 @@ class RedisManager {
             return [0, []];
         }
     }
+
+    //hash operations. with method overloading for storing objects efficiently
+    public async hset(key: string, field: string, value: string): Promise<boolean>;
+    public async hset(key: string, fieldValueMap: Record<string, string>): Promise<boolean>;
+
+    // Implementation method - this is the actual code that runs
+    public async hset(key: string, fieldOrMap: string | Record<string, string>, value?: string): Promise<boolean> {
+        try {
+            let result: number;
+
+            if (typeof fieldOrMap === 'string' && value !== undefined) {
+                // Case 1: Single field-value pair
+                // Example: hset('user:123', 'name', 'John')
+                result = await this.redisClient.hset(key, fieldOrMap, value);
+                logger.info(`Hash set key ${key}, field ${fieldOrMap}`);
+
+            } else if (typeof fieldOrMap === 'object') {
+                // Case 2: Multiple field-value pairs
+                // Example: hset('user:123', { name: 'John', age: '25' })
+                result = await this.redisClient.hset(key, fieldOrMap);
+                logger.info(`Hash set key ${key} with ${Object.keys(fieldOrMap).length} fields`);
+
+            } else {
+                throw new Error('Invalid arguments for hset');
+            }
+
+            return result >= 0;
+        } catch (error) {
+            logger.error(`Error setting hash ${key}:`, error);
+            return false;
+        }
+    }
+
+    public async hget(key: string, field: string): Promise<string | null> {
+        try {
+            const result = await this.redisClient.hget(key, field);
+            return result;
+        } catch (error) {
+            logger.error(`Error getting hash field ${field} for key ${key} in Redis`, error);
+            return null;
+        }
+    }
+
+    public async hgetall(key: string): Promise<Record<string, string>> {
+        try {
+            const result = await this.redisClient.hgetall(key);
+            return result;
+        } catch (error) {
+            logger.error(`Error getting all hash fields for key ${key} in Redis`, error);
+            return {};
+        }
+    }
+
+    public async hdel(key: string, ...fields: string[]): Promise<number> {
+        try {
+            const result = await this.redisClient.hdel(key, ...fields);
+            logger.info(`Deleted hash fields ${fields.join(", ")} for key ${key} in Redis`, result);
+            return result;
+        } catch (error) {
+            logger.error(`Error deleting hash fields ${fields.join(", ")} for key ${key} in Redis`, error);
+            return 0;
+        }
+    }
+
+    //adding set operations for managing lists or collections
+    public async sadd(key: string, ...members: string[]): Promise<number> {
+        try {
+            const result = await this.redisClient.sadd(key, ...members);
+            logger.info(`Added members ${members.join(", ")} to set ${key} in Redis`, result);
+            return result;
+        } catch (error) {
+            logger.error(`Error adding members ${members.join(", ")} to set ${key} in Redis`, error);
+            return 0;
+        }
+    }
+
+    public async smembers(key: string): Promise<string[]> {
+        try {
+            const result = await this.redisClient.smembers(key);
+            return result;
+        } catch (error) {
+            logger.error(`Error getting members of set ${key} in Redis`, error);
+            return [];
+        }
+    }
+
+    public async srem(key: string, ...members: string[]): Promise<number> {
+        try {
+            const result = await this.redisClient.srem(key, ...members);
+            logger.info(`Removed members ${members.join(", ")} from set ${key} in Redis`, result);
+            return result;
+        } catch (error) {
+            logger.error(`Error removing members ${members.join(", ")} from set ${key} in Redis`, error);
+            return 0;
+        }
+    }
+
+    public async lpush(key: string, ...values: string[]): Promise<number> {
+        try {
+            const result = await this.redisClient.lpush(key, ...values);
+            logger.info(`Added values ${values.join(", ")} to list ${key} in Redis`, result);
+            return result;
+        } catch (error) {
+            logger.error(`Error adding values ${values.join(", ")} to list ${key} in Redis`, error);
+            return 0;
+        }
+    }
+
+    public async rpop(key: string): Promise<string | null> {
+        try {
+            const result = await this.redisClient.rpop(key);
+            logger.info(`Removed value from list ${key} in Redis`, result);
+            return result;
+        } catch (error) {
+            logger.error(`Error removing value from list ${key} in Redis`, error);
+            return null;
+        }
+    }
+
+    public async lrange(key: string, start: number, stop: number): Promise<string[]> {
+        try {
+            const result = await this.redisClient.lrange(key, start, stop);
+            return result;
+        } catch (error) {
+            logger.error(`Error getting range from list ${key} in Redis`, error);
+            return [];
+        }
+    }
+
+    //utility method for setting object as hash
+    public async hsetObject(key: string, obj: Record<string, any>): Promise<boolean> {
+        try {
+            const flatObj: Record<string, string> = {};
+            for (const [field, value] of Object.entries(obj)) {
+                flatObj[field] = typeof value === 'string' ? value : JSON.stringify(value);
+            }
+            const result = await this.redisClient.hset(key, flatObj);
+            logger.info(`Set object ${JSON.stringify(obj)} for key ${key} in Redis`);
+            return result >= 0;
+        } catch (error) {
+            logger.error(`Error setting object ${key} in Redis`, error);
+            return false;
+        }
+    }
+
+
+    // Utility method for getting object from hash
+    public async hgetObject<T>(key: string): Promise<T | null> {
+        try {
+            const hashData = await this.hgetall(key);
+            if (Object.keys(hashData).length === 0) return null;
+
+            const obj: any = {};
+            for (const [field, value] of Object.entries(hashData)) {
+                try {
+                    obj[field] = JSON.parse(value);
+                } catch {
+                    obj[field] = value; // Keep as string if not JSON
+                }
+            }
+            return obj as T;
+        } catch (error) {
+            logger.error(`Error getting object hash ${key}:`, error);
+            return null;
+        }
+    }
+
     //get time to live for key
     public async ttl(key: string): Promise<number> {
         try {

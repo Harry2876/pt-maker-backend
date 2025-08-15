@@ -1,190 +1,273 @@
-// import { BaseService } from './baseService';
-// import { ProcessingStatus } from '../generated/prisma';
+import { BaseService } from './baseService';
+import { MatchStatus } from '../generated/prisma';
+import redis from '../config/redis';
+import { QueueService } from './queueService';
+import { randomUUID } from 'crypto';
+import { CreateMatchData, UpdateMatchData, MatchCache } from '../types/match';
+import { TournamentCache } from '../types/tournament';
 
-// export class MatchService extends BaseService {
+export class MatchService extends BaseService {
+    private CACHE_TTL = 300; // 5 minutes
 
-//     async createMatch(projectId: string, matchData: {
-//         matchNumber: number;
-//         mapName?: string;
-//         totalTeams?: number;
-//     }) {
-//         try {
-//             const match = await this.db.match.create({
-//                 data: {
-//                     matchNumber: matchData.matchNumber,
-//                     mapName: matchData.mapName,
-//                     totalTeams: matchData.totalTeams,
-//                     projectId,
-//                     processingStatus: 'PENDING'
-//                 }
-//             });
+    // Create match with hybrid sync
+    async createMatch(tournamentId: string, userId: string, data: CreateMatchData) {
+        try {
+            // 1. Verify tournament ownership
+            const tournament = await redis.hgetObject<TournamentCache>(`tournament:${tournamentId}`);
+            if (!tournament || tournament.userId !== userId) {
+                throw new Error('Tournament not found or access denied');
+            }
 
-//             this.logger.info(`Match created: ${match.id} for project ${projectId}`);
-//             return match;
+            // 2. Generate match ID
+            const matchId = randomUUID();
+            
+            // 3. Create match object
+            const match: MatchCache = {
+                id: matchId,
+                matchNumber: data.matchNumber,
+                matchDate: data.matchDate ? data.matchDate.toISOString() : new Date().toISOString(),
+                status: 'PENDING_PROCESSING',
+                tournamentId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                dbStatus: 'PENDING_SYNC'
+            };
 
-//         } catch (error) {
-//             this.handleError(error, 'Create match');
-//             return null;
-//         }
-//     }
+            // 4. Store in Redis immediately
+            await redis.hsetObject(`match:${matchId}`, match);
+            
+            // 5. Add to tournament's match list
+            await redis.sadd(`tournament:${tournamentId}:matches`, matchId);
+            
+            // 6. Queue immediate database sync
+            await QueueService.syncImmediately('MATCH', matchId, match, userId);
 
-//     async getMatchById(matchId: string) {
-//         try {
-//             const match = await this.db.match.findUnique({
-//                 where: { id: matchId },
-//                 include: {
-//                     project: {
-//                         select: {
-//                             id: true,
-//                             name: true,
-//                             userId: true
-//                         }
-//                     },
-//                     imageUploads: true,
-//                     teamResults: {
-//                         orderBy: { position: 'asc' }
-//                     }
-//                 }
-//             });
+            this.logger.info(`Match ${matchId} created for tournament ${tournamentId}`);
+            return match;
 
-//             return match;
+        } catch (error) {
+            this.handleError(error, 'Create match');
+            return null;
+        }
+    }
 
-//         } catch (error) {
-//             this.handleError(error, 'Get match by ID');
-//             return null;
-//         }
-//     }
+    // Get tournament matches with Redis-first approach
+    async getTournamentMatches(tournamentId: string, userId: string) {
+        try {
+            // 1. Verify tournament ownership
+            const tournament = await redis.hgetObject<TournamentCache>(`tournament:${tournamentId}`);
+            if (!tournament || tournament.userId !== userId) {
+                throw new Error('Tournament not found or access denied');
+            }
 
-//     async uploadMatchImages(matchId: string, files: Array<{
-//         filename: string;
-//         originalName: string;
-//         size: number;
-//         mimetype: string;
-//         path: string;
-//         imageType: 'SLOT_ASSIGNMENT' | 'RESULT_SCREEN' | 'KILL_FEED' | 'OTHER';
-//     }>) {
-//         try {
-//             // Update match status
-//             await this.db.match.update({
-//                 where: { id: matchId },
-//                 data: { processingStatus: 'UPLOADING' }
-//             });
+            // 2. Check cache first
+            const cacheKey = `tournament:${tournamentId}:matches:list`;
+            const cachedMatches = await redis.getObject<MatchCache[]>(cacheKey);
+            
+            if (cachedMatches) {
+                this.logger.info(`Cache hit for tournament ${tournamentId} matches`);
+                return cachedMatches;
+            }
 
-//             // Create image upload records
-//             const imageUploads = await Promise.all(
-//                 files.map(file => 
-//                     this.db.imageUpload.create({
-//                         data: {
-//                             filename: file.filename,
-//                             originalName: file.originalName,
-//                             fileSize: file.size,
-//                             mimeType: file.mimetype,
-//                             imageType: file.imageType,
-//                             storageUrl: file.path,
-//                             matchId
-//                         }
-//                     })
-//                 )
-//             );
+            // 3. Get match IDs from set
+            const matchIds = await redis.smembers(`tournament:${tournamentId}:matches`);
+            
+            if (matchIds.length === 0) {
+                // 4. Fallback to database
+                const dbMatches = await this.db.match.findMany({
+                    where: { tournamentId },
+                    include: {
+                        _count: {
+                            select: { screenshots: true }
+                        }
+                    },
+                    orderBy: { matchNumber: 'asc' }
+                });
+                
+                // 5. Populate cache from database
+                if (dbMatches.length > 0) {
+                    await this.populateMatchCache(tournamentId, dbMatches);
+                }
+                
+                return dbMatches;
+            }
 
-//             this.logger.info(`${files.length} images uploaded for match ${matchId}`);
-//             return imageUploads;
+            // 6. Get match details from Redis
+            const matches = await Promise.all(
+                matchIds.map(async (id) => {
+                    const match = await redis.hgetObject<MatchCache>(`match:${id}`);
+                    return match;
+                })
+            );
 
-//         } catch (error) {
-//             this.handleError(error, 'Upload match images');
-//             return null;
-//         }
-//     }
+            // 7. Filter and cache
+            const validMatches = matches.filter(m => m !== null);
+            await redis.setObject(cacheKey, validMatches, this.CACHE_TTL);
 
-//     async processMatchResults(matchId: string, aiProcessedData: {
-//         teamResults: Array<{
-//             teamName: string;
-//             position: number;
-//             kills: number;
-//             points: number;
-//             survivalTime?: string;
-//             isEliminated: boolean;
-//         }>;
-//         processingTime: number;
-//     }) {
-//         try {
-//             // Update match with processing results
-//             const match = await this.db.match.update({
-//                 where: { id: matchId },
-//                 data: {
-//                     processingStatus: 'COMPLETED',
-//                     pointsData: aiProcessedData,
-//                     processingTime: aiProcessedData.processingTime
-//                 }
-//             });
+            return validMatches;
 
-//             // Create team results
-//             await this.db.teamResult.createMany({
-//                 data: aiProcessedData.teamResults.map(team => ({
-//                     teamName: team.teamName,
-//                     position: team.position,
-//                     kills: team.kills,
-//                     points: team.points,
-//                     survivalTime: team.survivalTime,
-//                     isEliminated: team.isEliminated,
-//                     matchId
-//                 }))
-//             });
+        } catch (error) {
+            this.handleError(error, 'Get tournament matches');
+            return null;
+        }
+    }
 
-//             this.logger.info(`Match ${matchId} processing completed`);
-//             return match;
+    // Get match by ID with caching
+    async getMatchById(matchId: string, userId: string) {
+        try {
+            // 1. Get match from cache
+            const match = await redis.hgetObject<MatchCache>(`match:${matchId}`);
+            
+            if (match) {
+                // 2. Verify tournament ownership
+                const tournament = await redis.hgetObject<TournamentCache>(`tournament:${match.tournamentId}`);
+                if (!tournament || tournament.userId !== userId) {
+                    throw new Error('Match not found or access denied');
+                }
+                
+                return match;
+            }
 
-//         } catch (error) {
-//             this.handleError(error, 'Process match results');
-//             return null;
-//         }
-//     }
+            // 3. Fallback to database
+            const dbMatch = await this.db.match.findFirst({
+                where: { 
+                    id: matchId,
+                    tournament: { userId }
+                },
+                include: {
+                    screenshots: {
+                        orderBy: { uploadedAt: 'desc' }
+                    },
+                    tournament: {
+                        select: { id: true, name: true, userId: true }
+                    }
+                }
+            });
 
-//     async updateMatchStatus(matchId: string, status: ProcessingStatus, errorMessage?: string) {
-//         try {
-//             const match = await this.db.match.update({
-//                 where: { id: matchId },
-//                 data: {
-//                     processingStatus: status,
-//                     errorMessage: errorMessage || null,
-//                     updatedAt: new Date()
-//                 }
-//             });
+            if (!dbMatch) {
+                throw new Error('Match not found or access denied');
+            }
 
-//             this.logger.info(`Match ${matchId} status updated to ${status}`);
-//             return match;
+            // 4. Cache the result
+            await redis.hsetObject(`match:${matchId}`, {
+                ...dbMatch,
+                matchDate: dbMatch.matchDate.toISOString(),
+                createdAt: dbMatch.createdAt.toISOString(),
+                updatedAt: dbMatch.updatedAt.toISOString(),
+                dbStatus: 'SYNCED'
+            });
 
-//         } catch (error) {
-//             this.handleError(error, 'Update match status');
-//             return null;
-//         }
-//     }
+            return dbMatch;
 
-//     async getProjectMatches(projectId: string) {
-//         try {
-//             const matches = await this.db.match.findMany({
-//                 where: { projectId },
-//                 include: {
-//                     teamResults: {
-//                         orderBy: { position: 'asc' }
-//                     },
-//                     _count: {
-//                         select: { 
-//                             imageUploads: true,
-//                             teamResults: true 
-//                         }
-//                     }
-//                 },
-//                 orderBy: { matchNumber: 'asc' }
-//             });
+        } catch (error) {
+            this.handleError(error, 'Get match by ID');
+            return null;
+        }
+    }
 
-//             return matches;
+    // Update match with hybrid sync
+    async updateMatch(matchId: string, userId: string, updateData: UpdateMatchData) {
+        try {
+            // 1. Get current match and verify ownership
+            const currentMatch = await this.getMatchById(matchId, userId);
+            if (!currentMatch) {
+                throw new Error('Match not found or access denied');
+            }
 
-//         } catch (error) {
-//             this.handleError(error, 'Get project matches');
-//             return null;
-//         }
-//     }
-// }
+            // 2. Create updated match object
+            const updatedMatch = {
+                ...currentMatch,
+                ...updateData,
+                matchDate: updateData.matchDate ? updateData.matchDate.toISOString() : currentMatch.matchDate,
+                updatedAt: new Date().toISOString(),
+                dbStatus: 'PENDING_SYNC'
+            };
 
-// export const matchService = new MatchService();
+            // 3. Update Redis immediately
+            await redis.hsetObject(`match:${matchId}`, updatedMatch);
+
+            // 4. Queue database sync
+            await QueueService.queueDatabaseSync({
+                type: 'MATCH_UPDATE',
+                entityId: matchId,
+                data: updateData,
+                userId,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
+
+            // 5. Invalidate related caches
+            await redis.delete(`tournament:${currentMatch.tournamentId}:matches:list`);
+
+            this.logger.info(`Match ${matchId} updated`);
+            return updatedMatch;
+
+        } catch (error) {
+            this.handleError(error, 'Update match');
+            return null;
+        }
+    }
+
+    // Delete match with hybrid sync
+    async deleteMatch(matchId: string, userId: string) {
+        try {
+            // 1. Get match and verify ownership
+            const match = await this.getMatchById(matchId, userId);
+            if (!match) {
+                throw new Error('Match not found or access denied');
+            }
+
+            // 2. Remove from Redis
+            await redis.delete(`match:${matchId}`);
+            await redis.srem(`tournament:${match.tournamentId}:matches`, matchId);
+
+            // 3. Queue database deletion
+            await QueueService.queueDatabaseSync({
+                type: 'MATCH_DELETE',
+                entityId: matchId,
+                data: { id: matchId },
+                userId,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
+
+            // 4. Invalidate caches
+            await redis.delete(`tournament:${match.tournamentId}:matches:list`);
+
+            this.logger.info(`Match ${matchId} deleted`);
+            return { success: true, message: 'Match deleted successfully' };
+
+        } catch (error) {
+            this.handleError(error, 'Delete match');
+            return null;
+        }
+    }
+
+    // Helper method to populate cache
+    private async populateMatchCache(tournamentId: string, matches: any[]) {
+        try {
+            const promises = matches.map(async (match) => {
+                const cacheMatch: MatchCache = {
+                    ...match,
+                    matchDate: match.matchDate.toISOString(),
+                    createdAt: match.createdAt.toISOString(),
+                    updatedAt: match.updatedAt.toISOString(),
+                    dbStatus: 'SYNCED'
+                };
+                
+                await redis.hsetObject(`match:${match.id}`, cacheMatch);
+                await redis.sadd(`tournament:${tournamentId}:matches`, match.id);
+            });
+
+            await Promise.all(promises);
+            await redis.setObject(`tournament:${tournamentId}:matches:list`, matches, this.CACHE_TTL);
+            
+            this.logger.info(`Populated match cache for tournament ${tournamentId}`);
+
+        } catch (error) {
+            this.logger.error('Failed to populate match cache:', error);
+        }
+    }
+}
+
+export const matchService = new MatchService();
