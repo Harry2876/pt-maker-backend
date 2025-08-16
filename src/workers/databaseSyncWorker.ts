@@ -4,7 +4,8 @@ import { Queues } from "../config/queues";
 import { DatabaseSyncJob, BatchSyncJob } from "../types/queue";
 import logger from "../utils/logger";
 import redis from "../config/redis";
-import {db} from "../config/database";
+import { db } from "../config/database";
+import fs from 'fs/promises';
 
 export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     constructor() {
@@ -32,12 +33,14 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncMatchUpdate(entityId, data);
                 case 'SCREENSHOT_CREATE':
                     return await this.syncScreenshotCreate(data);
+                case 'SCREENSHOT_DELETE':
+                    return await this.syncScreenshotDelete(entityId, data);
                 case "BATCH_SYNC":
                     return await this.processBatchSync();
                 default:
                     throw new Error(`Unknown sync type: ${type}`);
             }
-        } catch(error) {
+        } catch (error) {
             logger.error(`Error processing database sync job: ${type}:`, error);
 
             //update redis with error status
@@ -52,7 +55,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncTournamentCreate(tournamentData: any): Promise<void> {
-        try{
+        try {
             //create in database
             const tournament = await db.tournament.create({
                 data: {
@@ -67,12 +70,12 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             //update redis status
-            await redis.hset(`tournament:${tournament.id}`,'dbStatus','SYNCED');
-            await redis.hset(`tournament:${tournament.id}`,'dbSyncedAt',new Date().toISOString());
+            await redis.hset(`tournament:${tournament.id}`, 'dbStatus', 'SYNCED');
+            await redis.hset(`tournament:${tournament.id}`, 'dbSyncedAt', new Date().toISOString());
 
             logger.info(`Tournament ${tournament.id} created and synced to database successfully`);
-        } catch(error){
-            if((error as any).code === 'P2002') {
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
                 logger.error(`Tournament ${tournamentData.id} already exists in database`);
             } else {
                 logger.error(`Error creating tournament ${tournamentData.id}:`, error);
@@ -82,10 +85,10 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncTournamentUpdate(tournamentId: string, updateData: any): Promise<void> {
-        try{
+        try {
             await db.tournament.update({
                 where: { id: tournamentId },
-                data:{
+                data: {
                     ...updateData,
                     updatedAt: new Date()
                 }
@@ -93,8 +96,8 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             await redis.hset(`tournament:${tournamentId}`, 'dbStatus', 'SYNCED');
             logger.info(`Tournament ${tournamentId} updated successfully in database`);
-        } catch(error){
-            if((error as any).code === 'P2002') {
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
                 logger.error(`Tournament ${tournamentId} update conflict:`, error);
             } else {
                 logger.error(`Error updating tournament ${tournamentId}:`, error);
@@ -104,7 +107,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncTournamentDelete(tournamentId: string): Promise<void> {
-        try{
+        try {
             await db.tournament.delete({
                 where: { id: tournamentId }
             });
@@ -112,16 +115,16 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             //clean up redis cache
             await redis.delete(`tournament:${tournamentId}`);
             logger.info(`Tournament ${tournamentId} deleted successfully from database`);
-        } catch(error){
+        } catch (error) {
             logger.error(`Error deleting tournament ${tournamentId}:`, error);
             throw error;
         }
     }
 
-    private async syncMatchCreate(matchData:any) : Promise<void> {
-        try{
+    private async syncMatchCreate(matchData: any): Promise<void> {
+        try {
             const match = await db.match.create({
-                data:{
+                data: {
                     id: matchData.id,
                     matchNumber: matchData.matchNumber,
                     status: matchData.status,
@@ -134,8 +137,8 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             await redis.hset(`match:${match.id}`, 'dbStatus', 'SYNCED');
             logger.info(`Match ${match.id} created and synced to database successfully`);
-        } catch(error){
-            if((error as any).code === 'P2002') {
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
                 logger.error(`Match ${matchData.id} already exists in database`);
                 await redis.hset(`match:${matchData.id}`, 'dbStatus', 'SYNCED');
             } else {
@@ -146,10 +149,10 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncMatchUpdate(matchId: string, updateData: any): Promise<void> {
-        try{
+        try {
             await db.match.update({
-                where:{id:matchId},
-                data:{
+                where: { id: matchId },
+                data: {
                     ...updateData,
                     updatedAt: new Date()
                 }
@@ -157,8 +160,8 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             await redis.hset(`match:${matchId}`, 'dbStatus', 'SYNCED');
             logger.info(`Match ${matchId} updated successfully in database`);
-        } catch(error){
-            if((error as any).code === 'P2002') {
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
                 logger.error(`Match ${matchId} update conflict:`, error);
             } else {
                 logger.error(`Error updating match ${matchId}:`, error);
@@ -168,11 +171,11 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncScreenshotCreate(screenshotData: any): Promise<void> {
-        try{
+        try {
             const screenshot = await db.screenshot.create({
-                data:{
-                    id:screenshotData.id,
-                    originalName:screenshotData.originalName,
+                data: {
+                    id: screenshotData.id,
+                    originalName: screenshotData.originalName,
                     fileName: screenshotData.fileName,
                     fileSize: screenshotData.fileSize,
                     mimeType: screenshotData.mimeType,
@@ -185,13 +188,39 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             await redis.hset(`screenshot:${screenshot.id}`, 'dbStatus', 'SYNCED');
             logger.info(`Screenshot ${screenshot.id} created and synced to database successfully`);
-        }catch(error) {
-            if((error as any).code === 'P2002') {
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
                 logger.error(`Screenshot ${screenshotData.id} already exists in database`);
                 await redis.hset(`screenshot:${screenshotData.id}`, 'dbStatus', 'SYNCED');
             } else {
                 logger.error(`Error creating screenshot ${screenshotData.id}:`, error);
             }
+            throw error;
+        }
+    }
+
+    private async syncScreenshotDelete(screenshotId: string, data: any): Promise<void> {
+        try{
+            //delete from database
+            await db.screenshot.delete({
+                where: { id: screenshotId }
+            });
+
+            //delete physical file if path provided
+            if(data.filePath) {
+                try{
+                    await fs.unlink(data.filePath);
+                    logger.info(`Screenshot file ${data.filePath} deleted successfully`);
+                }catch(error){
+                    logger.warn(`Error deleting screenshot file ${data.filePath}:`, error);
+                }
+            }
+
+            //cleanup redis cache
+            await redis.delete(`screenshot:${screenshotId}`);
+            logger.info(`Screenshot ${screenshotId} deleted successfully from database`);
+        }catch(error){
+            logger.error(`Error deleting screenshot ${screenshotId}:`, error);
             throw error;
         }
     }
@@ -206,26 +235,26 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
         let syncCount = 0;
 
         //process tournaments
-        for(const key of tournamentKeys){
+        for (const key of tournamentKeys) {
             const tournament = await redis.hgetObject<any>(key);
-            if(tournament && tournament.dbStatus !== 'SYNCED') {
-                try{
+            if (tournament && tournament.dbStatus !== 'SYNCED') {
+                try {
                     await this.syncTournamentCreate(tournament);
                     syncCount++;
-                } catch(error) {
+                } catch (error) {
                     logger.error(`Error syncing tournament ${tournament.id}:`, error);
                 }
             }
         }
 
         //process matches
-        for(const key of matchKeys){
+        for (const key of matchKeys) {
             const match = await redis.hgetObject<any>(key);
-            if(match && match.dbStatus !== 'SYNCED') {
-                try{
+            if (match && match.dbStatus !== 'SYNCED') {
+                try {
                     await this.syncMatchCreate(match);
                     syncCount++;
-                } catch(error) {
+                } catch (error) {
                     logger.error(`Error syncing match ${match.id}:`, error);
                 }
             }

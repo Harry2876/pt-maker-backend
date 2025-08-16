@@ -7,6 +7,7 @@ import { dbManager } from './config/database';
 import authRouter from './routes/authRoutes';
 import tournamentRouter from './routes/tournamentRoutes';
 import matchRouter from './routes/matchRoutes';
+import uploadRouter from './routes/uploadRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
 import { WorkersManager } from './workers';
@@ -172,6 +173,7 @@ app.get('/health', (req, res) => {
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/tournaments', tournamentRouter); 
 app.use('/api/v1/matches', matchRouter);
+app.use('/api/v1/uploads', uploadRouter);
 // app.use('/api/v1/admin', adminRouter);
 
 // API info endpoint
@@ -181,13 +183,15 @@ app.get('/api/v1', (req, res) => {
         version: '1.0.0',
         endpoints: {
             auth: '/api/v1/auth',
-            tournaments: '/api/v1/tournaments',    // Updated
+            tournaments: '/api/v1/tournaments',
             matches: '/api/v1/matches',
+            uploads: '/api/v1/uploads',    // ← Add this
             admin: '/api/v1/admin'
         },
         status: {
-            tournaments: 'active',                 // Add status indicators
-            matches: 'coming soon',
+            tournaments: 'active',
+            matches: 'active',            // ← Update this
+            uploads: 'active',            // ← Add this
             admin: 'coming soon'
         }
     });

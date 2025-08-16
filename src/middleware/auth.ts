@@ -34,7 +34,7 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
         const token = authHeader.substring(7);
         
         // Verify the access token using your custom auth service
-        const sessionData = authService.verifySessionToken(token);
+        const sessionData = await authService.verifySessionToken(token);
         
         // Get user details from your system (cache first, then DB)
         const user = await authService.getUserByPhone(sessionData.phoneNumber);
@@ -77,7 +77,7 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
         
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7);
-            const sessionData = authService.verifyAccessToken(token);
+            const sessionData = await authService.verifySessionToken(token);
             const user = await authService.getUserByPhone(sessionData.phoneNumber);
             
             if (user) {
