@@ -21,16 +21,24 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             switch (type) {
                 case 'TOURNAMENT_CREATE':
                     return await this.syncTournamentCreate(data);
-
                 case 'TOURNAMENT_UPDATE':
                     return await this.syncTournamentUpdate(entityId, data);
-
                 case 'TOURNAMENT_DELETE':
                     return await this.syncTournamentDelete(entityId);
                 case 'MATCH_CREATE':
                     return await this.syncMatchCreate(data);
                 case 'MATCH_UPDATE':
                     return await this.syncMatchUpdate(entityId, data);
+                case 'GROUP_CREATE':                                    // Add this
+                    return await this.syncGroupCreate(data);
+                case 'GROUP_UPDATE':                                    // Add this
+                    return await this.syncGroupUpdate(entityId, data);
+                case 'GROUP_DELETE':                                    // Add this
+                    return await this.syncGroupDelete(entityId);
+                case 'TEAM_REGISTRATION_CREATE':                        // Add this
+                    return await this.syncTeamRegistrationCreate(data);
+                case 'TEAM_REGISTRATION_UPDATE':                        // Add this
+                    return await this.syncTeamRegistrationUpdate(entityId, data);
                 case 'SCREENSHOT_CREATE':
                     return await this.syncScreenshotCreate(data);
                 case 'SCREENSHOT_DELETE':
@@ -200,18 +208,18 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncScreenshotDelete(screenshotId: string, data: any): Promise<void> {
-        try{
+        try {
             //delete from database
             await db.screenshot.delete({
                 where: { id: screenshotId }
             });
 
             //delete physical file if path provided
-            if(data.filePath) {
-                try{
+            if (data.filePath) {
+                try {
                     await fs.unlink(data.filePath);
                     logger.info(`Screenshot file ${data.filePath} deleted successfully`);
-                }catch(error){
+                } catch (error) {
                     logger.warn(`Error deleting screenshot file ${data.filePath}:`, error);
                 }
             }
@@ -219,11 +227,118 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             //cleanup redis cache
             await redis.delete(`screenshot:${screenshotId}`);
             logger.info(`Screenshot ${screenshotId} deleted successfully from database`);
-        }catch(error){
+        } catch (error) {
             logger.error(`Error deleting screenshot ${screenshotId}:`, error);
             throw error;
         }
     }
+
+    private async syncGroupCreate(groupData: any): Promise<void> {
+    try {
+        const group = await db.group.create({
+            data: {
+                id: groupData.id,
+                name: groupData.name,
+                maxTeams: groupData.maxTeams,
+                qualificationSpots: groupData.qualificationSpots,
+                tournamentId: groupData.tournamentId,
+                createdAt: new Date(groupData.createdAt),
+                updatedAt: new Date(groupData.updatedAt || groupData.createdAt)
+            }
+        });
+
+        await redis.hset(`group:${group.id}`, 'dbStatus', 'SYNCED');
+        logger.info(`Group ${group.id} created and synced to database successfully`);
+    } catch (error) {
+        if ((error as any).code === 'P2002') {
+            logger.error(`Group ${groupData.id} already exists in database`);
+            await redis.hset(`group:${groupData.id}`, 'dbStatus', 'SYNCED');
+        } else {
+            logger.error(`Error creating group ${groupData.id}:`, error);
+            throw error;
+        }
+    }
+}
+
+private async syncGroupUpdate(groupId: string, updateData: any): Promise<void> {
+    try {
+        await db.group.update({
+            where: { id: groupId },
+            data: {
+                ...updateData,
+                updatedAt: new Date()
+            }
+        });
+
+        await redis.hset(`group:${groupId}`, 'dbStatus', 'SYNCED');
+        logger.info(`Group ${groupId} updated successfully in database`);
+    } catch (error) {
+        logger.error(`Error updating group ${groupId}:`, error);
+        throw error;
+    }
+}
+
+private async syncGroupDelete(groupId: string): Promise<void> {
+    try {
+        await db.group.delete({
+            where: { id: groupId }
+        });
+
+        await redis.delete(`group:${groupId}`);
+        logger.info(`Group ${groupId} deleted successfully from database`);
+    } catch (error) {
+        logger.error(`Error deleting group ${groupId}:`, error);
+        throw error;
+    }
+}
+
+private async syncTeamRegistrationCreate(registrationData: any): Promise<void> {
+    try {
+        const registration = await db.teamRegistration.create({
+            data: {
+                id: registrationData.id,
+                teamName: registrationData.teamName,
+                contactInfo: registrationData.contactInfo,
+                registrationStatus: registrationData.registrationStatus,
+                finalPosition: registrationData.finalPosition,
+                totalPoints: registrationData.totalPoints,
+                tournamentId: registrationData.tournamentId,
+                groupId: registrationData.groupId,
+                createdAt: new Date(registrationData.createdAt),
+                updatedAt: new Date(registrationData.updatedAt || registrationData.createdAt)
+            }
+        });
+
+        await redis.hset(`teamRegistration:${registration.id}`, 'dbStatus', 'SYNCED');
+        logger.info(`Team registration ${registration.id} created and synced to database successfully`);
+    } catch (error) {
+        if ((error as any).code === 'P2002') {
+            logger.error(`Team registration ${registrationData.id} already exists in database`);
+            await redis.hset(`teamRegistration:${registrationData.id}`, 'dbStatus', 'SYNCED');
+        } else {
+            logger.error(`Error creating team registration ${registrationData.id}:`, error);
+            throw error;
+        }
+    }
+}
+
+private async syncTeamRegistrationUpdate(registrationId: string, updateData: any): Promise<void> {
+    try {
+        await db.teamRegistration.update({
+            where: { id: registrationId },
+            data: {
+                ...updateData,
+                updatedAt: new Date()
+            }
+        });
+
+        await redis.hset(`teamRegistration:${registrationId}`, 'dbStatus', 'SYNCED');
+        logger.info(`Team registration ${registrationId} updated successfully in database`);
+    } catch (error) {
+        logger.error(`Error updating team registration ${registrationId}:`, error);
+        throw error;
+    }
+}
 
     private async processBatchSync(): Promise<void> {
         logger.info('Starting batch sync process');

@@ -89,26 +89,26 @@ export class QueueService {
         }
     }
 
-    static async syncImmediately(entityType: 'TOURNAMENT' | 'MATCH' | 'SCREENSHOT', entityId: string, data: any, userId: string): Promise<void> {
-    try {
-        await databaseSyncQueue.add('sync-to-db', {
-            type: `${entityType}_CREATE`,
-            entityId,
-            data,
-            userId,
-            priority: 'NORMAL',
-            timestamp: new Date().toISOString()
-        }, {
-            priority: 2, // High priority for immediate sync
-            delay: 0, // No delay
-        });
-        
-        logger.info(`Immediate sync queued for ${entityType} ${entityId}`);
-    } catch (error) {
-        logger.error(`Failed to queue immediate sync for ${entityType} ${entityId}:`, error);
-        throw error;
+    static async syncImmediately(entityType: "TOURNAMENT" | "MATCH" | "SCREENSHOT" | "GROUP" | "TEAM_REGISTRATION", entityId: string, data: any, userId: string): Promise<void> {
+        try {
+            await databaseSyncQueue.add('sync-to-db', {
+                type: `${entityType}_CREATE`,
+                entityId,
+                data,
+                userId,
+                priority: 'NORMAL',
+                timestamp: new Date().toISOString()
+            }, {
+                priority: 2, // High priority for immediate sync
+                delay: 0, // No delay
+            });
+
+            logger.info(`Immediate sync queued for ${entityType} ${entityId}`);
+        } catch (error) {
+            logger.error(`Failed to queue immediate sync for ${entityType} ${entityId}:`, error);
+            throw error;
+        }
     }
-}
 
     private static getPriorityValue(priority: string): number {
         switch (priority) {

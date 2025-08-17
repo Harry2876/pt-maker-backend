@@ -11,6 +11,23 @@ export const createTournamentSchema = z.object({
         .min(2, 'Game name must be at least 2 characters')
         .max(50, 'Game name must be at most 50 characters'),
     
+    tournamentType: z.enum(['PAID_SCRIM', 'TOURNAMENT'] as const).optional(),
+    
+    maxTeams: z.number()
+        .int('Max teams must be an integer')
+        .positive('Max teams must be positive')
+        .min(1, 'Max teams must be at least 1')
+        .max(1000, 'Max teams cannot exceed 1000')
+        .optional(),
+    
+    entryFee: z.number()
+        .positive('Entry fee must be positive')
+        .optional(),
+    
+    prizePool: z.number()
+        .positive('Prize pool must be positive')
+        .optional(),
+    
     status: z.enum(['UPCOMING', 'ONGOING', 'COMPLETED'] as const).optional()
 });
 

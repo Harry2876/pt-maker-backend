@@ -138,17 +138,23 @@ model Subscription {
 
 // Tournament Events (e.g., "BGMI Championship 2024")
 model Tournament {
-  id        String           @id @default(cuid())
-  name      String // "BGMI Championship 2024"
-  game      String // "BGMI", "Free Fire", etc.
-  status    TournamentStatus @default(UPCOMING)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id               String           @id @default(cuid())
+  name             String
+  game             String
+  tournamentType   TournamentType   @default(PAID_SCRIM) // Add this
+  maxTeams         Int?             // Total teams for tournament
+  entryFee         Float?           // Entry fee per team
+  prizePool        Float?           // Total prize pool
+  status           TournamentStatus @default(UPCOMING)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   // Relations
-  userId  String
-  user    User    @relation(fields: [userId], references: [id])
-  matches Match[]
+  userId            String
+  user              User             @relation(fields: [userId], references: [id])
+  matches           Match[]
+  groups            Group[]          // Add this
+  teamRegistrations TeamRegistration[] // Add this
 
   @@map("tournaments")
 }
@@ -172,15 +178,17 @@ model Team {
 model Match {
   id            String      @id @default(cuid())
   matchDate     DateTime    @default(now())
-  matchNumber   Int // Match 1, Match 2, etc.
+  matchNumber   Int
   status        MatchStatus @default(PENDING_PROCESSING)
-  processedData Json? // Final processed results from Python service
+  processedData Json?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   // Relations
   tournamentId String
   tournament   Tournament   @relation(fields: [tournamentId], references: [id])
+  groupId      String?      // Add this for group-specific matches
+  group        Group?       @relation(fields: [groupId], references: [id]) // Add this
   screenshots  Screenshot[]
 
   @@map("matches")
@@ -245,6 +253,42 @@ model TemplateDataField {
   template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@map("template_data_fields")
+}
+
+model Group {
+  id                String   @id @default(cuid())
+  name              String   // "Group A", "Group B", etc.
+  maxTeams          Int      @default(24) // Max teams per group
+  qualificationSpots Int     @default(8)  // Top N teams qualify
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  tournamentId      String
+  tournament        Tournament @relation(fields: [tournamentId], references: [id])
+  teamRegistrations TeamRegistration[]
+  matches           Match[]
+
+  @@map("groups")
+}
+
+model TeamRegistration {
+  id           String   @id @default(cuid())
+  teamName     String
+  contactInfo  String   // Phone/email
+  registrationStatus String @default("PENDING") // PENDING, CONFIRMED, QUALIFIED, ELIMINATED
+  finalPosition Int?    // Final position in group
+  totalPoints   Int     @default(0) // Cumulative points
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id])
+  groupId      String?
+  group        Group?     @relation(fields: [groupId], references: [id])
+
+  @@map("team_registrations")
 }
 
 // Payment transactions
@@ -326,4 +370,10 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@map("verification_tokens")
+}
+
+// Add new enum
+enum TournamentType {
+  PAID_SCRIM        // 3 matches, same teams
+  TOURNAMENT        // Multiple groups, qualification system
 }

@@ -51,7 +51,11 @@ export interface PaymentProcessingJob {
 
 export interface DatabaseSyncJob {
     type: 'TOURNAMENT_CREATE' | 'TOURNAMENT_UPDATE' | 'TOURNAMENT_DELETE' |
-    'MATCH_CREATE' | 'MATCH_UPDATE' | 'MATCH_DELETE' | 'SCREENSHOT_CREATE' | 'SCREENSHOT_DELETE' | 'BATCH_SYNC';
+    'MATCH_CREATE' | 'MATCH_UPDATE' | 'MATCH_DELETE' | 'SCREENSHOT_CREATE' | 'SCREENSHOT_DELETE' | 'BATCH_SYNC' | 'GROUP_CREATE'
+  | 'GROUP_UPDATE'
+  | 'GROUP_DELETE'
+  | 'TEAM_REGISTRATION_CREATE'
+  | 'TEAM_REGISTRATION_UPDATE';
     entityId: string;
     data: any;
     userId: string;

@@ -20,44 +20,52 @@ export class TournamentService extends BaseService {
     private CACHE_TTL = 300; // 5 mins
 
     //create tournament with hybrid sync
-    async createTournament(userId:string, data:{
-        name:string,
-        game:string,
-        status?: TournamentStatus;
-    }) {
-        try {
-            //generate tournament id
-            const tournamentId = randomUUID();
+async createTournament(userId:string, data:{
+    name:string,
+    game:string,
+    tournamentType?: 'PAID_SCRIM' | 'TOURNAMENT',
+    maxTeams?: number,
+    entryFee?: number,
+    prizePool?: number,
+    status?: TournamentStatus;
+}) {
+    try {
+        //generate tournament id
+        const tournamentId = randomUUID();
 
-            //create the tournament object
-            const tournament = {
-                id: tournamentId,
-                name: data.name,
-                game: data.game,
-                status: data.status || 'UPCOMING',
-                userId,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
-            };
+        //create the tournament object
+        const tournament = {
+            id: tournamentId,
+            name: data.name,
+            game: data.game,
+            tournamentType: data.tournamentType || 'PAID_SCRIM',
+            maxTeams: data.maxTeams,
+            entryFee: data.entryFee,
+            prizePool: data.prizePool,
+            status: data.status || 'UPCOMING',
+            userId,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            dbStatus: 'PENDING_SYNC'
+        };
 
-            //store in redis immediately
-            await redis.hset(`tournament:${tournamentId}`, tournament);
+        //store in redis immediately
+        await redis.hsetObject(`tournament:${tournamentId}`, tournament);
 
-            //add to user tournament list
-            await redis.sadd(`user:${userId}:tournaments`, tournamentId);
+        //add to user tournament list
+        await redis.sadd(`user:${userId}:tournaments`, tournamentId);
 
-            //add to queue for db sync
-            await QueueService.syncImmediately('TOURNAMENT',tournamentId,tournament,userId);
+        //add to queue for db sync
+        await QueueService.syncImmediately('TOURNAMENT',tournamentId,tournament,userId);
 
-            this.logger.info(`Tournament ${tournamentId} created and queued for sync successfully`);
+        this.logger.info(`Tournament ${tournamentId} created and queued for sync successfully`);
 
-            return tournament;
-        }catch(error){
-             this.handleError(error, 'Create tournament');
-            return null;
-        }
+        return tournament;
+    }catch(error){
+         this.handleError(error, 'Create tournament');
+        return null;
     }
+}
 
     //get user tournaments
     async getUserTournaments(userId: string) {

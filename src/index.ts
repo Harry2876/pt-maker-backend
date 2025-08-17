@@ -8,6 +8,8 @@ import authRouter from './routes/authRoutes';
 import tournamentRouter from './routes/tournamentRoutes';
 import matchRouter from './routes/matchRoutes';
 import uploadRouter from './routes/uploadRoutes';
+import groupRouter from './routes/groupRoutes';                      // Add this
+import teamRegistrationRouter from './routes/teamRegistrationRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
 import { WorkersManager } from './workers';
@@ -174,6 +176,8 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/tournaments', tournamentRouter); 
 app.use('/api/v1/matches', matchRouter);
 app.use('/api/v1/uploads', uploadRouter);
+app.use('/api/v1/groups', groupRouter);            
+app.use('/api/v1/team-registrations', teamRegistrationRouter);
 // app.use('/api/v1/admin', adminRouter);
 
 // API info endpoint
@@ -185,13 +189,17 @@ app.get('/api/v1', (req, res) => {
             auth: '/api/v1/auth',
             tournaments: '/api/v1/tournaments',
             matches: '/api/v1/matches',
-            uploads: '/api/v1/uploads',    // ← Add this
+            uploads: '/api/v1/uploads',
+            groups: '/api/v1/groups',                           // Add this
+            teamRegistrations: '/api/v1/team-registrations',   // Add this
             admin: '/api/v1/admin'
         },
         status: {
             tournaments: 'active',
-            matches: 'active',            // ← Update this
-            uploads: 'active',            // ← Add this
+            matches: 'active',
+            uploads: 'active',
+            groups: 'active',                                   // Add this
+            teamRegistrations: 'active',                        // Add this
             admin: 'coming soon'
         }
     });

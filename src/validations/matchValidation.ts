@@ -10,7 +10,11 @@ export const createMatchSchema = z.object({
     matchDate: z.string()
         .datetime('Invalid date format')
         .optional()
-        .or(z.date().optional())
+        .or(z.date().optional()),
+    
+    groupId: z.string()
+        .uuid('Invalid group ID format')
+        .optional()
 });
 
 export const updateMatchSchema = z.object({

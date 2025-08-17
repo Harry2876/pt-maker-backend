@@ -4,6 +4,7 @@ export interface MatchCache {
     matchDate: string;
     status: 'PENDING_PROCESSING' | 'PROCESSED' | 'ERROR';
     tournamentId: string;
+    groupId?: string; // Add this
     processedData?: any; // AI results from screenshot processing
     createdAt: string;
     updatedAt: string;
@@ -13,6 +14,7 @@ export interface MatchCache {
 export interface CreateMatchData {
     matchNumber: number;
     matchDate?: Date;
+    groupId?: string; // Add this
 }
 
 export interface UpdateMatchData {
@@ -20,6 +22,7 @@ export interface UpdateMatchData {
     matchDate?: Date;
     status?: 'PENDING_PROCESSING' | 'PROCESSED' | 'ERROR';
     processedData?: any;
+    groupId?: string; // Add this
 }
 
 export interface Screenshot {
