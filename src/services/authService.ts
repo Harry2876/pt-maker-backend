@@ -21,14 +21,16 @@ export class AuthService extends BaseService {
         const otp = crypto.randomInt(100000, 999999).toString();
         return otp;
     }
-    // TODO: Implement WhatsApp OTP integration
-async sendWhatsAppOTP(phoneNumber: string): Promise<{ success: boolean; message: string }> {
-    // Placeholder for WhatsApp OTP integration
-    this.logger.info(`📱 WhatsApp OTP requested for ${phoneNumber} - Implementation pending`);
+
     
-    // For now, fall back to regular OTP
-    return await this.sendOTP(phoneNumber, 'registration');
-}
+    // TODO: Implement WhatsApp OTP integration
+    async sendWhatsAppOTP(phoneNumber: string): Promise<{ success: boolean; message: string }> {
+        // Placeholder for WhatsApp OTP integration
+        this.logger.info(`📱 WhatsApp OTP requested for ${phoneNumber} - Implementation pending`);
+
+        // For now, fall back to regular OTP
+        return await this.sendOTP(phoneNumber, 'registration');
+    }
 
     //generate otp and send via queue
     async sendOTP(phoneNumber: string, type: 'registration' | 'login' = 'registration') {

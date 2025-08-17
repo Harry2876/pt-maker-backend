@@ -1,5 +1,5 @@
-import { Queue, Worker,QueueOptions,WorkerOptions } from "bullmq";
-import {redis} from './redis';
+import { Queue, Worker, QueueOptions, WorkerOptions } from "bullmq";
+import { redis } from './redis';
 import logger from '../utils/logger';
 
 //Queue connection config
@@ -7,7 +7,7 @@ const queueConnection = redis.getQueueConnection();
 
 
 //queue options
-const defaultQueueOptions : QueueOptions = {
+const defaultQueueOptions: QueueOptions = {
     connection: queueConnection,
     defaultJobOptions: {
         removeOnComplete: 10,
@@ -21,33 +21,33 @@ const defaultQueueOptions : QueueOptions = {
 }
 
 //worker options
-const defaultWorkerOptions : WorkerOptions = {
+const defaultWorkerOptions: WorkerOptions = {
     connection: queueConnection,
     concurrency: 5, //process 5 jobs currently
 }
 
 //define all queues for the application
 export const Queues = {
-    SCREENSHOT_PROCESSING : 'screenshot-processing',
-    OTP_SENDING : 'otp-sending',
-    EMAIL_NOTIFICATIONS : 'email-notifications',
-    IMAGE_PROCESSING : 'image-processing',
-    REPORT_GENERATION : 'report-generation',
-    CLEANUP_TASKS : 'cleanup-tasks',
-    PAYMENT_PROCESSING : 'payment-processing',
-    USER_SYNC : 'user-sync',
-    DATABASE_SYNC : 'database-sync',
-    BATCH_SYNC : 'batch-sync',
+    SCREENSHOT_PROCESSING: 'screenshot-processing',
+    OTP_SENDING: 'otp-sending',
+    EMAIL_NOTIFICATIONS: 'email-notifications',
+    IMAGE_PROCESSING: 'image-processing',
+    REPORT_GENERATION: 'report-generation',
+    CLEANUP_TASKS: 'cleanup-tasks',
+    PAYMENT_PROCESSING: 'payment-processing',
+    USER_SYNC: 'user-sync',
+    DATABASE_SYNC: 'database-sync',
+    BATCH_SYNC: 'batch-sync',
 } as const;
 
-export const screenshotQueue = new Queue(Queues.SCREENSHOT_PROCESSING,defaultQueueOptions);
-export const otpQueue = new Queue(Queues.OTP_SENDING,defaultQueueOptions);
-export const emailQueue = new Queue(Queues.EMAIL_NOTIFICATIONS,defaultQueueOptions);
-export const imageQueue = new Queue(Queues.IMAGE_PROCESSING,defaultQueueOptions);
-export const reportQueue = new Queue(Queues.REPORT_GENERATION,defaultQueueOptions);
-export const cleanupQueue = new Queue(Queues.CLEANUP_TASKS,defaultQueueOptions);
-export const paymentQueue = new Queue(Queues.PAYMENT_PROCESSING,defaultQueueOptions);
-export const userSyncQueue = new Queue(Queues.USER_SYNC,defaultQueueOptions);
+export const screenshotQueue = new Queue(Queues.SCREENSHOT_PROCESSING, defaultQueueOptions);
+export const otpQueue = new Queue(Queues.OTP_SENDING, defaultQueueOptions);
+export const emailQueue = new Queue(Queues.EMAIL_NOTIFICATIONS, defaultQueueOptions);
+export const imageQueue = new Queue(Queues.IMAGE_PROCESSING, defaultQueueOptions);
+export const reportQueue = new Queue(Queues.REPORT_GENERATION, defaultQueueOptions);
+export const cleanupQueue = new Queue(Queues.CLEANUP_TASKS, defaultQueueOptions);
+export const paymentQueue = new Queue(Queues.PAYMENT_PROCESSING, defaultQueueOptions);
+export const userSyncQueue = new Queue(Queues.USER_SYNC, defaultQueueOptions);
 export const databaseSyncQueue = new Queue(Queues.DATABASE_SYNC, {
     ...defaultQueueOptions,
     defaultJobOptions: {

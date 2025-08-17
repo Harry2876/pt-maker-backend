@@ -15,7 +15,7 @@ export const verifyOTPSchema = z.object({
   otp: z.string()
     .length(6, 'OTP must be exactly 6 digits')
     .regex(/^\d{6}$/, 'OTP must contain only numbers'),
-  
+
   // For registration
   username: z.string()
     .min(3, 'Username must be at least 3 characters')
@@ -29,11 +29,11 @@ export const verifyOTPSchema = z.object({
   organization: z.string()
     .max(100, 'Organization name must be at most 100 characters')
     .optional(),
-password: z.string()
-  .min(8, 'Password must be at least 8 characters')
-  .max(128, 'Password must be at most 128 characters')
-  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, 
-    'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character')
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128, 'Password must be at most 128 characters')
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/,
+      'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character')
 });
 
 export type SendOTPRequest = z.infer<typeof sendOTPSchema>;

@@ -22,7 +22,7 @@ tournamentRouter.post('/create',
 
 tournamentRouter.get('/get/:id', 
     validateRequest(tournamentParamsSchema, 'params'),
-    TournamentController.getTournamentById                                            // GET /tournaments/:id
+    TournamentController.getTournamentById                                            // GET /tournaments/get/:id
 );
 
 tournamentRouter.put('/update/:id', 
