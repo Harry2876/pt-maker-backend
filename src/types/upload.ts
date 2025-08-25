@@ -48,3 +48,13 @@ export interface UploadResponse {
     };
     error?: string;
 }
+
+export interface UploadFile {
+    originalName:string;
+    fileName:string;
+    size:number;
+    mimeType:string;
+    path:string;
+    uploadedAt: string;
+    r2Key?:string;
+}

@@ -16,6 +16,8 @@ import { WorkersManager } from './workers';
 import { QueueService } from './services/queueService';
 import { globalErrorHandler } from './middleware/commonMiddleware';
 import { validateEnvironment } from './config/envValidator';
+import swaggerUi from 'swagger-ui-express';
+import { specs } from './config/swagger';
 
 validateEnvironment();
 
@@ -26,7 +28,7 @@ const PORT = process.env.PORT || 3000;
 
 // Configure CORS securely
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' 
+    origin: process.env.NODE_ENV === 'production'
         ? ['https://yourdomain.com', 'https://www.yourdomain.com']  // Replace with your frontend domains
         : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'], // Dev domains
     credentials: true, // Allow cookies
@@ -67,14 +69,14 @@ app.use((req, res, next) => {
     res.header('X-Frame-Options', 'DENY');
     res.header('X-XSS-Protection', '1; mode=block');
     res.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    
+
     // Log request details for security monitoring
     logger.http(`Security Check: ${req.method} ${req.url} from ${req.ip}`, {
         userAgent: req.get('User-Agent'),
         referer: req.get('Referer'),
         origin: req.get('Origin')
     });
-    
+
     next();
 });
 
@@ -136,6 +138,7 @@ app.use((req, res, next) => {
 
     next();
 });
+
 app.get('/test-queue', async (req, res) => {
     try {
         // Test Redis
@@ -170,13 +173,21 @@ app.get('/health', (req, res) => {
     });
 });
 
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs,
+    {
+        explorer:true,
+        customCss: '.swagger-ui .topbar { display: none }',
+        customSiteTitle:'BGMI Tournament API Docs'
+    }
+));
+
 
 // API routes
 app.use('/api/v1/auth', authRouter);
-app.use('/api/v1/tournaments', tournamentRouter); 
+app.use('/api/v1/tournaments', tournamentRouter);
 app.use('/api/v1/matches', matchRouter);
 app.use('/api/v1/uploads', uploadRouter);
-app.use('/api/v1/groups', groupRouter);            
+app.use('/api/v1/groups', groupRouter);
 app.use('/api/v1/team-registrations', teamRegistrationRouter);
 // app.use('/api/v1/admin', adminRouter);
 

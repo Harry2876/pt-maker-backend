@@ -104,12 +104,40 @@ export class UserSyncWorker extends BaseWorker<any> {
                 status: 'synced_to_db'
             }, 3600);
 
+            //update all dependent entities with new user id
+            await this.updateSessionsUserId(phoneNumber, newUser.id);
+
             //remove the user from pending list
             await redis.delete(`pending_users_list_for_dbWrite:${phoneNumber}`);
         } catch (error) {
             logger.error(`Error syncing user ${phoneNumber}:`, error);
         }
     }
+
+    private async updateSessionsUserId(phoneNumber: string, newUserId: string): Promise<void> {
+    try {
+        const oldUserId = `cache_${phoneNumber}`;
+        const sessionKeys = await redis.keys(`session:*`);
+        
+        for (const sessionKey of sessionKeys) {
+            const session = await redis.getObject<any>(sessionKey);
+            if (session && session.userId === oldUserId) {
+                // Update session with new user ID
+                await redis.setObject(sessionKey, {
+                    ...session,
+                    userId: newUserId
+                }, 2592000); // Keep original 30-day TTL
+                
+                logger.info(`Updated session ${session.id} userId from ${oldUserId} to ${newUserId}`);
+            }
+        }
+    } catch (error) {
+        logger.error(`Error updating sessions for user ${phoneNumber}:`, error);
+    }
+}
+
+
+    
     private async cleanupUserCache(phoneNumber: string): Promise<void> {
         try {
             await redis.delete(`user_cache:${phoneNumber}`);

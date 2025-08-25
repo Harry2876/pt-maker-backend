@@ -214,15 +214,15 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                 where: { id: screenshotId }
             });
 
-            //delete physical file if path provided
-            if (data.filePath) {
-                try {
-                    await fs.unlink(data.filePath);
-                    logger.info(`Screenshot file ${data.filePath} deleted successfully`);
-                } catch (error) {
-                    logger.warn(`Error deleting screenshot file ${data.filePath}:`, error);
-                }
-            }
+            // //delete physical file if path provided
+            // if (data.filePath) {
+            //     try {
+            //         await fs.unlink(data.filePath);
+            //         logger.info(`Screenshot file ${data.filePath} deleted successfully`);
+            //     } catch (error) {
+            //         logger.warn(`Error deleting screenshot file ${data.filePath}:`, error);
+            //     }
+            // }
 
             //cleanup redis cache
             await redis.delete(`screenshot:${screenshotId}`);

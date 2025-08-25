@@ -22,7 +22,7 @@ export class AuthService extends BaseService {
         return otp;
     }
 
-    
+
     // TODO: Implement WhatsApp OTP integration
     async sendWhatsAppOTP(phoneNumber: string): Promise<{ success: boolean; message: string }> {
         // Placeholder for WhatsApp OTP integration
@@ -36,6 +36,19 @@ export class AuthService extends BaseService {
     async sendOTP(phoneNumber: string, type: 'registration' | 'login' = 'registration') {
 
         try {
+
+            const existingUser = await this.db.user.findFirst({
+                where: { phoneNumber }
+            });
+
+            // 🚫 ADD THIS VALIDATION LOGIC
+            if (type === 'registration' && existingUser) {
+                throw new Error('User already exists with this phone number. Please use login instead.');
+            }
+
+            if (type === 'login' && !existingUser) {
+                throw new Error('No account found with this phone number. Please register first.');
+            }
             //generate 6 digit otp
             const otp = this.generateSecureOTP();
 
@@ -182,7 +195,14 @@ export class AuthService extends BaseService {
             const isValidOTP = await this.verifyOTPFromRedis(verificationData.phoneNumber, verificationData.otp);
 
             if (!isValidOTP) {
-                throw new Error("Invalid or OTP Expired");
+                // Don't throw error - return warning response instead
+                this.logger.warn(`Invalid OTP attempt for ${verificationData.phoneNumber}`);
+                return {
+                    success: false,
+                    message: "Invalid or expired OTP. Please try again.",
+                    errorCode: "INVALID_OTP",
+                    type: "warning"
+                };
             }
             //check if the user exists
             let dbUser = await this.db.user.findFirst({

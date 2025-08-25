@@ -36,5 +36,9 @@ export const verifyOTPSchema = z.object({
       'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character')
 });
 
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(1,'Refresh token is required')
+});
+
 export type SendOTPRequest = z.infer<typeof sendOTPSchema>;
 export type VerifyOTPRequest = z.infer<typeof verifyOTPSchema>;

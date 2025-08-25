@@ -23,6 +23,13 @@ const envSchema = z.object({
   // Encryption
   LOG_ENCRYPTION_KEY: z.string().min(16, 'LOG_ENCRYPTION_KEY must be at least 16 characters'),
 
+    // Cloudflare R2 Configuration
+  R2_ENDPOINT: z.string().url('Invalid R2_ENDPOINT URL'),
+  R2_BUCKET_NAME: z.string().min(1, 'R2_BUCKET_NAME is required'),
+  R2_ACCESS_KEY_ID: z.string().min(1, 'R2_ACCESS_KEY_ID is required'),
+  R2_SECRET_ACCESS_KEY: z.string().min(1, 'R2_SECRET_ACCESS_KEY is required'),
+  R2_PUBLIC_URL: z.string().url('Invalid R2_PUBLIC_URL'),
+
    // Security settings
   ALLOWED_ORIGINS: z.string().optional(),
   PRODUCTION_ORIGINS: z.string().optional(),

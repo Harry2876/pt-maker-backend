@@ -40,9 +40,11 @@ export interface AuthUser {
 }
 
 export interface AuthResponse {
-  type: 'login' | 'registration';
-  user: AuthUser;
+  type: 'login' | 'registration' | 'warning';
+  user?: AuthUser;
   message: string;
+  success?: boolean;
+  errorCode?: string;
 }
 
 export interface TokenPair {

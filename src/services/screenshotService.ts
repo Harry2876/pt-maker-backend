@@ -6,6 +6,7 @@ import { UploadFile, ScreenshotUploadData } from "../types/upload";
 import { MatchCache } from '../types/match';
 import { TournamentCache } from '../types/tournament';
 import { UploadProgress } from '../types/upload';
+import { r2Service } from "./cloudflareR2Service";
 
 export class ScreenshotService extends BaseService {
     private CACHE_TTL = 300; //5 minutes
@@ -142,6 +143,20 @@ export class ScreenshotService extends BaseService {
                 throw new Error("User does not own this screenshot");
             }
 
+            //delete from r2 if its an r2 url
+            if(screenshot.storageUrl && screenshot.storageUrl.includes('r2.cloudflarestorage.com')){
+                try {
+                    //extract r2 key from url
+                    const urlParts = screenshot.storageUrl.split('/');
+                    const r2Key = urlParts.slice(-2).join('/'); // assuming folder/filename format
+                    await r2Service.deleteFile(r2Key);
+                    this.logger.info(`✅ Deleted screenshot ${screenshotId} from R2 storage`);
+                } catch (error) {
+                    this.logger.warn(`❌ Failed to delete screenshot ${screenshotId} from R2 storage`, {
+                        error: (error as any).message
+                    });
+                }
+            }
             //remove from redis
             await redis.delete(`screenshot:${screenshotId}`);
             await redis.srem(`match:${screenshot.matchId}:screenshots`, screenshotId);

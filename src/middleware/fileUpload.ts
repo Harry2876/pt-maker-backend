@@ -1,5 +1,6 @@
 import multer from "multer";
-import { Request, Response, NextFunction } from 'express';
+import { r2Service } from "../services/cloudflareR2Service";
+import { Request, Response,NextFunction } from 'express';
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from 'fs/promises';
@@ -49,41 +50,7 @@ const FILE_LIMITS = {
 };
 
 //storage configuration with dynamic paths
-const storage = multer.diskStorage({
-    destination: async (req, file, cb) => {
-        try {
-            const uploadType = req.body.uploadType || 'screenshot';
-            const userId = req.user!.id;
-            const matchId = req.params.id;
-
-            let uploadPath: string;
-
-            if (uploadType === 'template') {
-                uploadPath = path.join('uploads', 'templates', 'custom', userId);
-            } else {
-                uploadPath = path.join('uploads', 'screenshots', matchId);
-            }
-
-            //create directory if it doesnt exist
-            await fs.mkdir(uploadPath, { recursive: true });
-            cb(null, uploadPath);
-        } catch (error) {
-            cb(error as Error, '');
-            logger.error(`Error creating upload directory: ${error}`);
-        }
-    },
-    filename: (req, file, cb) => {
-        const timestamp = Date.now();
-        const uuid = randomUUID().slice(0, 8);
-        const sanitized = file.originalname
-            .replace(/[^a-zA-Z0-9.-]/g, '-')
-            .replace(/-+/g, '-')
-            .toLowerCase();
-
-        const filename = `${timestamp}_${uuid}_${sanitized}`;
-        cb(null, filename);
-    }
-});
+const storage = multer.memoryStorage();
 
 //file filter with magic number validation
 const fileFilter = (uploadType: 'screenshot' | 'template') => {
@@ -220,16 +187,35 @@ const handleUploadComplete = async (req: Request, res: Response, next: NextFunct
             //await broadcastProgress(progress.userId,progress);
         }
 
+        //upload files to R2 and get URLs
+        const uploadedFiles = [];
+        for(const file of files){
+            try{
+                const r2Result = await r2Service.uploadFile(
+                    file.buffer,
+                    file.originalname,
+                    file.mimetype,
+                    'screenshots'
+                );
+
+                uploadedFiles.push({
+                    originalName: file.originalname,
+                    fileName:r2Result.key,
+                    size: file.size,
+                    mimeType: file.mimetype,
+                    path: r2Result.url,  // This will now be R2 URL
+                    r2Key: r2Result.key  //store R2 key for deletion
+                });
+            } catch (error) {
+                logger.error(`Error uploading file ${file.originalname}: ${error}`);
+                throw new Error(`Failed to upload file ${file.originalname}`);
+            }
+        }
+
         //attach upload info to request
         req.uploadInfo = {
             uploadId,
-            files: files.map(file => ({
-                originalName: file.originalname,
-                fileName: file.filename,
-                size: file.size,
-                mimeType: file.mimetype,
-                path: file.path
-            }))
+            files: uploadedFiles
         };
         next();
     } catch (error) {
@@ -252,9 +238,13 @@ const cleanupFailedUpload = async (uploadId: string, userId: string, error?: Err
             // Delete uploaded files
             for (const file of progress.files) {
                 try {
-                    await fs.unlink(file.path);
-                } catch (unlinkError) {
-                    logger.warn(`Failed to delete file ${file.path}:`, unlinkError);
+                    //extract R2 key from the file path or used stored r2Key
+                    if(file.path.includes('r2.cloudflarestorage.com')){
+                        const r2Key = file.path.split('/').slice(-2).join('/'); //extract key from the url
+                        await r2Service.deleteFile(r2Key);
+                    }
+                } catch (deleteError) {
+                    logger.warn(`Failed to delete file ${file.path}:`, deleteError);
                 }
             }
 
