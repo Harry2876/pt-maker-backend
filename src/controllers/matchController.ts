@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { matchService } from '../services/matchService';
 import { asyncHandler } from '../middleware/commonMiddleware';
+import { ResponseHelper } from '../utils/responseHelper';
 
 export class MatchController {
     // Create match in tournament
@@ -14,11 +15,7 @@ export class MatchController {
             matchDate: matchDate ? new Date(matchDate) : undefined
         });
 
-        return res.status(201).json({
-            success: true,
-            message: 'Match created successfully',
-            data: match
-        });
+        return res.status(201).json(ResponseHelper.success('Match created successfully', match));
     });
 
     // Get all matches for tournament
@@ -29,20 +26,13 @@ export class MatchController {
         const matches = await matchService.getTournamentMatches(tournamentId, userId);
 
         if (!matches || matches.length === 0) {
-            return res.status(404).json({
-            success: false,
-            message: 'No matches found for the tournament',
-            data: [],
-            count: 0
-            });
+            return res.status(404).json(ResponseHelper.notFound('No matches found for the tournament'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Matches retrieved successfully',
-            data: matches,
+        return res.json(ResponseHelper.success('Matches retrieved successfully', {
+            matches,
             count: matches.length
-        });
+        }));
     });
 
     // Get specific match
@@ -53,18 +43,10 @@ export class MatchController {
         const match = await matchService.getMatchById(id, userId);
 
         if (!match) {
-            return res.status(404).json({
-            success: false,
-            message: 'Match not found',
-            data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound('Match not found'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Match retrieved successfully',
-            data: match
-        });
+        return res.json(ResponseHelper.success('Match retrieved successfully', match));
     });
 
     // Update match
@@ -76,18 +58,10 @@ export class MatchController {
         const match = await matchService.updateMatch(id, userId, updateData);
 
         if (!match) {
-            return res.status(404).json({
-            success: false,
-            message: 'Match not found',
-            data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound('Match not found'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Match updated successfully',
-            data: match
-        });
+        return res.json(ResponseHelper.success('Match updated successfully', match));
     });
 
     // Delete match
@@ -98,17 +72,9 @@ export class MatchController {
         const result = await matchService.deleteMatch(id, userId);
 
         if (!result || !result.success) {
-            return res.status(404).json({
-            success: false,
-            message: result?.message || 'Match not found',
-            data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound(result?.message || 'Match not found'));
         }
 
-        return res.json({
-            success: true,
-            message: result.message || 'Match deleted successfully',
-            data: null
-        });
+        return res.json(ResponseHelper.success(result.message || 'Match deleted successfully'));
     });
 }

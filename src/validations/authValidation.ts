@@ -40,5 +40,17 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1,'Refresh token is required')
 });
 
+export const loginSchema = z.object({
+  phoneNumber: z.string()
+  .min(10,'Phone Number Must be at least 10 Digits')
+  .max(15,'Phone Number Must be at most 15 Digits')
+  .regex(/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'),
+  password: z.string()
+  .min(1,'Password is Required')
+  .max(128,'Password Must be at most 128 Digits')
+});
+
+export type LoginRequest = z.infer<typeof loginSchema>;
+
 export type SendOTPRequest = z.infer<typeof sendOTPSchema>;
 export type VerifyOTPRequest = z.infer<typeof verifyOTPSchema>;

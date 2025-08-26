@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { groupService } from '../services/groupService';
 import { asyncHandler } from '../middleware/commonMiddleware';
+import { ResponseHelper } from '../utils/responseHelper';
 
 export class GroupController {
     // Create group in tournament
@@ -16,18 +17,10 @@ export class GroupController {
         });
 
         if (!group) {
-            return res.status(400).json({
-                success: false,
-                message: 'Failed to create group',
-                data: null
-            });
+            return res.status(400).json(ResponseHelper.validationError('Failed to create group'));
         }
 
-        return res.status(201).json({
-            success: true,
-            message: 'Group created successfully',
-            data: group
-        });
+        return res.status(201).json(ResponseHelper.success('Group created successfully', group));
     });
 
     // Get all groups for tournament
@@ -38,20 +31,13 @@ export class GroupController {
         const groups = await groupService.getTournamentGroups(tournamentId, userId);
 
         if (!groups || groups.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'No groups found for the tournament',
-                data: [],
-                count: 0
-            });
+            return res.status(404).json(ResponseHelper.notFound('No groups found for the tournament'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Groups retrieved successfully',
-            data: groups,
+        return res.json(ResponseHelper.success('Groups retrieved successfully', {
+            groups,
             count: groups.length
-        });
+        }));
     });
 
     // Get specific group
@@ -62,18 +48,10 @@ export class GroupController {
         const group = await groupService.getGroupById(id, userId);
 
         if (!group) {
-            return res.status(404).json({
-                success: false,
-                message: 'Group not found',
-                data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound('Group not found'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Group retrieved successfully',
-            data: group
-        });
+        return res.json(ResponseHelper.success('Group retrieved successfully', group));
     });
 
     // Update group
@@ -85,18 +63,10 @@ export class GroupController {
         const group = await groupService.updateGroup(id, userId, updateData);
 
         if (!group) {
-            return res.status(404).json({
-                success: false,
-                message: 'Group not found',
-                data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound('Group not found'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Group updated successfully',
-            data: group
-        });
+        return res.json(ResponseHelper.success('Group updated successfully', group));
     });
 
     // Delete group
@@ -107,17 +77,9 @@ export class GroupController {
         const result = await groupService.deleteGroup(id, userId);
 
         if (!result || !result.success) {
-            return res.status(404).json({
-                success: false,
-                message: result?.message || 'Group not found',
-                data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound(result?.message || 'Group not found'));
         }
 
-        return res.json({
-            success: true,
-            message: result.message || 'Group deleted successfully',
-            data: null
-        });
+        return res.json(ResponseHelper.success(result.message || 'Group deleted successfully'));
     });
 }

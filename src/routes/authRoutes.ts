@@ -1,7 +1,7 @@
 import express from 'express';
 import { AuthController } from '../controllers/authController';
 import { validateRequest } from '../middleware/commonMiddleware';
-import { refreshTokenSchema, sendOTPSchema, verifyOTPSchema } from '../validations/authValidation';
+import { refreshTokenSchema, sendOTPSchema, verifyOTPSchema, loginSchema } from '../validations/authValidation';
 import { asyncHandler } from '../middleware/commonMiddleware';
 import { authenticateUser } from '../middleware/auth';
 
@@ -178,6 +178,55 @@ authRouter.post('/verify-otp',
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+
+/**
+ * @swagger
+ * /api/v1/auth/login:
+ *   post:
+ *     tags: [Authentication]
+ *     summary: Login with phone number and password
+ *     description: Authenticate user using phone number and password
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phoneNumber
+ *               - password
+ *             properties:
+ *               phoneNumber:
+ *                 type: string
+ *                 example: "+1234567890"
+ *               password:
+ *                 type: string
+ *                 example: "Password123!"
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+authRouter.post('/login', 
+    validateRequest(loginSchema), 
+    asyncHandler(AuthController.login)
+);
+
 authRouter.get('/profile', authenticateUser, asyncHandler(AuthController.getProfile));
 
 /**

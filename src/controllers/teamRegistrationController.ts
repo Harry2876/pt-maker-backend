@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { teamRegistrationService } from '../services/teamRegistrationService';
 import { asyncHandler } from '../middleware/commonMiddleware';
+import { ResponseHelper } from '../utils/responseHelper';
 
 export class TeamRegistrationController {
     // Create team registration in tournament
@@ -16,18 +17,10 @@ export class TeamRegistrationController {
         });
 
         if (!registration) {
-            return res.status(400).json({
-                success: false,
-                message: 'Failed to create team registration',
-                data: null
-            });
+            return res.status(400).json(ResponseHelper.validationError('Failed to create team registration'));
         }
 
-        return res.status(201).json({
-            success: true,
-            message: 'Team registration created successfully',
-            data: registration
-        });
+        return res.status(201).json(ResponseHelper.success('Team registration created successfully', registration));
     });
 
     // Get all team registrations for tournament
@@ -38,20 +31,13 @@ export class TeamRegistrationController {
         const registrations = await teamRegistrationService.getTournamentTeamRegistrations(tournamentId, userId);
 
         if (!registrations || registrations.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'No team registrations found for the tournament',
-                data: [],
-                count: 0
-            });
+            return res.status(404).json(ResponseHelper.notFound('No team registrations found for the tournament'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Team registrations retrieved successfully',
-            data: registrations,
+        return res.json(ResponseHelper.success('Team registrations retrieved successfully', {
+            registrations,
             count: registrations.length
-        });
+        }));
     });
 
     // Get team registrations for specific group
@@ -62,20 +48,13 @@ export class TeamRegistrationController {
         const registrations = await teamRegistrationService.getGroupTeamRegistrations(groupId, userId);
 
         if (!registrations || registrations.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'No team registrations found for the group',
-                data: [],
-                count: 0
-            });
+            return res.status(404).json(ResponseHelper.notFound('No team registrations found for the group'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Group team registrations retrieved successfully',
-            data: registrations,
+        return res.json(ResponseHelper.success('Group team registrations retrieved successfully', {
+            registrations,
             count: registrations.length
-        });
+        }));
     });
 
     // Get specific team registration
@@ -86,18 +65,10 @@ export class TeamRegistrationController {
         const registration = await teamRegistrationService.getTeamRegistrationById(id, userId);
 
         if (!registration) {
-            return res.status(404).json({
-                success: false,
-                message: 'Team registration not found',
-                data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound('Team registration not found'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Team registration retrieved successfully',
-            data: registration
-        });
+        return res.json(ResponseHelper.success('Team registration retrieved successfully', registration));
     });
 
     // Update team registration
@@ -109,17 +80,9 @@ export class TeamRegistrationController {
         const registration = await teamRegistrationService.updateTeamRegistration(id, userId, updateData);
 
         if (!registration) {
-            return res.status(404).json({
-                success: false,
-                message: 'Team registration not found',
-                data: null
-            });
+            return res.status(404).json(ResponseHelper.notFound('Team registration not found'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Team registration updated successfully',
-            data: registration
-        });
+        return res.json(ResponseHelper.success('Team registration updated successfully', registration));
     });
 }

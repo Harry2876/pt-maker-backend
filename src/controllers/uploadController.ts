@@ -1,6 +1,7 @@
 import {Request, Response} from 'express';
 import { screenshotService} from '../services/screenshotService';
 import {asyncHandler} from '../middleware/commonMiddleware';
+import { ResponseHelper } from '../utils/responseHelper';
 
 export class UploadController {
     //upload screenshots  for match
@@ -19,21 +20,13 @@ export class UploadController {
         });
 
         if(!result){
-            return res.status(500).json({
-                success: false,
-                message: 'Failed to upload screenshots'
-            });
+            return res.status(500).json(ResponseHelper.serverError('Failed to upload screenshots'));
         }
 
-        return res.status(201).json({
-            success: true,
-            message: 'Screenshots uploaded successfully',
-            data:{
-                uploadId: uploadInfo.uploadId,
-                screenshots: result,
-                count: result.length
-            }
-        });
+        return res.status(201).json(ResponseHelper.success('Screenshots uploaded successfully', {
+            screenshots: result,
+            uploadId: uploadInfo.uploadId
+        }));
     });
 
         // Get match screenshots
@@ -44,18 +37,13 @@ export class UploadController {
         const screenshots = await screenshotService.getMatchScreenshots(matchId, userId);
 
         if (!screenshots) {
-            return res.status(404).json({
-                success: false,
-                message: 'No screenshots found for this match'
-            });
+            return res.status(404).json(ResponseHelper.notFound('No screenshots found for this match'));
         }
 
-        return res.json({
-            success: true,
-            message: 'Screenshots retrieved successfully',
-            data: screenshots,
+        return res.json(ResponseHelper.success('Screenshots retrieved successfully', {
+            screenshots,
             count: Array.isArray(screenshots) ? screenshots.length : 0
-        });
+        }));
     });
 
     // Delete screenshot
@@ -66,13 +54,10 @@ export class UploadController {
         const result = await screenshotService.deleteScreenshot(screenshotId, userId);
 
         if (!result) {
-            return res.status(500).json({
-                success: false,
-                message: 'Failed to delete screenshot'
-            });
+            return res.status(500).json(ResponseHelper.serverError('Failed to delete screenshot'));
         }
 
-        return res.json(result);
+        return res.json(ResponseHelper.success('Screenshot deleted successfully', result));
     });
 
 }

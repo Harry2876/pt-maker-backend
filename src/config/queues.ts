@@ -38,6 +38,7 @@ export const Queues = {
     USER_SYNC: 'user-sync',
     DATABASE_SYNC: 'database-sync',
     BATCH_SYNC: 'batch-sync',
+    CACHE_CLEANUP: 'cache-cleanup',
 } as const;
 
 export const screenshotQueue = new Queue(Queues.SCREENSHOT_PROCESSING, defaultQueueOptions);
@@ -48,6 +49,7 @@ export const reportQueue = new Queue(Queues.REPORT_GENERATION, defaultQueueOptio
 export const cleanupQueue = new Queue(Queues.CLEANUP_TASKS, defaultQueueOptions);
 export const paymentQueue = new Queue(Queues.PAYMENT_PROCESSING, defaultQueueOptions);
 export const userSyncQueue = new Queue(Queues.USER_SYNC, defaultQueueOptions);
+export const cacheCleanupQueue = new Queue(Queues.CACHE_CLEANUP, defaultQueueOptions);
 export const databaseSyncQueue = new Queue(Queues.DATABASE_SYNC, {
     ...defaultQueueOptions,
     defaultJobOptions: {
