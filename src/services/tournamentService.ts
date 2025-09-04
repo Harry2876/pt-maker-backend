@@ -23,7 +23,7 @@ export class TournamentService extends BaseService {
     async createTournament(userId: string, data: {
         name: string,
         game: string,
-        tournamentType?: 'PAID_SCRIM' | 'TOURNAMENT',
+        tournamentType?: 'TOURNAMENT',
         maxTeams?: number,
         entryFee?: number,
         prizePool?: number,
@@ -38,7 +38,7 @@ export class TournamentService extends BaseService {
                 id: tournamentId,
                 name: data.name,
                 game: data.game,
-                tournamentType: data.tournamentType || 'PAID_SCRIM',
+                tournamentType: data.tournamentType || 'TOURNAMENT',
                 maxTeams: data.maxTeams,
                 entryFee: data.entryFee,
                 prizePool: data.prizePool,

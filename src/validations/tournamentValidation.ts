@@ -11,7 +11,7 @@ export const createTournamentSchema = z.object({
         .min(2, 'Game name must be at least 2 characters')
         .max(50, 'Game name must be at most 50 characters'),
     
-    tournamentType: z.enum(['PAID_SCRIM', 'TOURNAMENT'] as const).optional(),
+    tournamentType: z.enum([ 'TOURNAMENT'] as const).optional(),
     
     maxTeams: z.number()
         .int('Max teams must be an integer')

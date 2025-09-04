@@ -652,10 +652,10 @@ generateSessionToken(userId: string, phoneNumber: string, fromCache: boolean = f
             //fallback to JWT verification if not in cache
             const payload = jwt.verify(token, this.getJWTSecret()) as AccessTokenPayload;
 
-        if(payload.type !== 'access') {
-    this.logger.error(`Invalid Access Token Type`);
-    throw new Error('Invalid access token type');
-}
+        if (payload.type !== 'access') {
+            this.logger.error(`Invalid Access Token Type`);
+            throw new Error('Invalid access token type');
+        }
 return payload;
         } catch (error) {
     this.logger.error('Failed to verify access token:', error);
@@ -773,7 +773,7 @@ const newAccessTokenPayload: AccessTokenPayload = {
 
 const newAccessToken = jwt.sign(newAccessTokenPayload, this.getJWTSecret());
 
-//store new access token in the redis
+//store new access token in the redis with 30 min ttl
 await redis.setObject(`access_token:${newAccessToken}`, newAccessTokenPayload, 1800); //30 min ttl
 
 //update session last used time

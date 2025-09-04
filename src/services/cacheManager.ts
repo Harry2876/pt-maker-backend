@@ -44,10 +44,10 @@ export class CacheManager {
         await redis.setObject(activityKey, activity, 86400); // 24 hours
     }
 
-        // Calculate session priority based on usage
+    // Calculate session priority based on usage
     private static calculatePriority(accessCount: number, lastAccessed: number): number {
         const hoursSinceAccess = (Date.now() - lastAccessed) / (1000 * 60 * 60);
-        
+
         if (accessCount > 50 && hoursSinceAccess < 1) return 10; // Very active
         if (accessCount > 20 && hoursSinceAccess < 6) return 8;  // Active
         if (accessCount > 5 && hoursSinceAccess < 24) return 6;  // Moderate
@@ -55,13 +55,13 @@ export class CacheManager {
         return 2; // Inactive
     }
 
-        // Get sessions to evict based on LRU + priority
+    // Get sessions to evict based on LRU + priority
     static async getSessionsToEvict(maxSessions: number = 10000): Promise<string[]> {
         const pattern = 'session:*';
         const sessionKeys = await redis.keys(pattern);
-        
+
         if (sessionKeys.length <= maxSessions) return [];
-        
+
         const sessionsWithActivity = await Promise.all(
             sessionKeys.map(async (key) => {
                 const sessionId = key.replace('session:', '');
@@ -74,36 +74,36 @@ export class CacheManager {
                 };
             })
         );
-        
+
         // Sort by priority (ascending) then by lastAccessed (ascending) 
         sessionsWithActivity.sort((a, b) => {
             if (a.priority !== b.priority) return a.priority - b.priority;
             return a.lastAccessed - b.lastAccessed;
         });
-        
+
         const toEvict = sessionsWithActivity
             .slice(0, sessionKeys.length - maxSessions)
             .map(s => s.sessionId);
-            
+
         logger.info(`Identified ${toEvict.length} sessions for LRU eviction`);
         return toEvict;
     }
 
-        // Evict sessions and related data
+    // Evict sessions and related data
     static async evictSessions(sessionIds: string[]): Promise<void> {
         for (const sessionId of sessionIds) {
             try {
                 // Get session data to find related tokens
                 const sessionData = await redis.getObject<any>(`session:${sessionId}`);
-                
+
                 if (sessionData?.refreshToken) {
                     await redis.delete(`refresh_token:${sessionData.refreshToken}`);
                 }
-                
+
                 // Remove session and activity data
                 await redis.delete(`session:${sessionId}`);
                 await redis.delete(`activity:${sessionId}`);
-                
+
                 logger.info(`Evicted session ${sessionId} from cache`);
             } catch (error) {
                 logger.error(`Failed to evict session ${sessionId}:`, error);

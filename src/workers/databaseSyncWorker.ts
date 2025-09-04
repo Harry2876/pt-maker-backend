@@ -45,6 +45,18 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncScreenshotDelete(entityId, data);
                 case "BATCH_SYNC":
                     return await this.processBatchSync();
+                case 'SCORING_RULE_CREATE':
+                    return await this.syncScoringRuleCreate(data);
+                case 'SCORING_RULE_UPDATE':
+                    return await this.syncScoringRuleUpdate(entityId, data);
+                case 'DELETE_SCORING_RULE':
+                    return await this.syncScoringRuleDelete(entityId);
+                case 'MATCH_RESULT_CREATE':
+                    return await this.syncMatchResultCreate(data);
+                case 'MATCH_RESULT_UPDATE':
+                    return await this.syncMatchResultUpdate(entityId, data);
+                case 'DELETE_MATCH_RESULT':
+                    return await this.syncMatchResultDelete(entityId);
                 default:
                     throw new Error(`Unknown sync type: ${type}`);
             }
@@ -234,111 +246,111 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncGroupCreate(groupData: any): Promise<void> {
-    try {
-        const group = await db.group.create({
-            data: {
-                id: groupData.id,
-                name: groupData.name,
-                maxTeams: groupData.maxTeams,
-                qualificationSpots: groupData.qualificationSpots,
-                tournamentId: groupData.tournamentId,
-                createdAt: new Date(groupData.createdAt),
-                updatedAt: new Date(groupData.updatedAt || groupData.createdAt)
-            }
-        });
+        try {
+            const group = await db.group.create({
+                data: {
+                    id: groupData.id,
+                    name: groupData.name,
+                    maxTeams: groupData.maxTeams,
+                    qualificationSpots: groupData.qualificationSpots,
+                    tournamentId: groupData.tournamentId,
+                    createdAt: new Date(groupData.createdAt),
+                    updatedAt: new Date(groupData.updatedAt || groupData.createdAt)
+                }
+            });
 
-        await redis.hset(`group:${group.id}`, 'dbStatus', 'SYNCED');
-        logger.info(`Group ${group.id} created and synced to database successfully`);
-    } catch (error) {
-        if ((error as any).code === 'P2002') {
-            logger.error(`Group ${groupData.id} already exists in database`);
-            await redis.hset(`group:${groupData.id}`, 'dbStatus', 'SYNCED');
-        } else {
-            logger.error(`Error creating group ${groupData.id}:`, error);
+            await redis.hset(`group:${group.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Group ${group.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Group ${groupData.id} already exists in database`);
+                await redis.hset(`group:${groupData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating group ${groupData.id}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncGroupUpdate(groupId: string, updateData: any): Promise<void> {
+        try {
+            await db.group.update({
+                where: { id: groupId },
+                data: {
+                    ...updateData,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`group:${groupId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Group ${groupId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating group ${groupId}:`, error);
             throw error;
         }
     }
-}
 
-private async syncGroupUpdate(groupId: string, updateData: any): Promise<void> {
-    try {
-        await db.group.update({
-            where: { id: groupId },
-            data: {
-                ...updateData,
-                updatedAt: new Date()
-            }
-        });
+    private async syncGroupDelete(groupId: string): Promise<void> {
+        try {
+            await db.group.delete({
+                where: { id: groupId }
+            });
 
-        await redis.hset(`group:${groupId}`, 'dbStatus', 'SYNCED');
-        logger.info(`Group ${groupId} updated successfully in database`);
-    } catch (error) {
-        logger.error(`Error updating group ${groupId}:`, error);
-        throw error;
-    }
-}
-
-private async syncGroupDelete(groupId: string): Promise<void> {
-    try {
-        await db.group.delete({
-            where: { id: groupId }
-        });
-
-        await redis.delete(`group:${groupId}`);
-        logger.info(`Group ${groupId} deleted successfully from database`);
-    } catch (error) {
-        logger.error(`Error deleting group ${groupId}:`, error);
-        throw error;
-    }
-}
-
-private async syncTeamRegistrationCreate(registrationData: any): Promise<void> {
-    try {
-        const registration = await db.teamRegistration.create({
-            data: {
-                id: registrationData.id,
-                teamName: registrationData.teamName,
-                contactInfo: registrationData.contactInfo,
-                registrationStatus: registrationData.registrationStatus,
-                finalPosition: registrationData.finalPosition,
-                totalPoints: registrationData.totalPoints,
-                tournamentId: registrationData.tournamentId,
-                groupId: registrationData.groupId,
-                createdAt: new Date(registrationData.createdAt),
-                updatedAt: new Date(registrationData.updatedAt || registrationData.createdAt)
-            }
-        });
-
-        await redis.hset(`teamRegistration:${registration.id}`, 'dbStatus', 'SYNCED');
-        logger.info(`Team registration ${registration.id} created and synced to database successfully`);
-    } catch (error) {
-        if ((error as any).code === 'P2002') {
-            logger.error(`Team registration ${registrationData.id} already exists in database`);
-            await redis.hset(`teamRegistration:${registrationData.id}`, 'dbStatus', 'SYNCED');
-        } else {
-            logger.error(`Error creating team registration ${registrationData.id}:`, error);
+            await redis.delete(`group:${groupId}`);
+            logger.info(`Group ${groupId} deleted successfully from database`);
+        } catch (error) {
+            logger.error(`Error deleting group ${groupId}:`, error);
             throw error;
         }
     }
-}
 
-private async syncTeamRegistrationUpdate(registrationId: string, updateData: any): Promise<void> {
-    try {
-        await db.teamRegistration.update({
-            where: { id: registrationId },
-            data: {
-                ...updateData,
-                updatedAt: new Date()
+    private async syncTeamRegistrationCreate(registrationData: any): Promise<void> {
+        try {
+            const registration = await db.teamRegistration.create({
+                data: {
+                    id: registrationData.id,
+                    teamName: registrationData.teamName,
+                    contactInfo: registrationData.contactInfo,
+                    registrationStatus: registrationData.registrationStatus,
+                    finalPosition: registrationData.finalPosition,
+                    totalPoints: registrationData.totalPoints,
+                    tournamentId: registrationData.tournamentId,
+                    groupId: registrationData.groupId,
+                    createdAt: new Date(registrationData.createdAt),
+                    updatedAt: new Date(registrationData.updatedAt || registrationData.createdAt)
+                }
+            });
+
+            await redis.hset(`teamRegistration:${registration.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Team registration ${registration.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Team registration ${registrationData.id} already exists in database`);
+                await redis.hset(`teamRegistration:${registrationData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating team registration ${registrationData.id}:`, error);
+                throw error;
             }
-        });
-
-        await redis.hset(`teamRegistration:${registrationId}`, 'dbStatus', 'SYNCED');
-        logger.info(`Team registration ${registrationId} updated successfully in database`);
-    } catch (error) {
-        logger.error(`Error updating team registration ${registrationId}:`, error);
-        throw error;
+        }
     }
-}
+
+    private async syncTeamRegistrationUpdate(registrationId: string, updateData: any): Promise<void> {
+        try {
+            await db.teamRegistration.update({
+                where: { id: registrationId },
+                data: {
+                    ...updateData,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`teamRegistration:${registrationId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Team registration ${registrationId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating team registration ${registrationId}:`, error);
+            throw error;
+        }
+    }
 
     private async processBatchSync(): Promise<void> {
         logger.info('Starting batch sync process');
@@ -376,5 +388,179 @@ private async syncTeamRegistrationUpdate(registrationId: string, updateData: any
         }
 
         logger.info(`Batch sync process completed. Total items synced to database: ${syncCount}`);
+    }
+    private async syncScoringRuleCreate(scoringRuleData: any): Promise<void> {
+        try {
+            const scoringRule = await db.scoringRule.create({
+                data: {
+                    id: scoringRuleData.id,
+                    tournamentId: scoringRuleData.tournamentId,
+                    ruleName: scoringRuleData.ruleName,
+                    ruleType: scoringRuleData.ruleType,
+                    isActive: scoringRuleData.isActive,
+                    priority: scoringRuleData.priority,
+                    killPoints: scoringRuleData.killPoints,
+                    positionMultiplier: scoringRuleData.positionMultiplier,
+                    customFormula: scoringRuleData.customFormula,
+                    description: scoringRuleData.description,
+                    createdBy: scoringRuleData.createdBy,
+                    createdAt: new Date(scoringRuleData.createdAt),
+                    updatedAt: new Date(scoringRuleData.updatedAt)
+                }
+            });
+
+            await redis.hset(`scoringRule:${scoringRule.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Scoring rule ${scoringRule.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Scoring rule ${scoringRuleData.id} already exists in database`);
+                await redis.hset(`scoringRule:${scoringRuleData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating scoring rule ${scoringRuleData.id}:`, error);
+            }
+            throw error;
+        }
+    }
+
+    private async syncScoringRuleUpdate(ruleId: string, updateData: any): Promise<void> {
+        try {
+            await db.scoringRule.update({
+                where: { id: ruleId },
+                data: {
+                    ...updateData,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`scoringRule:${ruleId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Scoring rule ${ruleId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating scoring rule ${ruleId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncScoringRuleDelete(ruleId: string): Promise<void> {
+        try {
+            await db.scoringRule.delete({
+                where: { id: ruleId }
+            });
+
+            await redis.delete(`scoringRule:${ruleId}`);
+            logger.info(`Scoring rule ${ruleId} deleted from database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2025') {
+                logger.warn(`Scoring rule ${ruleId} not found in database, considering as deleted`);
+            } else {
+                logger.error(`Error deleting scoring rule ${ruleId}:`, error);
+                throw error;
+            }
+        }
+    }
+    private async syncMatchResultCreate(matchResultData: any): Promise<void> {
+        try {
+            // Extract team results for database storage
+            const teamResults = matchResultData.teamResults || [];
+
+            // Create match results in database for each team
+            for (const teamResult of teamResults) {
+                await db.matchResult.create({
+                    data: {
+                        id: `${matchResultData.id}_${teamResult.teamRegistrationId}`,
+                        matchId: matchResultData.matchId,
+                        teamRegistrationId: teamResult.teamRegistrationId,
+                        slotNumber: teamResult.slotNumber,
+                        position: teamResult.position,
+                        totalKills: teamResult.kills,
+                        killPoints: teamResult.scoreBreakdown?.find((s: any) => s.ruleType === 'KILL_POINTS')?.points || 0,
+                        positionPoints: teamResult.scoreBreakdown?.find((s: any) => s.ruleType === 'POSITION_POINTS')?.points || 0,
+                        totalMatchPoints: teamResult.totalScore,
+                        playerResults: {
+                            teamName: teamResult.teamName,
+                            kills: teamResult.kills,
+                            damage: teamResult.damage,
+                            scoreBreakdown: teamResult.scoreBreakdown
+                        },
+                        verifiedBy: matchResultData.verifiedBy,
+                        verifiedAt: matchResultData.verifiedAt ? new Date(matchResultData.verifiedAt) : null
+                    }
+                });
+            }
+
+            await redis.hset(`matchResult:${matchResultData.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Match result ${matchResultData.id} synced to database successfully`);
+
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Match result ${matchResultData.id} already exists in database`);
+                await redis.hset(`matchResult:${matchResultData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating match result ${matchResultData.id}:`, error);
+            }
+            throw error;
+        }
+    }
+
+    private async syncMatchResultUpdate(resultId: string, updateData: any): Promise<void> {
+        try {
+            // Update team results in database
+            if (updateData.teamResults) {
+                for (const teamResult of updateData.teamResults) {
+                    await db.matchResult.updateMany({
+                        where: {
+                            matchId: updateData.matchId,
+                            teamRegistrationId: teamResult.teamRegistrationId
+                        },
+                        data: {
+                            position: teamResult.position,
+                            totalKills: teamResult.kills,
+                            killPoints: teamResult.scoreBreakdown?.find((s: any) => s.ruleType === 'KILL_POINTS')?.points || 0,
+                            positionPoints: teamResult.scoreBreakdown?.find((s: any) => s.ruleType === 'POSITION_POINTS')?.points || 0,
+                            totalMatchPoints: teamResult.totalScore,
+                            playerResults: {
+                                teamName: teamResult.teamName,
+                                kills: teamResult.kills,
+                                damage: teamResult.damage,
+                                scoreBreakdown: teamResult.scoreBreakdown
+                            },
+                            verifiedBy: updateData.verifiedBy,
+                            verifiedAt: updateData.verifiedAt ? new Date(updateData.verifiedAt) : null,
+                            updatedAt: new Date()
+                        }
+                    });
+                }
+            }
+
+            await redis.hset(`matchResult:${resultId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Match result ${resultId} updated successfully in database`);
+
+        } catch (error) {
+            logger.error(`Error updating match result ${resultId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncMatchResultDelete(resultId: string): Promise<void> {
+        try {
+            // Delete all match results for this result ID
+            await db.matchResult.deleteMany({
+                where: {
+                    id: {
+                        startsWith: resultId
+                    }
+                }
+            });
+
+            await redis.delete(`matchResult:${resultId}`);
+            logger.info(`Match result ${resultId} deleted from database successfully`);
+
+        } catch (error) {
+            if ((error as any).code === 'P2025') {
+                logger.warn(`Match result ${resultId} not found in database, considering as deleted`);
+            } else {
+                logger.error(`Error deleting match result ${resultId}:`, error);
+                throw error;
+            }
+        }
     }
 }

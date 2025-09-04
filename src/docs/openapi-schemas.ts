@@ -114,7 +114,7 @@ export const openApiSchemas = {
       },
       tournamentType: {
         type: 'string',
-        enum: ['PAID_SCRIM', 'TOURNAMENT'],
+        enum: ['TOURNAMENT'],
         example: 'TOURNAMENT'
       },
       maxTeams: {

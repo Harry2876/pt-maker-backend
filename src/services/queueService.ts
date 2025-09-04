@@ -1,5 +1,5 @@
 import { otpQueue, screenshotQueue, emailQueue, userSyncQueue, databaseSyncQueue, batchSyncQueue } from "../config/queues";
-import { OTPSendingJob, ScreenshotProcessingJob, EmailNotificationJob, DatabaseSyncJob } from "../types/queue";
+import { OTPSendingJob, ScreenshotProcessingJob, EmailNotificationJob, DatabaseSyncJob, EntityType } from "../types/queue";
 import logger from "../utils/logger";
 
 export class QueueService {
@@ -89,7 +89,7 @@ export class QueueService {
         }
     }
 
-    static async syncImmediately(entityType: "TOURNAMENT" | "MATCH" | "SCREENSHOT" | "GROUP" | "TEAM_REGISTRATION", entityId: string, data: any, userId: string): Promise<void> {
+    static async syncImmediately(entityType:EntityType, entityId: string, data: any, userId: string): Promise<void> {
         try {
             await databaseSyncQueue.add('sync-to-db', {
                 type: `${entityType}_CREATE`,

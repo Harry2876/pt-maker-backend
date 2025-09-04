@@ -74,6 +74,38 @@ enum DataFieldType {
   TOURNAMENT_NAME // Tournament name field
 }
 
+enum TournamentFormat {
+  ELIMINATION
+  ROUND_ROBIN
+  MIXED
+}
+
+enum StageFormat {
+  ELIMINATION
+  ROUND_ROBIN
+}
+
+enum ResultStatus {
+  PENDING
+  PROCESSED
+  VERIFIED
+  MANUAL_ENTRY
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  RESULT_VERIFIER
+  VIEWER
+}
+
+enum CollaboratorStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
 enum TextAlignment {
   LEFT
   CENTER
@@ -112,10 +144,160 @@ model User {
   activityLogs ActivityLog[]
 
   // Better Auth relations (keeping for compatibility)
-  accounts Account[]
-  sessions Session[]
+  accounts             Account[]
+  sessions             Session[]
+  collaborations       TournamentCollaborator[]
+  invitedCollaborators TournamentCollaborator[] @relation("InvitedCollaborators")
+  slotAssignments      SlotAssignment[]
+  verifiedResults      MatchResult[]
 
   @@map("users")
+}
+
+// Multi-user collaboration for tournaments
+model TournamentCollaborator {
+  id           String             @id @default(cuid())
+  tournamentId String
+  userId       String
+  role         UserRole           @default(VIEWER)
+  status       CollaboratorStatus @default(PENDING)
+  invitedBy    String // User ID who sent invitation
+  invitedAt    DateTime           @default(now())
+  acceptedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inviter    User       @relation("InvitedCollaborators", fields: [invitedBy], references: [id])
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_collaborators")
+}
+
+// Tournament stages for multi-round tournaments
+model TournamentStage {
+  id                 String      @id @default(cuid())
+  name               String // "Round 1", "Quarter Finals", etc.
+  stageNumber        Int
+  totalGroups        Int         @default(1)
+  qualificationSpots Int         @default(8) // Teams qualifying to next stage
+  stageFormat        StageFormat @default(ELIMINATION)
+  isActive           Boolean     @default(false)
+  isCompleted        Boolean     @default(false)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  groups       Group[]
+
+  @@map("tournament_stages")
+}
+
+// Global player database for analytics
+model Player {
+  id           String   @id @default(cuid())
+  name         String
+  gameUuid     String? // BGMI character UUID
+  email        String?
+  phoneNumber  String?
+  totalMatches Int      @default(0)
+  totalKills   Int      @default(0)
+  totalPoints  Int      @default(0)
+  averageKills Float    @default(0)
+  bestPosition Int? // Best finishing position
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  playerStats PlayerStat[]
+
+  @@map("players")
+}
+
+// Player statistics per tournament
+model PlayerStat {
+  id           String @id @default(cuid())
+  playerId     String
+  tournamentId String
+  teamName     String
+  matches      Int    @default(0)
+  totalKills   Int    @default(0)
+  totalPoints  Int    @default(0)
+  averageKills Float  @default(0)
+  bestPosition Int?
+
+  player     Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, tournamentId])
+  @@map("player_stats")
+}
+
+// Slot assignments for each group
+model SlotAssignment {
+  id                 String   @id @default(cuid())
+  slotNumber         Int // 1-25
+  groupId            String
+  teamRegistrationId String? // null for empty slots
+  isActive           Boolean  @default(true)
+  assignedAt         DateTime @default(now())
+  assignedBy         String // User who assigned the slot
+
+  group            Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  teamRegistration TeamRegistration? @relation(fields: [teamRegistrationId], references: [id], onDelete: SetNull)
+  assignedByUser   User              @relation(fields: [assignedBy], references: [id])
+
+  @@unique([groupId, slotNumber])
+  @@map("slot_assignments")
+}
+
+// Custom scoring rules per tournament
+model ScoringRule {
+  id                 String   @id @default(cuid())
+  tournamentId       String
+  ruleName           String
+  ruleType           String // 'KILL_POINTS' | 'POSITION_POINTS' | 'SURVIVAL_TIME' | 'CUSTOM_FORMULA'
+  isActive           Boolean  @default(true)
+  priority           Int      @default(1)
+  killPoints         Int      @default(1)
+  positionMultiplier Float    @default(1.0)
+  customFormula      String?
+  description        String?
+  createdBy          String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, priority]) // Prevent duplicate priorities
+  @@map("scoring_rules")
+}
+
+// Match results for each team per match
+model MatchResult {
+  id                 String    @id @default(cuid())
+  matchId            String
+  teamRegistrationId String
+  slotNumber         Int
+  position           Int // Final position (1-25)
+  totalKills         Int // Sum of all player kills
+  killPoints         Int // Calculated kill points
+  positionPoints     Int // Calculated position points
+  totalMatchPoints   Int // killPoints + positionPoints
+  playerResults      Json // [{playerName, kills}, ...] 
+  verifiedBy         String? // User who verified the results
+  verifiedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  match            Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  teamRegistration TeamRegistration @relation(fields: [teamRegistrationId], references: [id], onDelete: Cascade)
+  verifier         User?            @relation(fields: [verifiedBy], references: [id])
+
+  @@unique([matchId, teamRegistrationId])
+  @@map("match_results")
 }
 
 // Subscription Plans (Free, Pro, Enterprise)
@@ -138,23 +320,33 @@ model Subscription {
 
 // Tournament Events (e.g., "BGMI Championship 2024")
 model Tournament {
-  id               String           @id @default(cuid())
-  name             String
-  game             String
-  tournamentType   TournamentType   @default(PAID_SCRIM) // Add this
-  maxTeams         Int?             // Total teams for tournament
-  entryFee         Float?           // Entry fee per team
-  prizePool        Float?           // Total prize pool
-  status           TournamentStatus @default(UPCOMING)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                 String           @id @default(cuid())
+  name               String
+  game               String
+  tournamentType     TournamentType   @default(TOURNAMENT) // Add this
+  maxTeams           Int? // Total teams for tournament
+  entryFee           Float? // Entry fee per team
+  prizePool          Float? // Total prize pool
+  status             TournamentStatus @default(UPCOMING)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  totalStages        Int              @default(1)
+  currentStage       Int              @default(1)
+  tournamentFormat   TournamentFormat @default(ELIMINATION)
+  maxTeamsPerGroup   Int              @default(25)
+  registrationFields Json? // Custom fields like player names, UUIDs
+  allowCollaborators Boolean          @default(false)
 
   // Relations
   userId            String
-  user              User             @relation(fields: [userId], references: [id])
+  user              User                     @relation(fields: [userId], references: [id])
   matches           Match[]
-  groups            Group[]          // Add this
-  teamRegistrations TeamRegistration[] // Add this
+  groups            Group[]
+  teamRegistrations TeamRegistration[]
+  collaborators     TournamentCollaborator[]
+  stages            TournamentStage[]
+  scoringRule       ScoringRule[]
+  playerStats       PlayerStat[]
 
   @@map("tournaments")
 }
@@ -176,20 +368,23 @@ model Team {
 
 // Individual matches within tournaments
 model Match {
-  id            String      @id @default(cuid())
-  matchDate     DateTime    @default(now())
+  id            String       @id @default(cuid())
+  matchDate     DateTime     @default(now())
   matchNumber   Int
-  status        MatchStatus @default(PENDING_PROCESSING)
+  status        MatchStatus  @default(PENDING_PROCESSING)
   processedData Json?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  stageNumber   Int?
+  resultStatus  ResultStatus @default(PENDING)
 
   // Relations
   tournamentId String
-  tournament   Tournament   @relation(fields: [tournamentId], references: [id])
-  groupId      String?      // Add this for group-specific matches
-  group        Group?       @relation(fields: [groupId], references: [id]) // Add this
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id])
+  groupId      String? // Add this for group-specific matches
+  group        Group?        @relation(fields: [groupId], references: [id]) // Add this
   screenshots  Screenshot[]
+  matchResults MatchResult[]
 
   @@map("matches")
 }
@@ -256,37 +451,47 @@ model TemplateDataField {
 }
 
 model Group {
-  id                String   @id @default(cuid())
-  name              String   // "Group A", "Group B", etc.
-  maxTeams          Int      @default(24) // Max teams per group
-  qualificationSpots Int     @default(8)  // Top N teams qualify
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  name               String // "Group A", "Group B", etc.
+  maxTeams           Int      @default(24) // Max teams per group
+  qualificationSpots Int      @default(8) // Top N teams qualify
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  stageId            String?
+  matchCount         Int      @default(1)
+  maxSlots           Int      @default(25)
 
   // Relations
   tournamentId      String
-  tournament        Tournament @relation(fields: [tournamentId], references: [id])
+  tournament        Tournament         @relation(fields: [tournamentId], references: [id])
   teamRegistrations TeamRegistration[]
   matches           Match[]
+  stage             TournamentStage?   @relation(fields: [stageId], references: [id])
+  slotAssignments   SlotAssignment[]
 
   @@map("groups")
 }
 
 model TeamRegistration {
-  id           String   @id @default(cuid())
-  teamName     String
-  contactInfo  String   // Phone/email
-  registrationStatus String @default("PENDING") // PENDING, CONFIRMED, QUALIFIED, ELIMINATED
-  finalPosition Int?    // Final position in group
-  totalPoints   Int     @default(0) // Cumulative points
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  teamName           String
+  contactInfo        String // Phone/email
+  registrationStatus String   @default("PENDING") // PENDING, CONFIRMED, QUALIFIED, ELIMINATED
+  finalPosition      Int? // Final position in group
+  totalPoints        Int      @default(0) // Cumulative points
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  playerDetails      Json? // [{name, uuid, email}, ...]
+  currentStage       Int      @default(1)
+  slotNumber         Int? // Current assigned slot
 
   // Relations
-  tournamentId String
-  tournament   Tournament @relation(fields: [tournamentId], references: [id])
-  groupId      String?
-  group        Group?     @relation(fields: [groupId], references: [id])
+  tournamentId    String
+  tournament      Tournament       @relation(fields: [tournamentId], references: [id])
+  groupId         String?
+  group           Group?           @relation(fields: [groupId], references: [id])
+  slotAssignments SlotAssignment[]
+  matchResults    MatchResult[]
 
   @@map("team_registrations")
 }
@@ -374,6 +579,5 @@ model VerificationToken {
 
 // Add new enum
 enum TournamentType {
-  PAID_SCRIM        // 3 matches, same teams
-  TOURNAMENT        // Multiple groups, qualification system
+  TOURNAMENT // Multiple groups, qualification system
 }

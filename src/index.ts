@@ -8,6 +8,7 @@ import authRouter from './routes/authRoutes';
 import tournamentRouter from './routes/tournamentRoutes';
 import matchRouter from './routes/matchRoutes';
 import uploadRouter from './routes/uploadRoutes';
+import { matchResultRouter } from './routes/matchResultRoutes';
 import groupRouter from './routes/groupRoutes';                      // Add this
 import teamRegistrationRouter from './routes/teamRegistrationRoutes';
 import adminRouter from './routes/adminRoutes';
@@ -189,6 +190,7 @@ app.use('/api/v1/matches', matchRouter);
 app.use('/api/v1/uploads', uploadRouter);
 app.use('/api/v1/groups', groupRouter);
 app.use('/api/v1/team-registrations', teamRegistrationRouter);
+app.use('/api/v1', matchResultRouter);
 // app.use('/api/v1/admin', adminRouter);
 
 // API info endpoint
