@@ -32,7 +32,7 @@ const PORT = process.env.PORT || 3000;
 // Configure CORS securely
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production'
-        ? ['https://yourdomain.com', 'https://www.yourdomain.com']  // Replace with your frontend domains
+        ? ['https://serverscrymz.me', 'https://www.serverscrymz.me']  // Replace with your frontend domains
         : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'], // Dev domains
     credentials: true, // Allow cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
