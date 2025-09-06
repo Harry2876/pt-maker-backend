@@ -1,5 +1,5 @@
 import { BaseService } from "./baseService";
-import { TournamentStatus } from "@/generated/prisma";
+import {TournamentStatus} from "@prisma/client";
 import redis from "../config/redis";
 import { QueueService } from "./queueService";
 import { randomUUID } from "crypto";
