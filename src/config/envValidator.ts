@@ -30,6 +30,11 @@ const envSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().min(1, 'R2_SECRET_ACCESS_KEY is required'),
   R2_PUBLIC_URL: z.string().url('Invalid R2_PUBLIC_URL'),
 
+  // Swagger Security (add after existing fields)
+SWAGGER_USERNAME: z.string().min(3, 'SWAGGER_USERNAME must be at least 3 characters').optional(),
+SWAGGER_PASSWORD: z.string().min(8, 'SWAGGER_PASSWORD must be at least 8 characters').optional(),
+ENABLE_SWAGGER: z.string().transform(val => val === 'true').optional().default(false),
+
   // Security settings
   ALLOWED_ORIGINS: z.string().optional(),
   PRODUCTION_ORIGINS: z.string().optional(),

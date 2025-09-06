@@ -19,6 +19,7 @@ import { globalErrorHandler } from './middleware/commonMiddleware';
 import { validateEnvironment } from './config/envValidator';
 import swaggerUi from 'swagger-ui-express';
 import { specs } from './config/swagger';
+import { swaggerBasicAuth } from './middleware/swaggerAuth';
 
 validateEnvironment();
 
@@ -174,11 +175,14 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs,
+app.use('/api-docs', swaggerBasicAuth, swaggerUi.serve, swaggerUi.setup(specs,
     {
-        explorer:true,
+        explorer: true,
         customCss: '.swagger-ui .topbar { display: none }',
-        customSiteTitle:'BGMI Tournament API Docs'
+        customSiteTitle: 'BGMI Tournament API Docs - Secure Access',
+        swaggerOptions: {
+            persistAuthorization: true
+        }
     }
 ));
 
