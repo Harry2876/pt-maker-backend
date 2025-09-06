@@ -1,5 +1,4 @@
 import { BaseService } from './baseService';
-import { MatchStatus } from '../generated/prisma';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';

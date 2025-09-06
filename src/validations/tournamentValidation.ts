@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TournamentStatus } from '../generated/prisma';
+
 
 export const createTournamentSchema = z.object({
     name: z.string()
