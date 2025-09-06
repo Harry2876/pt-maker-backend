@@ -35,6 +35,8 @@ SWAGGER_USERNAME: z.string().min(3, 'SWAGGER_USERNAME must be at least 3 charact
 SWAGGER_PASSWORD: z.string().min(8, 'SWAGGER_PASSWORD must be at least 8 characters').optional(),
 ENABLE_SWAGGER: z.string().transform(val => val === 'true').optional().default(false),
 
+PRODUCTION_DOMAIN: z.string().optional(),
+
   // Security settings
   ALLOWED_ORIGINS: z.string().optional(),
   PRODUCTION_ORIGINS: z.string().optional(),

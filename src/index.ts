@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import logger from './utils/logger';
 import { dbManager } from './config/database';
+import healthRoutes from './routes/health';
 // Import route modules
 import authRouter from './routes/authRoutes';
 import tournamentRouter from './routes/tournamentRoutes';
@@ -141,39 +142,8 @@ app.use((req, res, next) => {
     next();
 });
 
-app.get('/test-queue', async (req, res) => {
-    try {
-        // Test Redis
-        await redis.set('test:key', 'Hello Redis!', 60);
-        const value = await redis.get('test:key');
-
-        // Test Queue
-        await QueueService.sendOTP({
-            phoneNumber: '+919876543210',
-            otp: '123456',
-            type: 'registration',
-            userId: 'test-user-123'
-        });
-
-        res.json({
-            success: true,
-            redis: { testValue: value },
-            queue: { otpJobQueued: true },
-            message: 'Redis and Queue system working!'
-        });
-    } catch (error: any) {
-        res.status(500).json({ error: error.message });
-    }
-});
-// Basic health check route
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
-    });
-});
+// Health check route
+app.use('/', healthRoutes);
 
 app.use('/api-docs', swaggerBasicAuth, swaggerUi.serve, swaggerUi.setup(specs,
     {

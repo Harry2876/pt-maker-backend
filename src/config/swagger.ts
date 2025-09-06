@@ -11,11 +11,17 @@ const options = {
       description: 'API for managing BGMI tournaments, matches, groups, and team registrations',
     },
     servers: [
-      {
-        url: `http://localhost:${env.PORT}`,
-        description: 'Development server',
-      },
-    ],
+  {
+    url: process.env.NODE_ENV === 'production' 
+      ? `https://${process.env.PRODUCTION_DOMAIN || 'yourdomain.com'}`
+      : `http://localhost:${env.PORT}`,
+    description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
+  },
+  {
+    url: `http://localhost:${env.PORT}`,
+    description: 'Development server',
+  },
+],
     components: {
       securitySchemes: {
         bearerAuth: {

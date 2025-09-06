@@ -19,6 +19,7 @@ export const env = {
   SWAGGER_USERNAME: process.env.SWAGGER_USERNAME ,
   SWAGGER_PASSWORD: process.env.SWAGGER_PASSWORD ,
   ENABLE_SWAGGER: process.env.ENABLE_SWAGGER === 'true',
+  PRODUCTION_DOMAIN: process.env.PRODUCTION_DOMAIN,
 };
 
 export default env;
