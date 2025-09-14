@@ -1,5 +1,5 @@
 import swaggerJSDoc from "swagger-jsdoc";
-import {env} from './env'
+import { env } from './env';
 import { openApiSchemas } from '../docs/openapi-schemas';
 
 const options = {
@@ -11,17 +11,13 @@ const options = {
       description: 'API for managing BGMI tournaments, matches, groups, and team registrations',
     },
     servers: [
-  {
-    url: process.env.NODE_ENV === 'production' 
-      ? `https://${process.env.PRODUCTION_DOMAIN || 'yourdomain.com'}`
-      : `http://localhost:${env.PORT}`,
-    description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
-  },
-  {
-    url: `http://localhost:${env.PORT}`,
-    description: 'Development server',
-  },
-],
+      {
+        url: process.env.NODE_ENV === 'production'
+          ? `https://${process.env.PRODUCTION_DOMAIN || 'yourdomain.com'}`
+          : `http://localhost:${env.PORT}`,
+        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
+      }
+    ],
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -38,7 +34,7 @@ const options = {
       },
     ],
   },
-  apis: ['./src/routes/*.ts', './src/controllers/*.ts'], // paths to files containing OpenAPI definitions
+  apis: ['./src/routes/*.ts'], // This will auto-scan your routes
 };
 
 export const specs = swaggerJSDoc(options);

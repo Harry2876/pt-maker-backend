@@ -2,6 +2,7 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
+import { PhoneUtils } from '../utils/phoneUtils';
 import {
     PlayerCache,
     CreatePlayerData,
@@ -40,7 +41,7 @@ export class PlayerService extends BaseService {
                 name: data.name,
                 gameUuid: data.gameUuid,
                 email: data.email,
-                phoneNumber: data.phoneNumber,
+                phoneNumber: data.phoneNumber ? PhoneUtils.normalize(data.phoneNumber) : data.phoneNumber,
                 totalMatches: 0,
                 totalKills: 0,
                 totalPoints: 0,
@@ -62,7 +63,8 @@ export class PlayerService extends BaseService {
                 await redis.set(`player:email:${data.email}`, playerId, this.CACHE_TTL);
             }
             if (data.phoneNumber) {
-                await redis.set(`player:phone:${data.phoneNumber}`, playerId, this.CACHE_TTL);
+                const normalizedPhone = PhoneUtils.normalize(data.phoneNumber);  // ✅ Normalize before Redis key
+                await redis.set(`player:phone:${normalizedPhone}`, playerId, this.CACHE_TTL);
             }
 
             // Add to global player list
@@ -229,7 +231,7 @@ export class PlayerService extends BaseService {
                 name: data.name || existing.name,
                 gameUuid: data.gameUuid || existing.gameUuid,
                 email: data.email || existing.email,
-                phoneNumber: data.phoneNumber || existing.phoneNumber,
+                phoneNumber: data.phoneNumber ? PhoneUtils.normalize(data.phoneNumber) : existing.phoneNumber,
                 totalMatches: data.totalMatches || existing.totalMatches,
                 totalKills: data.totalKills || existing.totalKills,
                 totalPoints: data.totalPoints || existing.totalPoints,
@@ -403,7 +405,9 @@ export class PlayerService extends BaseService {
                 await redis.delete(`player:email:${player.email}`);
             }
             if (player.phoneNumber) {
-                await redis.delete(`player:phone:${player.phoneNumber}`);
+                // Always normalize to ensure we delete the correct Redis key
+                const normalizedPhone = PhoneUtils.normalize(player.phoneNumber);
+                await redis.delete(`player:phone:${normalizedPhone}`);  // ✅ Consistent with storage
             }
 
             // Queue database deletion

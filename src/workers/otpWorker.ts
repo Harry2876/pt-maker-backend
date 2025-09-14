@@ -4,6 +4,8 @@ import { OTPSendingJob } from '../types/queue';
 import { Queues } from '../config/queues';
 import logger from '../utils/logger';
 import {redis} from '../config/redis';
+import { PhoneUtils } from '../utils/phoneUtils';
+import { create } from "domain";
 
 export class OTPWorker extends BaseWorker<OTPSendingJob> {
     constructor() {
@@ -34,14 +36,24 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
     }
 
     private async storeOTPInRedis(phoneNumber: string, otp: string): Promise<void> {
-        const key = `phone_otp:${phoneNumber}`;
-        const ttl = 300; // 5 minutes
-        const success = await redis.set(key, otp, ttl);
+        const normalizedPhone = PhoneUtils.normalize(phoneNumber);
+        const key = `phone_otp:${normalizedPhone}`;
+        const ttl = 180; // 3 minutes
+        const expiresAt = Date.now() + ttl * 1000; // 3 mins from now
+
+        const otpData = {
+            otp: otp,
+            expiresAt: expiresAt,
+            createdAt: Date.now(),
+            attemptsLeft:3,
+            isUsed: false
+        };
+        const success = await redis.setObject(key, otpData, ttl);
 
         if(success){
-            logger.info(`✅ OTP stored in Redis for phone ${phoneNumber}`);
+            logger.info(`✅ OTP stored in Redis for phone ${normalizedPhone}`);
         }else{
-            logger.error(`❌ Failed to store OTP in Redis for phone ${phoneNumber}`);
+            logger.error(`❌ Failed to store OTP in Redis for phone ${normalizedPhone}`);
         }
     }
 

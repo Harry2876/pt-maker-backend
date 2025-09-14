@@ -4,6 +4,21 @@ import { json, templateLiteral } from "zod";
 
 
 class RedisManager {
+
+    private sanitizeKeyForLogging(key: string): string {
+    // Hide sensitive tokens but show pattern
+    if (key.startsWith('access_token:')) {
+        return `access_token:***[HIDDEN]***`;
+    }
+    if (key.startsWith('refresh_token:')) {
+        return `refresh_token:***[HIDDEN]***`;
+    }
+    if (key.includes('session:session_')) {
+        return key.replace(/session_\d+_[a-f0-9]+/, 'session_***[HIDDEN]***');
+    }
+    // Add other sensitive patterns as needed
+    return key;
+}
     private static instance: RedisManager;
     private redisClient: Redis;
     private queueRedis: Redis;
@@ -92,10 +107,10 @@ class RedisManager {
     public async set(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
         try {
             if (ttlSeconds) {
-                logger.info(`Setting key ${key} with TTL of ${ttlSeconds} seconds`);
+                logger.info(`Setting key ${this.sanitizeKeyForLogging(key)} with TTL of ${ttlSeconds} seconds`);
                 await this.redisClient.setex(key, ttlSeconds, value);
             } else {
-                logger.info(`Setting key ${key} without TTL`);
+                logger.info(`Setting key ${this.sanitizeKeyForLogging(key)} without TTL`);
                 await this.redisClient.set(key, value);
             }
             return true;
@@ -109,15 +124,15 @@ class RedisManager {
         try {
             const jsonString = JSON.stringify(obj);
             if (ttlSeconds) {
-                logger.info(`Setting key ${key} with TTL of ${ttlSeconds} seconds`);
+                logger.info(`Setting key ${this.sanitizeKeyForLogging(key)} with TTL of ${ttlSeconds} seconds`);
                 await this.redisClient.setex(key, ttlSeconds, jsonString);
             } else {
-                logger.info(`Setting object key ${key} without TTL`);
+                logger.info(`Setting object key ${this.sanitizeKeyForLogging(key)} without TTL`);
                 await this.redisClient.set(key, jsonString);
             }
             return true;
         } catch (error) {
-            logger.error(`Error setting key ${key} for Redis`, error);
+            logger.error(`Error setting key ${this.sanitizeKeyForLogging(key)} for Redis`, error);
             return false;
         }
     }
