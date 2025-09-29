@@ -10,8 +10,10 @@ import tournamentRouter from './routes/tournamentRoutes';
 import matchRouter from './routes/matchRoutes';
 import uploadRouter from './routes/uploadRoutes';
 import { matchResultRouter } from './routes/matchResultRoutes';
-import groupRouter from './routes/groupRoutes';                      // Add this
+import groupRouter from './routes/groupRoutes';
+import tournamentStageRouter from './routes/tournamentStageRoutes';                   // Add this
 import teamRegistrationRouter from './routes/teamRegistrationRoutes';
+import teamAdvancementRouter from './routes/teamAdvancementRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
 import { WorkersManager } from './workers';
@@ -165,32 +167,10 @@ app.use('/api/v1/uploads', uploadRouter);
 app.use('/api/v1/groups', groupRouter);
 app.use('/api/v1/team-registrations', teamRegistrationRouter);
 app.use('/api/v1', matchResultRouter);
+app.use('/api/v1/tournament-stages', tournamentStageRouter);
+app.use('/api/v1/team-advancement', teamAdvancementRouter);
 // app.use('/api/v1/admin', adminRouter);
 
-// API info endpoint
-app.get('/api/v1', (req, res) => {
-    res.json({
-        message: 'BGMI Tournament API v1',
-        version: '1.0.0',
-        endpoints: {
-            auth: '/api/v1/auth',
-            tournaments: '/api/v1/tournaments',
-            matches: '/api/v1/matches',
-            uploads: '/api/v1/uploads',
-            groups: '/api/v1/groups',                           // Add this
-            teamRegistrations: '/api/v1/team-registrations',   // Add this
-            admin: '/api/v1/admin'
-        },
-        status: {
-            tournaments: 'active',
-            matches: 'active',
-            uploads: 'active',
-            groups: 'active',                                   // Add this
-            teamRegistrations: 'active',                        // Add this
-            admin: 'coming soon'
-        }
-    });
-});
 
 
 // Error handling middleware

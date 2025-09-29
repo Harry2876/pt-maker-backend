@@ -22,11 +22,13 @@ const authRouter = express.Router();
  *     summary: Send OTP to phone number
  *     description: |
  *       Sends a 6-digit OTP to the provided phone number. Auto-detects if phone is for new registration or existing user login.
- *       - For new users: Prepares for registration flow
- *       - For existing users: Prepares for OTP-based login (fallback auth method)
- *       - Supports international phone format normalization (+919876543210, 919876543210, 9876543210)
- *       - OTP expires in 5 minutes (300 seconds)
+ *       
+ *       **Features:**
+ *       - Auto-detects new vs existing user
+ *       - International phone format support (+919876543210, 919876543210, 9876543210)
+ *       - OTP expires in 3 minutes (180 seconds)
  *       - Rate limited to prevent spam
+ *       - 3 verification attempts allowed
  *     requestBody:
  *       required: true
  *       content:
@@ -42,9 +44,9 @@ const authRouter = express.Router();
  *                 minLength: 10
  *                 maxLength: 15
  *                 example: "+919876543210"
- *                 description: "Phone number in international format. Supports +919876543210, 919876543210, or 9876543210 formats"
+ *                 description: "Phone number in international format"
  *           examples:
- *             india_mobile:
+ *             indian_mobile:
  *               summary: Indian mobile number
  *               value:
  *                 phoneNumber: "+919876543210"
@@ -65,7 +67,7 @@ const authRouter = express.Router();
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "OTP sent successfully to +919876543210"
+ *                   example: "OTP sent successfully for registration"
  *                 data:
  *                   type: object
  *                   properties:
@@ -73,13 +75,35 @@ const authRouter = express.Router();
  *                       type: string
  *                       enum: [registration, login]
  *                       example: "registration"
- *                       description: "Indicates whether this is for new user registration or existing user login"
+ *                       description: "Auto-detected type based on user existence"
  *                     expiresIn:
  *                       type: number
- *                       example: 300
- *                       description: "OTP expiry time in seconds (5 minutes)"
+ *                       example: 180
+ *                       description: "OTP expiry time in seconds (3 minutes)"
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:33:00.000Z"
+ *                       description: "Exact expiration timestamp"
+ *                     attemptsAllowed:
+ *                       type: number
+ *                       example: 3
+ *                       description: "Number of verification attempts allowed"
+ *                     notice:
+ *                       type: string
+ *                       example: "OTP is valid for 3 minutes with maximum 3 verification attempts"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       400:
- *         description: Validation error - Invalid phone number format
+ *         description: Invalid phone number format
  *         content:
  *           application/json:
  *             schema:
@@ -90,12 +114,32 @@ const authRouter = express.Router();
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Invalid phone number format. Use +919876543210, 919876543210, or 9876543210"
- *                 errorCode:
- *                   type: string
- *                   example: "INVALID_PHONE_FORMAT"
+ *                   example: "Invalid phone number format"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "VALIDATION_ERROR"
+ *                     details:
+ *                       type: string
+ *                       example: "INVALID_PHONE"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       404:
- *         description: User not found (when requesting OTP for login of non-existent user)
+ *         description: User not found (only relevant for specific login OTP requests)
  *         content:
  *           application/json:
  *             schema:
@@ -106,12 +150,27 @@ const authRouter = express.Router();
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "No account found with this phone number. Please register first."
- *                 errorCode:
- *                   type: string
- *                   example: "USER_NOT_FOUND"
+ *                   example: "No account found with this phone number"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "NOT_FOUND"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       409:
- *         description: User already exists (when requesting OTP for registration of existing user)
+ *         description: User already exists (only relevant for specific registration OTP requests)
  *         content:
  *           application/json:
  *             schema:
@@ -122,12 +181,56 @@ const authRouter = express.Router();
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "User already exists with this phone number. Please use login instead."
- *                 errorCode:
- *                   type: string
- *                   example: "USER_EXISTS"
+ *                   example: "User already exists with this phone number"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "CONFLICT"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       500:
- *         description: Server error - Failed to send OTP (SMS service issue)
+ *         description: Server error - Failed to send OTP
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to send OTP"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/send-otp', 
     validateRequest(sendOTPSchema), 
@@ -269,11 +372,91 @@ authRouter.post('/send-otp',
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Invalid or expired OTP. Please try again."
- *                 errorCode:
+ *                   example: "Invalid or expired OTP"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       enum: ["INVALID_OTP", "EXPIRED_OTP", "MAX_ATTEMPTS_EXCEEDED"]
+ *                       example: "INVALID_OTP"
+ *                     details:
+ *                       type: string
+ *                       example: "OTP verification failed"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       429:
+ *         description: Too many requests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
  *                   type: string
- *                   enum: [INVALID_OTP, EXPIRED_OTP, MAX_ATTEMPTS_EXCEEDED]
- *                   example: "INVALID_OTP"
+ *                   example: "Too many OTP verification attempts"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "RATE_LIMIT"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Internal server error"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/verify-otp', 
     validateRequest(verifyOTPSchema), 
@@ -407,17 +590,54 @@ authRouter.post('/verify-otp',
  *                   example: false
  *                 message:
  *                   type: string
- *                   examples:
- *                     phone_not_verified:
- *                       value: "Phone number not verified or verification expired. Please verify OTP first."
- *                     invalid_password:
- *                       value: "Password must contain at least one uppercase letter, one lowercase letter, and one number"
- *                     invalid_username:
- *                       value: "Username can only contain letters, numbers, and underscores"
- *                 errorCode:
- *                   type: string
- *                   enum: [PHONE_NOT_VERIFIED, INVALID_PASSWORD, INVALID_USERNAME]
- *                   example: "PHONE_NOT_VERIFIED"
+ *                   example: "Phone number not verified or validation failed"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       enum: ["PHONE_NOT_VERIFIED", "INVALID_PASSWORD", "INVALID_USERNAME", "VALIDATION_ERROR"]
+ *                       example: "PHONE_NOT_VERIFIED"
+ *                     details:
+ *                       type: string
+ *                       example: "Phone number must be OTP verified within last 10 minutes"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *               examples:
+ *                 phone_not_verified:
+ *                   summary: Phone not verified
+ *                   value:
+ *                     success: false
+ *                     message: "Phone number not verified or verification expired"
+ *                     error:
+ *                       code: "PHONE_NOT_VERIFIED"
+ *                       details: "Please verify OTP first"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
+ *                 invalid_password:
+ *                   summary: Invalid password format
+ *                   value:
+ *                     success: false
+ *                     message: "Password validation failed"
+ *                     error:
+ *                       code: "INVALID_PASSWORD"
+ *                       details: "Password must contain uppercase, lowercase, and number"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
  *       409:
  *         description: Username already taken
  *         content:
@@ -431,9 +651,58 @@ authRouter.post('/verify-otp',
  *                 message:
  *                   type: string
  *                   example: "Username is already taken"
- *                 errorCode:
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "USERNAME_EXISTS"
+ *                     details:
+ *                       type: string
+ *                       example: "Please choose a different username"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
  *                   type: string
- *                   example: "USERNAME_EXISTS"
+ *                   example: "Registration failed"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/register', 
     validateRequest(registrationSchema), 
@@ -524,7 +793,59 @@ authRouter.post('/register',
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Username can only contain letters, numbers, and underscores"
+ *                   example: "Invalid username format"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "VALIDATION_ERROR"
+ *                     details:
+ *                       type: string
+ *                       example: "Username can only contain letters, numbers, and underscores"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to check username availability"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/check-username', 
     validateRequest(checkUsernameSchema), 
@@ -624,26 +945,6 @@ authRouter.post('/check-username',
  *                     type:
  *                       type: string
  *                       example: "login"
- *       401:
- *         description: Invalid credentials
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   examples:
- *                     invalid_password:
- *                       value: "Invalid phone number or password"
- *                     account_not_found:
- *                       value: "No account found with this phone number"
- *                 errorCode:
- *                   type: string
- *                   example: "INVALID_CREDENTIALS"
  *       400:
  *         description: Validation error
  *         content:
@@ -657,6 +958,148 @@ authRouter.post('/check-username',
  *                 message:
  *                   type: string
  *                   example: "Invalid phone number format"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "VALIDATION_ERROR"
+ *                     details:
+ *                       type: string
+ *                       example: "Phone number format is invalid"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid phone number or password"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INVALID_CREDENTIALS"
+ *                     details:
+ *                       type: string
+ *                       example: "Authentication failed"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *               examples:
+ *                 invalid_password:
+ *                   summary: Wrong password
+ *                   value:
+ *                     success: false
+ *                     message: "Invalid phone number or password"
+ *                     error:
+ *                       code: "INVALID_CREDENTIALS"
+ *                       details: "Password is incorrect"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
+ *                 account_not_found:
+ *                   summary: Account does not exist
+ *                   value:
+ *                     success: false
+ *                     message: "No account found with this phone number"
+ *                     error:
+ *                       code: "INVALID_CREDENTIALS"
+ *                       details: "User account not found"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
+ *       429:
+ *         description: Too many login attempts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Too many login attempts"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "RATE_LIMIT"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Login failed"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/login', 
     validateRequest(loginSchema), 
@@ -731,6 +1174,27 @@ authRouter.post('/login',
  *                 message:
  *                   type: string
  *                   example: "Auth Token Required"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "UNAUTHORIZED"
+ *                     details:
+ *                       type: string
+ *                       example: "Valid JWT token required"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       404:
  *         description: User not found
  *         content:
@@ -744,6 +1208,58 @@ authRouter.post('/login',
  *                 message:
  *                   type: string
  *                   example: "User not found"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "NOT_FOUND"
+ *                     details:
+ *                       type: string
+ *                       example: "User account does not exist"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to retrieve profile"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.get('/profile', 
     authenticateUser, 
@@ -820,11 +1336,85 @@ authRouter.get('/profile',
  *                   example: false
  *                 message:
  *                   type: string
- *                   examples:
- *                     missing:
- *                       value: "Refresh token is required"
- *                     invalid:
- *                       value: "Invalid or expired refresh token"
+ *                   example: "Invalid or expired refresh token"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       enum: ["INVALID_REFRESH_TOKEN", "EXPIRED_REFRESH_TOKEN", "MISSING_REFRESH_TOKEN"]
+ *                       example: "INVALID_REFRESH_TOKEN"
+ *                     details:
+ *                       type: string
+ *                       example: "Refresh token validation failed"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *               examples:
+ *                 missing:
+ *                   summary: Missing refresh token
+ *                   value:
+ *                     success: false
+ *                     message: "Refresh token is required"
+ *                     error:
+ *                       code: "MISSING_REFRESH_TOKEN"
+ *                       details: "No refresh token provided"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
+ *                 invalid:
+ *                   summary: Invalid refresh token
+ *                   value:
+ *                     success: false
+ *                     message: "Invalid or expired refresh token"
+ *                     error:
+ *                       code: "INVALID_REFRESH_TOKEN"
+ *                       details: "Token is malformed or expired"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to refresh token"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/refresh-token',
     validateRequest(refreshTokenSchema), 
@@ -866,6 +1456,16 @@ authRouter.post('/refresh-token',
  *                 message:
  *                   type: string
  *                   example: "Logged out successfully"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       401:
  *         description: Unauthorized - Invalid or missing token
  *         content:
@@ -879,6 +1479,58 @@ authRouter.post('/refresh-token',
  *                 message:
  *                   type: string
  *                   example: "Auth Token Required"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "UNAUTHORIZED"
+ *                     details:
+ *                       type: string
+ *                       example: "Valid JWT token required"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Logout failed"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/logout', 
     authenticateUser, 
@@ -945,7 +1597,59 @@ authRouter.post('/logout',
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Auth Token Required or User not Found"
+ *                   example: "Auth Token Required"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "UNAUTHORIZED"
+ *                     details:
+ *                       type: string
+ *                       example: "Valid JWT token required"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to logout from all devices"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 authRouter.post('/logout-all', 
     authenticateUser, 

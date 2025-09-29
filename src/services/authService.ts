@@ -839,6 +839,14 @@ export class AuthService extends BaseService {
                 this.logger.error(`Invalid Access Token Type`);
                 throw new Error('Invalid access token type');
             }
+
+            //check token expiration in fallback
+            if (payload.exp < Math.floor(Date.now()/1000)) {
+                this.logger.error(`Access Token Expired in JWT Fallback Verification`);
+                throw new Error(`Access Token Expired`);
+            }
+
+            this.logger.info(`Access Token verified from JWT Fallback ( Redis Cache Miss)`);
             return payload;
         } catch (error) {
             this.logger.error('Failed to verify access token:', error);
@@ -931,7 +939,7 @@ export class AuthService extends BaseService {
         }
     }
 
-    async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresIn: number }> {
+    async refreshAccessToken(refreshToken: string, currentAccessToken?: string): Promise<{ accessToken: string; expiresIn: number; wasExpired: boolean }> {
         try {
             //verify refresh token using redis pattern
             const refreshPayload = await this.verifyRefreshToken(refreshToken);
@@ -941,6 +949,22 @@ export class AuthService extends BaseService {
             if (!sessionData || !sessionData.isActive) {
                 this.logger.error(`User session not found or is not active`);
                 throw new Error(`User session not found or is not active`);
+            }
+
+            //check if current access token is expired
+            let wasExpired = true;
+            if (currentAccessToken) {
+                try {
+                    await this.verifySessionToken(currentAccessToken);
+
+                    //if verification succeeds, token is still valid
+                    this.logger.warn(`Refresh attempted with valid access token for session ${refreshPayload.sessionId}`);
+                    wasExpired = false;
+                } catch (error) {
+                    //token is expired or invalid, proceed to refresh
+                    this.logger.info(`Current access token is expired or invalid, proceeding to refresh`);
+                    wasExpired = true;
+                }
             }
 
             //generate a new access token
@@ -968,7 +992,8 @@ export class AuthService extends BaseService {
             this.logger.info(`✅ Refreshed access token for session ${refreshPayload.sessionId}`);
             return {
                 accessToken: newAccessToken,
-                expiresIn: 1800
+                expiresIn: 1800,
+                wasExpired: wasExpired
             };
         } catch (error) {
             this.logger.error('Failed to refresh access token:', error);

@@ -243,11 +243,15 @@ export class AuthController {
     static refreshToken = asyncHandler(async (req: Request, res: Response) => {
     const { refreshToken } = req.body;
 
+    //extract the current access token from the header
+    const authHeader = req.headers.authorization;
+    let currentAccessToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
+
     if (!refreshToken) {
         return res.status(400).json(ResponseHelper.validationError('Refresh token is required'));
     }
 
-    const result = await authService.refreshAccessToken(refreshToken);
+    const result = await authService.refreshAccessToken(refreshToken, currentAccessToken);
 
     return res.json(ResponseHelper.success('Token refreshed successfully', result));
 });

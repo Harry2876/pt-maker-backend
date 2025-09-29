@@ -2,16 +2,20 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
-import { 
-    SlotAssignmentCache, 
-    CreateSlotAssignmentData, 
+import {
+    SlotAssignmentCache,
+    CreateSlotAssignmentData,
     UpdateSlotAssignmentData,
     BulkSlotAssignmentData,
     SlotAvailability,
     GroupSlotLayout,
     AutoSlotAssignmentConfig,
-    AutoSlotAssignmentResult
+    AutoSlotAssignmentResult,
+    SlotType,
+    TeamPriority
 } from '../types/slotAssignment';
+import { ca } from 'zod/v4/locales';
+import { TeamRegistrationCache } from '@/types/teamRegistration';
 
 export class SlotManagementService extends BaseService {
     private CACHE_TTL = 300; // 5 minutes
@@ -41,6 +45,7 @@ export class SlotManagementService extends BaseService {
                 teamRegistrationId: data.teamRegistrationId,
                 teamName: '', // Will be populated from DB sync
                 isActive: true,
+                slotType: data.slotType || SlotType.TEAM_SLOT,
                 assignedAt: new Date().toISOString(),
                 assignedBy,
                 assignedByName: '', // Will be populated from DB sync
@@ -89,6 +94,7 @@ export class SlotManagementService extends BaseService {
                         teamRegistrationId: undefined,
                         teamName: undefined,
                         isActive: true,
+                        slotType: SlotType.TEAM_SLOT,
                         assignedAt: '',
                         assignedBy: '',
                         assignedByName: undefined,
@@ -177,9 +183,9 @@ export class SlotManagementService extends BaseService {
     // Remove team from slot (make slot empty)
     async clearSlot(groupId: string, slotNumber: number, clearedBy: string) {
         try {
-            return await this.updateSlot(groupId, slotNumber, { 
+            return await this.updateSlot(groupId, slotNumber, {
                 teamRegistrationId: undefined,
-                isActive: true 
+                isActive: true
             }, clearedBy);
         } catch (error) {
             this.handleError(error, 'Clear slot');
@@ -191,7 +197,7 @@ export class SlotManagementService extends BaseService {
     async getAvailableSlots(groupId: string): Promise<SlotAvailability> {
         try {
             const groupLayout = await this.getGroupSlots(groupId);
-            
+
             const availableSlots = groupLayout.slots
                 .filter(slot => !slot.teamRegistrationId)
                 .map(slot => slot.slotNumber);
@@ -241,10 +247,17 @@ export class SlotManagementService extends BaseService {
 
             // Get teams to assign (this would come from team registration service)
             // For now, we'll just return the structure
+            const unassignedTeams = await this.getUnassignedTeams(config.groupId);
             const assignments: SlotAssignmentCache[] = [];
             const errors: string[] = [];
 
-            // Shuffle slots based on strategy
+            //Apply team priorities if provided
+            let teamsToAssign = unassignedTeams;
+            if (config.teamPriorities && config.teamPriorities.length > 0) {
+                teamsToAssign = this.sortTeamsByPriority(unassignedTeams, config.teamPriorities);
+            }
+
+            //shuffle slots based on strategy
             switch (config.strategy) {
                 case 'RANDOM':
                     availableSlots = this.shuffleArray(availableSlots);
@@ -258,6 +271,27 @@ export class SlotManagementService extends BaseService {
                 case 'MANUAL_ORDER':
                     // Keep original order
                     break;
+            }
+            //Assign teams to slots
+            const maxAssignments = Math.min(availableSlots.length, teamsToAssign.length);
+
+            for (let i = 0; i < maxAssignments; i++) {
+                const team = teamsToAssign[i];
+                const slotNumber = availableSlots[i];
+
+                try {
+                    const assignment = await this.assignSlot({
+                        slotNumber,
+                        groupId: config.groupId,
+                        teamRegistrationId: team.id,
+                        slotType: SlotType.TEAM_SLOT
+                    }, assignedBy);
+                    if (assignment) {
+                        assignments.push(assignment);
+                    }
+                } catch (error) {
+                    errors.push(`Failed to assign team ${team.id} to slot ${slotNumber}: ${(error as any).message}`);
+                }
             }
 
             return {
@@ -286,6 +320,44 @@ export class SlotManagementService extends BaseService {
             [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
         }
         return shuffled;
+    }
+
+    // Get teams that don't have slot assignments yet
+    private async getUnassignedTeams(groupId: string) {
+        try {
+            // Get all team registrations for this group
+            const teamIds = await redis.smembers(`group:${groupId}:teamRegistrations`);
+            const unassignedTeams = [];
+
+            for (const teamId of teamIds) {
+                const team = await redis.hgetObject<TeamRegistrationCache>(`teamRegistration:${teamId}`);
+                if (team) {
+                    // Check if team already has a slot assignment
+                    const teamSlots = await redis.smembers(`team:${teamId}:slots`);
+                    const hasSlotInGroup = teamSlots.some(slot => slot.startsWith(`${groupId}:`));
+
+                    if (!hasSlotInGroup) {
+                        unassignedTeams.push(team);
+                    }
+                }
+            }
+
+            return unassignedTeams;
+        } catch (error) {
+            this.logger.error('Failed to get unassigned teams:', error);
+            return [];
+        }
+    }
+
+    // Sort teams by priority for assignment
+    private sortTeamsByPriority(teams: TeamRegistrationCache[], priorities: TeamPriority[]) {
+        const priorityMap = new Map(priorities.map(p => [p.teamRegistrationId, p.priority]));
+
+        return teams.sort((a, b) => {
+            const priorityA = priorityMap.get(a.id) || 0;
+            const priorityB = priorityMap.get(b.id) || 0;
+            return priorityB - priorityA; // Higher priority first
+        });
     }
 }
 

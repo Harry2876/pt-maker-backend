@@ -240,6 +240,7 @@ model SlotAssignment {
   slotNumber         Int // 1-25
   groupId            String
   teamRegistrationId String? // null for empty slots
+  slotType           String   @default("TEAM_SLOT")
   isActive           Boolean  @default(true)
   assignedAt         DateTime @default(now())
   assignedBy         String // User who assigned the slot

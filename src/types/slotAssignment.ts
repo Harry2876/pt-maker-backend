@@ -6,16 +6,24 @@ export interface SlotAssignmentCache {
     teamRegistrationId?: string; // null for empty slots
     teamName?: string;         // For display purposes
     isActive: boolean;
+    slotType: SlotType;
     assignedAt: string;
     assignedBy: string;        // User ID who assigned
     assignedByName?: string;   // For display purposes
     dbStatus: 'PENDING_SYNC' | 'SYNCED' | 'ERROR';
 }
 
+export enum SlotType {
+    TEAM_SLOT = 'TEAM_SLOT',
+    MANAGEMENT_SLOT = 'MANAGEMENT_SLOT',
+    RESERVED_SLOT = 'RESERVED_SLOT'
+}
+
 export interface CreateSlotAssignmentData {
     slotNumber: number;
     groupId: string;
     teamRegistrationId?: string;
+    slotType?: SlotType;
 }
 
 export interface UpdateSlotAssignmentData {

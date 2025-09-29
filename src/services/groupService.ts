@@ -2,8 +2,8 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
-import { GroupCache, CreateGroupData, UpdateGroupData } from '../types/group';
-import { TournamentCache } from '../types/tournament';
+import { GroupCache, CreateGroupData, UpdateGroupData,CreateStageGroupData, StageGroupsResult } from '../types/group';
+import { TournamentCache, TournamentStageCache } from '../types/tournament';
 
 export class GroupService extends BaseService {
     private CACHE_TTL = 300; // 5 minutes
@@ -112,20 +112,20 @@ export class GroupService extends BaseService {
         try {
             // 1. Get group from cache
             const group = await redis.hgetObject<GroupCache>(`group:${groupId}`);
-            
+
             if (group) {
                 // 2. Verify tournament ownership
                 const tournament = await redis.hgetObject<TournamentCache>(`tournament:${group.tournamentId}`);
                 if (!tournament || tournament.userId !== userId) {
                     throw new Error('Group not found or access denied');
                 }
-                
+
                 return group;
             }
 
             // 3. Fallback to database
             const dbGroup = await this.db.group.findFirst({
-                where: { 
+                where: {
                     id: groupId,
                     tournament: { userId }
                 },
@@ -261,6 +261,100 @@ export class GroupService extends BaseService {
 
         } catch (error) {
             this.logger.error('Failed to populate group cache:', error);
+        }
+    }
+    // Add these methods to your GroupService class:
+
+    // Create multiple groups for a specific stage
+    async createStageGroups(data: CreateStageGroupData, userId: string): Promise<StageGroupsResult | null> {
+        try {
+            // 1. Verify stage exists and get tournament info
+            const stage = await redis.hgetObject<TournamentStageCache>(`stage:${data.stageId}`);
+            if (!stage) {
+                throw new Error('Stage not found');
+            }
+
+            // 2. Verify tournament ownership
+            const tournament = await redis.hgetObject<TournamentCache>(`tournament:${stage.tournamentId}`);
+            if (!tournament || tournament.userId !== userId) {
+                throw new Error('Tournament not found or access denied');
+            }
+
+            // 3. Create groups for this stage
+            const createdGroups: GroupCache[] = [];
+
+            for (const groupData of data.groupsData) {
+                const groupId = randomUUID();
+
+                const group: GroupCache = {
+                    id: groupId,
+                    name: groupData.name,
+                    maxTeams: groupData.maxTeams || 24,
+                    qualificationSpots: groupData.qualificationSpots || 8,
+                    tournamentId: stage.tournamentId,
+                    stageId: data.stageId, // Link to stage
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    dbStatus: 'PENDING_SYNC'
+                };
+
+                // Store in Redis
+                await redis.hsetObject(`group:${groupId}`, group);
+                await redis.sadd(`tournament:${stage.tournamentId}:groups`, groupId);
+                await redis.sadd(`stage:${data.stageId}:groups`, groupId); // Link to stage
+
+                // Queue database sync
+                await QueueService.syncImmediately('GROUP', groupId, group, userId);
+
+                createdGroups.push(group);
+            }
+
+            const result: StageGroupsResult = {
+                stageId: data.stageId,
+                stageName: stage.name,
+                totalGroups: createdGroups.length,
+                createdGroups
+            };
+
+            this.logger.info(`Created ${createdGroups.length} groups for stage ${data.stageId}`);
+            return result;
+
+        } catch (error) {
+            this.handleError(error, 'Create stage groups');
+            return null;
+        }
+    }
+
+    // Get groups for a specific stage
+    async getStageGroups(stageId: string, userId: string): Promise<GroupCache[]> {
+        try {
+            // 1. Verify stage access
+            const stage = await redis.hgetObject<TournamentStageCache>(`stage:${stageId}`);
+            if (!stage) {
+                throw new Error('Stage not found');
+            }
+
+            const tournament = await redis.hgetObject<TournamentCache>(`tournament:${stage.tournamentId}`);
+            if (!tournament || tournament.userId !== userId) {
+                throw new Error('Access denied');
+            }
+
+            // 2. Get stage groups from Redis
+            const groupIds = await redis.smembers(`stage:${stageId}:groups`);
+            const groups: GroupCache[] = [];
+
+            for (const groupId of groupIds) {
+                const group = await redis.hgetObject<GroupCache>(`group:${groupId}`);
+                if (group) {
+                    groups.push(group);
+                }
+            }
+
+            return groups.sort((a, b) => a.name.localeCompare(b.name));
+
+        } catch (error) {
+            this.handleError(error, 'Get stage groups');
+            return [];
         }
     }
 }

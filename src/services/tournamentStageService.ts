@@ -8,6 +8,10 @@ import {
     UpdateStageData,
     TournamentCache
 } from '../types/tournament';
+// Add these imports:
+import { teamQualificationService } from './teamQualificationService';
+import { slotManagementService } from './slotManagementService';
+import { TeamDistributionStrategy, GroupTeamAssignment } from '../types/teamAdvancement';
 
 export class TournamentStageService extends BaseService {
     private CACHE_TTL = 300; // 5 minutes
@@ -69,7 +73,7 @@ export class TournamentStageService extends BaseService {
 
             // 2. Get stage IDs from Redis
             const stageIds = await redis.smembers(`tournament:${tournamentId}:stages`);
-            
+
             if (stageIds.length === 0) {
                 return [];
             }
@@ -219,7 +223,7 @@ export class TournamentStageService extends BaseService {
 
             // 4. Find and activate next stage
             const allStages = await this.getTournamentStages(currentStage.tournamentId, advancedBy);
-            const nextStage = allStages.find(stage => 
+            const nextStage = allStages.find(stage =>
                 stage.stageNumber === currentStage.stageNumber + 1
             );
 
@@ -239,7 +243,7 @@ export class TournamentStageService extends BaseService {
             await QueueService.syncImmediately('TOURNAMENT_STAGE', stageId, completedStage, advancedBy);
 
             this.logger.info(`Stage ${stageId} advanced. Next stage: ${nextStage?.id || 'none'}`);
-            
+
             return {
                 completedStage,
                 nextStage: nextStage || null,
@@ -249,6 +253,119 @@ export class TournamentStageService extends BaseService {
         } catch (error) {
             this.handleError(error, 'Advance tournament stage');
             return null;
+        }
+    }
+    // Add this method to TournamentStageService class:
+
+    // Complete stage progression with team advancement
+    async completeStageProgression(
+        currentStageId: string,
+        nextStageId: string,
+        distributionStrategy: TeamDistributionStrategy,
+        userId: string
+    ) {
+        try {
+            // 1. Qualify teams from current stage
+            const qualificationResult = await teamQualificationService.qualifyTeamsFromStage(
+                currentStageId,
+                userId
+            );
+
+            if (!qualificationResult) {
+                throw new Error('Failed to qualify teams from current stage');
+            }
+
+            // 2. Progress teams to next stage
+            const progressionResult = await teamQualificationService.progressTeamsToNextStage(
+                currentStageId,
+                nextStageId,
+                distributionStrategy,
+                userId
+            );
+
+            if (!progressionResult) {
+                throw new Error('Failed to progress teams to next stage');
+            }
+
+            // 3. Auto-assign teams to slots in new groups
+            const slotAssignmentResults = await this.autoAssignTeamsToSlots(
+                progressionResult.teamDistribution,
+                userId
+            );
+
+            // 4. Mark current stage as completed and activate next stage
+            const stageAdvancementResult = await this.advanceStage(currentStageId, userId);
+
+            if (!stageAdvancementResult) {
+                throw new Error('Failed to advance to next stage');
+            }
+
+            // 5. Return complete progression result
+            return {
+                qualificationResult,
+                progressionResult,
+                slotAssignmentResults,
+                stageAdvancementResult,
+                summary: {
+                    teamsQualified: qualificationResult.totalTeamsQualified,
+                    teamsEliminated: qualificationResult.qualificationSummary.teamsEliminated,
+                    newGroupsPopulated: progressionResult.teamDistribution.length,
+                    slotsAssigned: slotAssignmentResults.totalSlotsAssigned,
+                    nextStageActivated: stageAdvancementResult.nextStage?.isActive || false
+                }
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Complete stage progression');
+            return null;
+        }
+    }
+
+    // Auto-assign teams to slots after redistribution
+    private async autoAssignTeamsToSlots(
+        teamDistribution: GroupTeamAssignment[],
+        userId: string
+    ) {
+        try {
+            let totalSlotsAssigned = 0;
+            const groupResults = [];
+
+            for (const groupAssignment of teamDistribution) {
+                let slotNumber = 1;
+
+                for (const team of groupAssignment.assignedTeams) {
+                    // Assign team to next available slot
+                    const slotAssignment = await slotManagementService.assignSlot({
+                        groupId: groupAssignment.groupId,
+                        slotNumber,
+                        teamRegistrationId: team.teamRegistrationId
+                    }, userId);
+
+                    if (slotAssignment) {
+                        totalSlotsAssigned++;
+                        slotNumber++;
+                    }
+                }
+
+                groupResults.push({
+                    groupId: groupAssignment.groupId,
+                    groupName: groupAssignment.groupName,
+                    teamsAssigned: groupAssignment.assignedTeams.length,
+                    slotsUsed: slotNumber - 1
+                });
+            }
+
+            return {
+                totalSlotsAssigned,
+                groupResults
+            };
+
+        } catch (error) {
+            this.logger.error('Failed to auto-assign teams to slots:', error);
+            return {
+                totalSlotsAssigned: 0,
+                groupResults: []
+            };
         }
     }
 }

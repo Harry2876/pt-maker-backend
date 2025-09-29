@@ -22,8 +22,26 @@ uploadRouter.use(authenticateUser);
  * /api/v1/uploads/matches/{id}/screenshots/upload:
  *   post:
  *     tags: [Uploads]
- *     summary: Upload screenshots for a match
- *     description: Upload multiple screenshot files for a specific match (max 10 files, 10MB each)
+ *     summary: Upload match screenshots for AI processing
+ *     description: |
+ *       Upload multiple screenshot files for a specific match. Screenshots are processed by AI to extract match results and team information.
+ *       
+ *       **File Requirements:**
+ *       - Supported formats: JPEG, PNG, WebP
+ *       - Maximum file size: 10MB per file
+ *       - Maximum files: 10 screenshots per match
+ *       - Files are uploaded to Cloudflare R2 storage
+ *       
+ *       **AI Processing:**
+ *       - Screenshots are automatically processed by AI
+ *       - Extracts team names, scores, and match results
+ *       - Updates match status to PROCESSED when complete
+ *       - Results stored in match.processedData field
+ *       
+ *       **Security:**
+ *       - User must be the tournament/match owner
+ *       - Files are virus-scanned and validated
+ *       - Automatic cleanup of malformed uploads
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -33,27 +51,34 @@ uploadRouter.use(authenticateUser);
  *         schema:
  *           type: string
  *           format: uuid
- *         description: Match ID
+ *           pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+ *         description: "Match UUID identifier"
+ *         example: "456e7890-e12c-34f5-b678-789012345678"
  *     requestBody:
  *       required: true
  *       content:
  *         multipart/form-data:
  *           schema:
  *             type: object
+ *             required:
+ *               - screenshots
  *             properties:
  *               screenshots:
  *                 type: array
  *                 items:
  *                   type: string
  *                   format: binary
- *                 description: Screenshot files (JPEG, PNG, WebP formats)
+ *                 description: "Screenshot image files (JPEG, PNG, WebP formats)"
+ *                 minItems: 1
  *                 maxItems: 10
  *           encoding:
  *             screenshots:
  *               contentType: image/jpeg, image/png, image/webp
+ *               style: form
+ *               explode: true
  *     responses:
  *       201:
- *         description: Screenshots uploaded successfully
+ *         description: Screenshots uploaded successfully and queued for AI processing
  *         content:
  *           application/json:
  *             schema:
@@ -68,33 +93,294 @@ uploadRouter.use(authenticateUser);
  *                 data:
  *                   type: object
  *                   properties:
- *                     uploadId:
- *                       type: string
- *                       format: uuid
  *                     screenshots:
  *                       type: array
  *                       items:
  *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                             example: "789e0123-e45f-67g8-h901-234567890123"
+ *                           originalName:
+ *                             type: string
+ *                             example: "match_result_screenshot.png"
+ *                           fileName:
+ *                             type: string
+ *                             example: "match_456e7890_screenshot_1_20240115.png"
+ *                           fileSize:
+ *                             type: integer
+ *                             example: 2048576
+ *                             description: "File size in bytes"
+ *                           mimeType:
+ *                             type: string
+ *                             example: "image/png"
+ *                           type:
+ *                             type: string
+ *                             enum: ["SLOT_LIST", "RESULT_SCREEN"]
+ *                             example: "RESULT_SCREEN"
+ *                             description: "Screenshot type detected by AI"
+ *                           storageUrl:
+ *                             type: string
+ *                             format: uri
+ *                             example: "https://storage.example.com/screenshots/match_456e7890_screenshot_1.png"
+ *                           isProcessed:
+ *                             type: boolean
+ *                             example: false
+ *                             description: "AI processing status"
+ *                           uploadedAt:
+ *                             type: string
+ *                             format: date-time
+ *                             example: "2024-01-15T10:30:00.000Z"
+ *                           matchId:
+ *                             type: string
+ *                             format: uuid
+ *                             example: "456e7890-e12c-34f5-b678-789012345678"
+ *                     uploadId:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "abc12345-d6e7-8f90-g123-456789012345"
+ *                       description: "Unique upload session identifier"
  *                     count:
  *                       type: integer
+ *                       example: 3
+ *                       description: "Number of screenshots uploaded"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       400:
- *         description: Validation error or file format error
+ *         description: Validation error or invalid file format
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Error'
- *       429:
- *         description: Upload already in progress
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid file format or size"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "VALIDATION_ERROR"
+ *                     details:
+ *                       type: string
+ *                       example: "Only JPEG, PNG, and WebP files up to 10MB are allowed"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *               examples:
+ *                 invalid_format:
+ *                   summary: Unsupported file format
+ *                   value:
+ *                     success: false
+ *                     message: "Unsupported file format"
+ *                     error:
+ *                       code: "VALIDATION_ERROR"
+ *                       details: "Only JPEG, PNG, and WebP formats are supported"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
+ *                 file_too_large:
+ *                   summary: File size exceeds limit
+ *                   value:
+ *                     success: false
+ *                     message: "File size exceeds maximum limit"
+ *                     error:
+ *                       code: "VALIDATION_ERROR"
+ *                       details: "Maximum file size is 10MB"
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                     meta:
+ *                       timestamp: "2024-01-15T10:30:00.000Z"
+ *                       version: "1.0"
  *       401:
- *         description: Unauthorized
+ *         description: Unauthorized - Invalid or missing token
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Error'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Auth Token Required"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "UNAUTHORIZED"
+ *                     details:
+ *                       type: string
+ *                       example: "Valid JWT token required"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       404:
+ *         description: Match not found or access denied
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Match not found"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "NOT_FOUND"
+ *                     details:
+ *                       type: string
+ *                       example: "Match does not exist or you don't have access"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       413:
+ *         description: Payload too large
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Upload payload too large"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "PAYLOAD_TOO_LARGE"
+ *                     details:
+ *                       type: string
+ *                       example: "Total upload size exceeds server limits"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       429:
+ *         description: Upload already in progress for this match
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Upload already in progress for this match"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "RATE_LIMIT"
+ *                     details:
+ *                       type: string
+ *                       example: "Please wait for current upload to complete"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *       500:
+ *         description: Server error during upload processing
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to upload screenshots"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "INTERNAL_ERROR"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 // Screenshot upload routes
 uploadRouter.post('/matches/:id/screenshots/upload',
