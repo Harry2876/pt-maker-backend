@@ -1,5 +1,3 @@
-// Advanced Engine Type Definitions
-// Handles slot mapping and result processing for tournament screenshots
 
 // Raw data from slot assignment screenshot
 export interface SlotMappingData {

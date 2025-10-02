@@ -17,6 +17,11 @@ import {
     ManualSlotInput
 } from '../types/advancedEngine';
 import { MatchCache, UpdateMatchData } from '../types/match';
+// Add these imports after the existing ones
+import { matchResultService } from './matchResultService';
+import { leaderboardService } from './leaderboardService';
+import { TeamMatchResult, CreateMatchResultData } from '../types/matchResult';
+import { SlotAssignmentCache } from '../types/slotAssignment';
 import { TournamentCache } from '../types/tournament';
 
 export class AdvancedEngineService extends BaseService {
@@ -450,7 +455,7 @@ export class AdvancedEngineService extends BaseService {
     }
 
     // Store processed data in database
-        private async storeProcessedData(data: {
+    private async storeProcessedData(data: {
         processingId: string;
         matchId: string;
         slotMappings: SlotMappingData[];
@@ -503,10 +508,20 @@ export class AdvancedEngineService extends BaseService {
                 timestamp: new Date().toISOString()
             });
 
-            // 7. Invalidate related caches (following MatchService.updateMatch pattern)
+                        // 7. Invalidate related caches (following MatchService.updateMatch pattern)
             await redis.delete(`tournament:${currentMatch.tournamentId}:matches:list`);
             if (currentMatch.groupId) {
                 await redis.delete(`group:${currentMatch.groupId}:matches:list`);
+            }
+
+            // 8. Create MatchResult entries from AI data (NEW CODE)
+            if (data.teamMappings && data.teamMappings.length > 0 && currentMatch.groupId) {
+                await this.createMatchResultsAutomatically(
+                    data.teamMappings,
+                    data.matchId,
+                    currentMatch.groupId,
+                    userId
+                );
             }
 
             this.logger.info(`Stored processed data for match ${data.matchId} and queued for database sync`, {
@@ -515,6 +530,134 @@ export class AdvancedEngineService extends BaseService {
             });
         } catch (error) {
             this.logger.error('Failed to store processed data:', error);
+        }
+    }
+
+    private async getTeamRegistrationFromSlot(groupId: string, slotNumber: number): Promise<{ teamRegistrationId: string; teamName: string } | null> {
+        try {
+            //get slot assignment from redis
+            const slot = await redis.hgetObject<SlotAssignmentCache>(`slot:${groupId}:${slotNumber}`);
+
+            if (!slot || !slot.teamRegistrationId) {
+                this.logger.warn(`No slot assignment found for group ${groupId} slot ${slotNumber}`);
+                return null;
+            }
+
+            return {
+                teamRegistrationId: slot.teamRegistrationId,
+                teamName: slot.teamName || 'Unknown Team'
+            };
+        } catch (error) {
+            this.logger.error('Failed to get team registration from slot:', error);
+            return null;
+        }
+    }
+
+    // Create MatchResult entries from AI processing results
+    private async createMatchResultsAutomatically(
+        teamMappings: TeamMappingResult[],
+        matchId: string,
+        groupId: string,
+        userId: string
+    ): Promise<void> {
+        try {
+            this.logger.info(`Creating match results from data for ${teamMappings.length} teams`);
+
+            const teamResults: TeamMatchResult[] = [];
+
+            // Convert each team mapping to TeamMatchResult format
+            for (const mapping of teamMappings) {
+                // Get team registration info from slot
+                const teamInfo = await this.getTeamRegistrationFromSlot(groupId, parseInt(mapping.slotNumber));
+
+                if (!teamInfo) {
+                    this.logger.warn(`Skipping slot ${mapping.slotNumber} - no team assigned`);
+                    continue;
+                }
+
+                // Create TeamMatchResult object
+                const teamResult: TeamMatchResult = {
+                    teamRegistrationId: teamInfo.teamRegistrationId,
+                    teamName: mapping.teamName || teamInfo.teamName,
+                    slotNumber: parseInt(mapping.slotNumber),
+                    position: mapping.finalRank || 25, // Default to last place if no rank
+                    kills: mapping.totalKills || 0,
+                    damage: 0, // Not provided by AI, set to 0
+                    survivalTime: 0, // Not provided by AI, set to 0
+                    totalScore: mapping.points || 0,
+                    scoreBreakdown: [
+                        {
+                            ruleName: 'Automatic_Processing',
+                            ruleType: 'ADVANCED_ENGINE',
+                            points: mapping.points || 0,
+                            calculation: `Position: ${mapping.finalRank}, Kills: ${mapping.totalKills}`
+                        }
+                    ],
+                    aiDetected: true,
+                    manuallyEdited: false,
+                    confidence: 0.85 // Use overall confidence or individual team confidence
+                };
+
+                teamResults.push(teamResult);
+            }
+
+            if (teamResults.length > 0) {
+                // Create match result using existing service
+                const createData: CreateMatchResultData = {
+                    matchId,
+                    teamResults,
+                    notes: `AI processed results - ${teamResults.length} teams detected`
+                };
+
+                const result = await matchResultService.createMatchResult(createData, userId);
+
+                if (result) {
+                    this.logger.info(`Successfully created match result with ${teamResults.length} team results`);
+
+                    // Trigger leaderboard refresh
+                    await this.refreshLeaderboards(matchId);
+                } else {
+                    this.logger.error('Failed to create match result from AI data');
+                }
+            } else {
+                this.logger.warn('No valid team results to create from AI data');
+            }
+
+        } catch (error) {
+            this.logger.error('Error creating match results from AI data:', error);
+        }
+    }
+
+    // Refresh leaderboards after match result creation
+    private async refreshLeaderboards(matchId: string): Promise<void> {
+        try {
+            // Get match info to find tournament and group
+            const match = await redis.hgetObject<MatchCache>(`match:${matchId}`);
+            if (!match) {
+                this.logger.error(`Match ${matchId} not found for leaderboard refresh`);
+                return;
+            }
+
+            // Refresh tournament leaderboard
+            if (match.tournamentId) {
+                const refreshConfig = {
+                    includeGroups: match.groupId ? [match.groupId] : [],
+                    forceRefresh: true,
+                    notifyTeams: false
+                };
+
+                await leaderboardService.refreshLeaderboard(match.tournamentId, refreshConfig);
+                this.logger.info(`Refreshed leaderboard for tournament ${match.tournamentId}`);
+            }
+
+            // Invalidate group leaderboard cache if group exists
+            if (match.groupId) {
+                await redis.delete(`leaderboard:group:${match.groupId}`);
+                this.logger.info(`Invalidated group leaderboard cache for group ${match.groupId}`);
+            }
+
+        } catch (error) {
+            this.logger.error('Error refreshing leaderboards:', error);
         }
     }
 
