@@ -71,7 +71,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 1024mb --maxmemory-policy noeviction
     restart: unless-stopped
     labels:
       - "com.datadoghq.ad.check_names=[\"redisdb\"]"
