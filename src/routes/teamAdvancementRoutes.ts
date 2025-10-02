@@ -219,8 +219,69 @@ router.use(authenticateUser);
  *                       example: "No groups found for this stage"
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized access"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "UNAUTHORIZED"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       404:
  *         description: Stage not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Stage not found"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "NOT_FOUND"
+ *                     details:
+ *                       type: string
+ *                       example: "Stage with the provided ID does not exist or you don't have access to it"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 router.post('/stage/:stageId/qualify', TeamAdvancementController.qualifyTeamsFromStage);
 
@@ -975,10 +1036,103 @@ router.post('/stage/:stageId/groups', TeamAdvancementController.createStageGroup
  *                             enum: ["PENDING_SYNC", "SYNCED", "ERROR"]
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized access"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "UNAUTHORIZED"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       403:
  *         description: Access denied
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Access denied"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "FORBIDDEN"
+ *                     details:
+ *                       type: string
+ *                       example: "You don't have permission to access this stage"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       404:
  *         description: Stage not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Stage not found"
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "NOT_FOUND"
+ *                     details:
+ *                       type: string
+ *                       example: "Stage with the provided ID does not exist or you don't have access to it"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  */
 router.get('/stage/:stageId/groups', TeamAdvancementController.getStageGroups);
 

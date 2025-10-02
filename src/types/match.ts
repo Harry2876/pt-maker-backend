@@ -33,6 +33,8 @@ export interface Screenshot {
     mimeType: string;
     type: 'SLOT_LIST' | 'RESULT_SCREEN';
     storageUrl: string;
+    processingId?: string;
+    processedAt?: string;
     isProcessed: boolean;
     uploadedAt: string;
     matchId: string;

@@ -19,6 +19,8 @@ const envSchema = z.object({
   // Discord (optional)
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
   DISCORD_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional(),
+  DISCORD_DEV_WEBHOOK_URL: z.string().url().optional(),
+  DISCORD_DEV_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional(),
 
   // Encryption
   LOG_ENCRYPTION_KEY: z.string().min(16, 'LOG_ENCRYPTION_KEY must be at least 16 characters'),
@@ -31,11 +33,19 @@ const envSchema = z.object({
   R2_PUBLIC_URL: z.string().url('Invalid R2_PUBLIC_URL'),
 
   // Swagger Security (add after existing fields)
-SWAGGER_USERNAME: z.string().min(3, 'SWAGGER_USERNAME must be at least 3 characters').optional(),
-SWAGGER_PASSWORD: z.string().min(8, 'SWAGGER_PASSWORD must be at least 8 characters').optional(),
-ENABLE_SWAGGER: z.string().transform(val => val === 'true').optional().default(false),
+  SWAGGER_USERNAME: z.string().min(3, 'SWAGGER_USERNAME must be at least 3 characters').optional(),
+  SWAGGER_PASSWORD: z.string().min(8, 'SWAGGER_PASSWORD must be at least 8 characters').optional(),
+  ENABLE_SWAGGER: z.string().transform(val => val === 'true').optional().default(false),
 
-PRODUCTION_DOMAIN: z.string().optional(),
+  PRODUCTION_DOMAIN: z.string().optional(),
+
+  // Advanced Engine (Gemini) Configuration
+  GOOGLE_GEMINI_API_KEY: z.string().min(1, 'GOOGLE_GEMINI_API_KEY is required for Advanced Engine').optional(),
+  GEMINI_MODEL: z.string().optional().default('gemini-pro-vision'),
+  GEMINI_TEXT_MODEL: z.string().optional().default('gemini-pro'),
+  ADVANCED_ENGINE_ENABLED: z.string().transform(val => val === 'true').optional().default(false),
+  ADVANCED_ENGINE_MAX_IMAGES_PER_BATCH: z.string().transform(Number).pipe(z.number().min(1).max(50)).optional().default(10),
+  ADVANCED_ENGINE_TIMEOUT: z.string().transform(Number).pipe(z.number().min(5000).max(120000)).optional().default(30000),
 
   // Security settings
   ALLOWED_ORIGINS: z.string().optional(),

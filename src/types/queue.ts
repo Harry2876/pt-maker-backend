@@ -1,3 +1,5 @@
+import { AdvancedEngineRequest } from "./advancedEngine";
+
 export interface ScreenshotProcessingJob {
     matchId: string;
     screenshotUrls: string[];
@@ -57,7 +59,7 @@ export type EntityType =
 
 export interface DatabaseSyncJob {
     type: 'TOURNAMENT_CREATE' | 'TOURNAMENT_UPDATE' | 'TOURNAMENT_DELETE' |
-    'MATCH_CREATE' | 'MATCH_UPDATE' | 'MATCH_DELETE' | 'SCREENSHOT_CREATE' | 'SCREENSHOT_DELETE' | 'BATCH_SYNC' | 'GROUP_CREATE'
+    'MATCH_CREATE' | 'MATCH_UPDATE' | 'MATCH_DELETE' | 'MATCH_PROCESSED_DATA_UPDATE' | 'SCREENSHOT_CREATE' | 'SCREENSHOT_DELETE' | 'BATCH_SYNC' | 'GROUP_CREATE'
     | 'GROUP_UPDATE'
     | 'GROUP_DELETE'
     | 'TEAM_REGISTRATION_CREATE'
@@ -83,4 +85,13 @@ export interface BatchSyncJob {
     type: 'TOURNAMENT' | 'MATCHES' | 'SCREENSHOTS' | 'ALL';
     batchSize?: number;
     olderThan?: string;
+}
+
+export interface AdvancedEngineJob {
+    type: 'PROCESS_SCREENSHOTS';
+    matchId: string;
+    userId: string;
+    request: AdvancedEngineRequest;
+    priority: 'HIGH' | 'NORMAL' | 'LOW';
+    createdAt: Date;
 }

@@ -14,6 +14,8 @@ try {
   validatedEnv = {
     DISCORD_WEBHOOK_URL: env.DISCORD_WEBHOOK_URL,
     DISCORD_LOG_LEVEL: env.DISCORD_LOG_LEVEL || 'info',
+    DISCORD_DEV_WEBHOOK_URL: env.DISCORD_DEV_WEBHOOK_URL,
+    DISCORD_DEV_LOG_LEVEL: env.DISCORD_DEV_LOG_LEVEL || 'debug',
     NODE_ENV: process.env.NODE_ENV || 'development'
   };
 }
@@ -74,26 +76,43 @@ const transports: any[] = [
   }),
 ];
 
-// Add Discord transport if webhook URL is provided
-if (validatedEnv.DISCORD_WEBHOOK_URL) {
-  console.log('🎯 Adding Enhanced Discord transport with webhook URL');
-  console.log('🎯 Discord log level:', validatedEnv.DISCORD_LOG_LEVEL);
-  
+// Add Discord transports based on environment
+const isProduction = validatedEnv.NODE_ENV === 'production';
+
+if (isProduction && validatedEnv.DISCORD_WEBHOOK_URL) {
+  // Production webhook
+  console.log('🎯 Adding Production Discord transport');
   try {
     transports.push(
       new EnhancedDiscordTransport({
-        level: validatedEnv.DISCORD_LOG_LEVEL,
+        level: validatedEnv.DISCORD_LOG_LEVEL || 'warn',
         webhookUrl: validatedEnv.DISCORD_WEBHOOK_URL,
-        username: '🎮 BGMI Tournament API Enhanced',
-        enableSecurity: validatedEnv.NODE_ENV === 'production',
+        username: '🎮 BGMI Tournament API - PROD',
+        enableSecurity: true,
       })
     );
-    console.log('✅ Enhanced Discord transport added successfully');
+    console.log('✅ Production Discord transport added successfully');
   } catch (error) {
-    console.error('❌ Failed to initialize Enhanced Discord transport:', error);
+    console.error('❌ Failed to initialize Production Discord transport:', error);
+  }
+} else if (!isProduction && validatedEnv.DISCORD_DEV_WEBHOOK_URL) {
+  // Development webhook
+  console.log('🎯 Adding Development Discord transport');
+  try {
+    transports.push(
+      new EnhancedDiscordTransport({
+        level: validatedEnv.DISCORD_DEV_LOG_LEVEL || 'debug',
+        webhookUrl: validatedEnv.DISCORD_DEV_WEBHOOK_URL,
+        username: '🔧 BGMI Tournament API - DEV',
+        enableSecurity: false,
+      })
+    );
+    console.log('✅ Development Discord transport added successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize Development Discord transport:', error);
   }
 } else {
-  console.log('❌ No Discord webhook URL found in environment');
+  console.log('❌ No appropriate Discord webhook URL found for current environment');
 }
 
 // Create the logger instance

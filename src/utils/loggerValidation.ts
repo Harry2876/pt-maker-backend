@@ -94,11 +94,13 @@ export class LogSecurity {
 // Environment validation
 export const validateEnvironment = () => {
     const envSchema = z.object({
-        DISCORD_WEBHOOK_URL: z.string().url().optional(),
-        DISCORD_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('info'),
-        NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-        LOG_ENCRYPTION_KEY: z.string().min(16).optional(),
-    });
+    DISCORD_WEBHOOK_URL: z.string().url().optional(),
+    DISCORD_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('info'),
+    DISCORD_DEV_WEBHOOK_URL: z.string().url().optional(),
+    DISCORD_DEV_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('debug'),
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    LOG_ENCRYPTION_KEY: z.string().min(16).optional(),
+});
 
     try {
         return envSchema.parse(process.env);

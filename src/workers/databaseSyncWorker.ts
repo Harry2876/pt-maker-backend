@@ -5,7 +5,7 @@ import { DatabaseSyncJob, BatchSyncJob } from "../types/queue";
 import logger from "../utils/logger";
 import redis from "../config/redis";
 import { db } from "../config/database";
-import fs from 'fs/promises';
+import { MatchController } from "@/controllers/matchController";
 
 export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     constructor() {
@@ -29,15 +29,15 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncMatchCreate(data);
                 case 'MATCH_UPDATE':
                     return await this.syncMatchUpdate(entityId, data);
-                case 'GROUP_CREATE':                                    // Add this
+                case 'GROUP_CREATE':
                     return await this.syncGroupCreate(data);
-                case 'GROUP_UPDATE':                                    // Add this
+                case 'GROUP_UPDATE':
                     return await this.syncGroupUpdate(entityId, data);
-                case 'GROUP_DELETE':                                    // Add this
+                case 'GROUP_DELETE':
                     return await this.syncGroupDelete(entityId);
-                case 'TEAM_REGISTRATION_CREATE':                        // Add this
+                case 'TEAM_REGISTRATION_CREATE':
                     return await this.syncTeamRegistrationCreate(data);
-                case 'TEAM_REGISTRATION_UPDATE':                        // Add this
+                case 'TEAM_REGISTRATION_UPDATE':
                     return await this.syncTeamRegistrationUpdate(entityId, data);
                 case 'SCREENSHOT_CREATE':
                     return await this.syncScreenshotCreate(data);
@@ -586,7 +586,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             await redis.hset(`slotAssignment:${slotAssignment.id}`, 'dbStatus', 'SYNCED');
             logger.info(`Slot assignment ${slotAssignment.id} created and synced to database successfully`);
-        } catch (error){
+        } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.warn(`Slot assignment ${slotData.id} already exists in database`);
             } else {
@@ -595,33 +595,33 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
         }
     }
 
-    private async syncSlotAssignmentUpdate(slotId:string, updateData:any): Promise<void> {
+    private async syncSlotAssignmentUpdate(slotId: string, updateData: any): Promise<void> {
         try {
             const updated = await db.slotAssignment.update({
-                where: {id:slotId},
-                data:{
+                where: { id: slotId },
+                data: {
                     teamRegistrationId: updateData.teamRegistrationId,
                     isActive: updateData.isActive,
                     assignedAt: updateData.assignedAt ? new Date(updateData.assignedAt) : undefined,
                 }
             });
-            
+
             await redis.hset(`slotAssignment:${slotId}`, 'dbStatus', 'SYNCED');
             logger.info(`Slot assignment ${slotId} updated successfully in database`);
-        }catch (error) {
+        } catch (error) {
             logger.error(`Error updating slot assignment ${slotId}:`, error);
             throw error;
         }
     }
     private async syncSlotAssignmentDelete(slotId: string): Promise<void> {
-        try{
+        try {
             await db.slotAssignment.delete({
-                where: {id:slotId}
+                where: { id: slotId }
             });
 
             await redis.delete(`slotAssignment:${slotId}`);
             logger.info(`Slot assignment ${slotId} deleted from database successfully`);
-        }catch (error) {
+        } catch (error) {
             logger.error(`Error deleting slot assignment ${slotId}:`, error);
             throw error;
         }

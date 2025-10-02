@@ -39,6 +39,7 @@ export const Queues = {
     DATABASE_SYNC: 'database-sync',
     BATCH_SYNC: 'batch-sync',
     CACHE_CLEANUP: 'cache-cleanup',
+    ADVANCED_ENGINE: 'advanced-engine',
 } as const;
 
 export const screenshotQueue = new Queue(Queues.SCREENSHOT_PROCESSING, defaultQueueOptions);
@@ -75,6 +76,21 @@ export const batchSyncQueue = new Queue(Queues.BATCH_SYNC, {
         backoff: {
             type: 'exponential',
             delay: 1000,
+        }
+    }
+});
+
+export const advancedEngineQueue = new Queue(Queues.ADVANCED_ENGINE, {
+    ...defaultQueueOptions,
+    defaultJobOptions: {
+        ...defaultQueueOptions.defaultJobOptions,
+        priority:2, //high priority for AI Proceessing
+        removeOnComplete: 50,
+        removeOnFail:20,
+        attempts:3,
+        backoff: {
+            type:'exponential',
+            delay:5000, //5 seconds initial delay
         }
     }
 });
