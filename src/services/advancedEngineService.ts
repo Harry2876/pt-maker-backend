@@ -727,6 +727,63 @@ export class AdvancedEngineService extends BaseService {
             return { status: 'ERROR', error: 'Failed to retrieve match processing status' };
         }
     }
+
+        /**
+     * Process screenshots in batches for large tournaments
+     */
+    async processScreenshotsInBatches(request: {
+        matchId: string;
+        screenshots: any;
+        processingType: string;
+        batchSize: number;
+        groupId?: string;
+    }, userId: string): Promise<any> {
+        this.logger.info(`🔄 Processing screenshots in batches for match ${request.matchId}`);
+        
+        // For now, delegate to regular processing
+        // In future, this could implement actual batch optimization
+        return await this.processScreenshots({
+            matchId: request.matchId,
+            screenshots: request.screenshots,
+            processingType: request.processingType as any
+        }, userId);
+    }
+
+    /**
+     * Process screenshots as stream for massive tournaments
+     */
+    async processScreenshotsAsStream(request: {
+        matchId: string;
+        screenshots: any;
+        processingType: string;
+        streamChunkSize: number;
+        groupId?: string;
+    }, userId: string): Promise<any> {
+        this.logger.info(`🌊 Processing screenshots as stream for match ${request.matchId}`);
+        
+        // For now, delegate to regular processing
+        // In future, this could implement streaming optimization
+        return await this.processScreenshots({
+            matchId: request.matchId,
+            screenshots: request.screenshots,
+            processingType: request.processingType as any
+        }, userId);
+    }
+
+    /**
+     * Process screenshots with automatic result creation
+     */
+    async processScreenshotsWithResults(request: {
+        matchId: string;
+        screenshots: any;
+        processingType: string;
+        manualSlots?: any;
+    }, userId: string): Promise<any> {
+        this.logger.info(`🎯 Processing screenshots with automatic results for match ${request.matchId}`);
+        
+        // Use existing method - this already creates results automatically
+        return await this.processScreenshots(request as any, userId);
+    }
 }
 
 export const advancedEngineService = new AdvancedEngineService();

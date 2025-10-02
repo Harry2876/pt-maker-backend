@@ -3,6 +3,7 @@ import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
 import { TeamRegistrationCache, CreateTeamRegistrationData, UpdateTeamRegistrationData } from '../types/teamRegistration';
+import { PaginationParams, PaginatedResponse, PaginationHelper } from '../types/pagination';
 import { TournamentCache } from '../types/tournament';
 import { GroupCache } from '../types/group';
 
@@ -46,7 +47,7 @@ export class TeamRegistrationService extends BaseService {
             // 5. Store in Redis immediately
             await redis.hsetObject(`teamRegistration:${registrationId}`, registration);
             await redis.sadd(`tournament:${tournamentId}:teamRegistrations`, registrationId);
-            
+
             if (data.groupId) {
                 await redis.sadd(`group:${data.groupId}:teamRegistrations`, registrationId);
             }
@@ -231,20 +232,20 @@ export class TeamRegistrationService extends BaseService {
         try {
             // 1. Get registration from cache
             const registration = await redis.hgetObject<TeamRegistrationCache>(`teamRegistration:${registrationId}`);
-            
+
             if (registration) {
                 // 2. Verify tournament ownership
                 const tournament = await redis.hgetObject<TournamentCache>(`tournament:${registration.tournamentId}`);
                 if (!tournament || tournament.userId !== userId) {
                     throw new Error('Team registration not found or access denied');
                 }
-                
+
                 return registration;
             }
 
             // 3. Fallback to database
             const dbRegistration = await this.db.teamRegistration.findFirst({
-                where: { 
+                where: {
                     id: registrationId,
                     tournament: { userId }
                 },
@@ -291,7 +292,7 @@ export class TeamRegistrationService extends BaseService {
 
                 await redis.hsetObject(`teamRegistration:${registration.id}`, cacheRegistration);
                 await redis.sadd(`tournament:${tournamentId}:teamRegistrations`, registration.id);
-                
+
                 if (registration.groupId) {
                     await redis.sadd(`group:${registration.groupId}:teamRegistrations`, registration.id);
                 }
@@ -328,6 +329,180 @@ export class TeamRegistrationService extends BaseService {
 
         } catch (error) {
             this.logger.error('Failed to populate group team registration cache:', error);
+        }
+    }
+
+    async getTournamentTeamRegistrationsPaginated(
+        tournamentId: string,
+        userId: string,
+        paginationParams: PaginationParams = {}
+    ): Promise<PaginatedResponse<any> | null> {
+        try {
+            const { page, limit, skip, sortBy, sortOrder } =
+                PaginationHelper.validateParams(paginationParams);
+
+            // Check if tournament is large (>1000 teams) to decide caching strategy
+            const totalCount = await this.db.teamRegistration.count({
+                where: { tournamentId }
+            });
+
+            // For large tournaments, skip cache and go directly to database with pagination
+            if (totalCount > 1000) {
+                const registrations = await this.db.teamRegistration.findMany({
+                    where: { tournamentId },
+                    include: {
+                        group: {
+                            select: { id: true, name: true }
+                        }
+                    },
+                    orderBy: { [sortBy]: sortOrder },
+                    skip,
+                    take: limit
+                });
+
+                const meta = PaginationHelper.createMeta(page, limit, totalCount);
+
+                return {
+                    data: registrations,
+                    meta
+                };
+            }
+
+            // For smaller tournaments, use existing cache logic
+            const allRegistrations = await this.getTournamentTeamRegistrations(tournamentId, userId);
+
+            if (!allRegistrations) {
+                return null;
+            }
+
+            // Apply pagination to cached data
+            const startIndex = skip;
+            const endIndex = skip + limit;
+            const paginatedData = allRegistrations.slice(startIndex, endIndex);
+
+            const meta = PaginationHelper.createMeta(page, limit, allRegistrations.length);
+
+            return {
+                data: paginatedData,
+                meta
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Get tournament team registrations paginated');
+            return null;
+        }
+    }
+
+    /**
+     * Get group team registrations with pagination
+     */
+    async getGroupTeamRegistrationsPaginated(
+        groupId: string,
+        userId,
+        paginationParams: PaginationParams = {}
+    ): Promise<PaginatedResponse<any> | null> {
+        try {
+            const { page, limit, skip, sortBy, sortOrder } =
+                PaginationHelper.validateParams(paginationParams);
+
+            const totalCount = await this.db.teamRegistration.count({
+                where: { groupId }
+            });
+
+            const registrations = await this.db.teamRegistration.findMany({
+                where: { groupId },
+                orderBy: { [sortBy]: sortOrder },
+                skip,
+                take: limit
+            });
+
+            const meta = PaginationHelper.createMeta(page, limit, totalCount);
+
+            return {
+                data: registrations,
+                meta
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Get group team registrations paginated');
+            return null;
+        }
+    }
+
+    /**
+     * Search team registrations across tournaments with pagination
+     * Purpose: Enable efficient searching across large datasets
+     */
+    async searchTeamRegistrations(
+        searchParams: {
+            tournamentId?: string;
+            teamName?: string;
+            status?: string;
+            minPoints?: number;
+            maxPoints?: number;
+        },
+        paginationParams: PaginationParams = {}
+    ): Promise<PaginatedResponse<any> | null> {
+        try {
+            const { page, limit, skip, sortBy, sortOrder } =
+                PaginationHelper.validateParams(paginationParams);
+
+            // Build where clause
+            const where: any = {};
+
+            if (searchParams.tournamentId) {
+                where.tournamentId = searchParams.tournamentId;
+            }
+
+            if (searchParams.teamName) {
+                where.teamName = {
+                    contains: searchParams.teamName,
+                    mode: 'insensitive'
+                };
+            }
+
+            if (searchParams.status) {
+                where.registrationStatus = searchParams.status;
+            }
+
+            if (searchParams.minPoints !== undefined || searchParams.maxPoints !== undefined) {
+                where.totalPoints = {};
+                if (searchParams.minPoints !== undefined) {
+                    where.totalPoints.gte = searchParams.minPoints;
+                }
+                if (searchParams.maxPoints !== undefined) {
+                    where.totalPoints.lte = searchParams.maxPoints;
+                }
+            }
+
+            const [registrations, totalCount] = await Promise.all([
+                this.db.teamRegistration.findMany({
+                    where,
+                    include: {
+                        group: {
+                            select: { id: true, name: true }
+                        },
+                        tournament: {
+                            select: { id: true, name: true }
+                        }
+                    },
+                    orderBy: { [sortBy]: sortOrder },
+                    skip,
+                    take: limit
+                }),
+                this.db.teamRegistration.count({ where })
+            ]);
+
+            const meta = PaginationHelper.createMeta(page, limit, totalCount);
+
+            return {
+                data: registrations,
+                meta
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Search team registrations');
+            return null;
         }
     }
 }

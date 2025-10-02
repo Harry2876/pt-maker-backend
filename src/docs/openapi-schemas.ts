@@ -8,9 +8,20 @@ export const openApiSchemas = {
       error: { type: 'string', example: 'Detailed error' }
     }
   },
-  
+
+  ErrorResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string', example: 'Error message' },
+      error: { type: 'string', example: 'Detailed error description' },
+      timestamp: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00Z' },
+      path: { type: 'string', example: '/api/v1/endpoint' }
+    }
+  },
+
   Success: {
-    type: 'object', 
+    type: 'object',
     properties: {
       success: { type: 'boolean', example: true },
       message: { type: 'string', example: 'Success message' },

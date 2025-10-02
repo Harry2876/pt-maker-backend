@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { leaderboardService } from '../services/leaderboardService';
 import { asyncHandler } from '../middleware/commonMiddleware';
 import { ResponseHelper } from '../utils/responseHelper';
+import { ScalableQueueService } from '../services/scalableQueueService';
+import { TournamentScaleDetector } from '../types/scalableQueue';
+import { db } from '../config/database';
 
 export class LeaderboardController {
     // Get tournament leaderboard
@@ -46,8 +49,34 @@ export class LeaderboardController {
     // Refresh leaderboard (force regeneration)
     static refreshLeaderboard = asyncHandler(async (req: Request, res: Response) => {
         const { tournamentId } = req.params;
-        const { forceRefresh = true, includeGroups, notifyTeams } = req.body;
+        const { forceRefresh = true, includeGroups, notifyTeams, groupIds, stageId } = req.body;
 
+        // Get team count from database to detect scale
+        const teamCount = await db.teamRegistration.count({
+            where: { tournamentId }
+        });
+        const scale = TournamentScaleDetector.detectScale(teamCount);
+
+        // For large tournaments, use scalable queue processing
+        if (teamCount > 1000) {
+            await ScalableQueueService.queueLeaderboardBatchProcessing({
+                tournamentId,
+                teamCount,
+                groupIds,
+                stageId,
+                calculateGlobal: !groupIds && !stageId,
+                forceRefresh
+            });
+
+            return res.json(ResponseHelper.success('Large tournament leaderboard refresh queued', {
+                scale,
+                teamCount,
+                processingStrategy: teamCount > 5000 ? 'batch' : 'parallel',
+                message: 'Leaderboard processing has been queued and will be available shortly'
+            }));
+        }
+
+        // For smaller tournaments, use traditional processing
         const result = await leaderboardService.refreshLeaderboard(tournamentId, {
             forceRefresh,
             includeGroups,

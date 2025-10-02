@@ -249,6 +249,10 @@ model SlotAssignment {
   teamRegistration TeamRegistration? @relation(fields: [teamRegistrationId], references: [id], onDelete: SetNull)
   assignedByUser   User              @relation(fields: [assignedBy], references: [id])
 
+  @@index([groupId, isActive]) // For active slot queries
+  @@index([teamRegistrationId]) // For team's slot assignments
+  @@index([groupId, slotNumber]) // For slot ordering (duplicate of unique but for performance)
+  
   @@unique([groupId, slotNumber])
   @@map("slot_assignments")
 }
@@ -297,6 +301,11 @@ model MatchResult {
   verifier         User?            @relation(fields: [verifiedBy], references: [id])
 
   @@unique([matchId, teamRegistrationId])
+  @@index([teamRegistrationId, createdAt]) // For team's match history
+  @@index([matchId, position]) // For match rankings
+  @@index([teamRegistrationId, totalMatchPoints(sort: Desc)]) // For team performance
+  @@index([matchId, totalKills(sort: Desc)]) // For kill leaderboards
+  @@index([createdAt]) // For time-based queries
   @@map("match_results")
 }
 
@@ -348,6 +357,13 @@ model Tournament {
   scoringRule       ScoringRule[]
   playerStats       PlayerStat[]
 
+
+  @@index([userId, status]) // For user's tournament filtering
+  @@index([userId, createdAt(sort: Desc)]) // For user's recent tournaments
+  @@index([status, createdAt]) // For global tournament listings
+  @@index([game, status]) // For game-specific tournaments
+  @@index([name]) // For tournament name searches
+
   @@map("tournaments")
 }
 
@@ -385,6 +401,12 @@ model Match {
   group        Group?        @relation(fields: [groupId], references: [id]) // Add this
   screenshots  Screenshot[]
   matchResults MatchResult[]
+
+  @@index([tournamentId, matchNumber]) // For tournament match ordering
+  @@index([groupId, matchNumber]) // For group match ordering
+  @@index([status, createdAt]) // For processing queue
+  @@index([tournamentId, status]) // For tournament match filtering
+  @@index([resultStatus]) // For result processing
 
   @@map("matches")
 }
@@ -469,6 +491,10 @@ model Group {
   stage             TournamentStage?   @relation(fields: [stageId], references: [id])
   slotAssignments   SlotAssignment[]
 
+  @@index([tournamentId]) // For tournament's groups
+  @@index([stageId]) // For stage-specific groups
+  @@index([tournamentId, createdAt]) // For chronological group ordering
+
   @@map("groups")
 }
 
@@ -493,6 +519,13 @@ model TeamRegistration {
   slotAssignments SlotAssignment[]
   matchResults    MatchResult[]
 
+  @@index([tournamentId, totalPoints(sort: Desc)]) // For leaderboard queries
+  @@index([groupId, totalPoints(sort: Desc)]) // For group leaderboards
+  @@index([tournamentId, createdAt]) // For chronological ordering
+  @@index([tournamentId, registrationStatus]) // For filtering by status
+  @@index([teamName]) // For team name searches
+  @@index([totalPoints(sort: Desc), createdAt]) // For global rankings
+  @@index([currentStage, totalPoints(sort: Desc)]) // For stage-based queries
   @@map("team_registrations")
 }
 
