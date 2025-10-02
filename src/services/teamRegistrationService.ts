@@ -398,7 +398,7 @@ export class TeamRegistrationService extends BaseService {
      */
     async getGroupTeamRegistrationsPaginated(
         groupId: string,
-        userId,
+        userId: string,
         paginationParams: PaginationParams = {}
     ): Promise<PaginatedResponse<any> | null> {
         try {
