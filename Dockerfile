@@ -33,7 +33,8 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY . .
 
-# Build the application
+RUN npx prisma generate
+
 RUN npm run build
 
 # Remove dev dependencies after build
