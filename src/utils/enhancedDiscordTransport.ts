@@ -1,7 +1,6 @@
 import Transport from 'winston-transport';
 import axios from 'axios';
 import { LogInfo, DiscordWebhookConfig, LogSecurity, LogInfoSchema, DiscordWebhookSchema } from './loggerValidation';
-import stripAnsi from 'strip-ansi';
 
 interface EnhancedLogInfo extends LogInfo {
     [key: string]: any;
@@ -96,8 +95,8 @@ class EnhancedDiscordTransport extends Transport {
 
             if (this.batchTimeout) clearTimeout(this.batchTimeout);
 
-            this.batchTimeout = setTimeout(() => {
-                this.sendEnhancedBatchedLogs();
+            this.batchTimeout = setTimeout(async () => {
+                await this.sendEnhancedBatchedLogs();
             }, this.BATCH_DELAY);
 
         } catch (error) {
@@ -132,12 +131,12 @@ class EnhancedDiscordTransport extends Transport {
         return masked;
     }
 
-    private sendEnhancedBatchedLogs() {
+    private async sendEnhancedBatchedLogs() {
         if (this.logBuffer.length === 0) return;
 
         try {
             const groupedLogs = this.groupLogsByLevel(this.logBuffer);
-            const embeds = this.createEnhancedEmbeds(groupedLogs);
+            const embeds = await this.createEnhancedEmbeds(groupedLogs);
 
             const alertContent = this.getAlertContent(groupedLogs);
             const payload: any = {
@@ -180,9 +179,9 @@ class EnhancedDiscordTransport extends Transport {
         }, {});
     }
 
-    private createEnhancedEmbeds(groupedLogs: Record<string, EnhancedLogInfo[]>) {
-        return Object.entries(groupedLogs).map(([level, logs]) => {
-            const colorNum = this.getVibrantColor(level);
+    private async createEnhancedEmbeds(groupedLogs: Record<string, EnhancedLogInfo[]>) {
+        const embedPromises = Object.entries(groupedLogs).map(async ([level, logs]) => {
+            const colorNum = await this.getVibrantColor(level);
             const colorSafe = this.ensureColorNumber(colorNum);
 
             // Create detailed description with metadata
@@ -211,6 +210,8 @@ class EnhancedDiscordTransport extends Transport {
                 }
             };
         });
+        
+        return Promise.all(embedPromises);
     }
 
     /**
@@ -307,7 +308,8 @@ class EnhancedDiscordTransport extends Transport {
         return emojis[level.toLowerCase()] || '📝';
     }
 
-    private getVibrantColor(level: string): number {
+    private async getVibrantColor(level: string): Promise<number> {
+        const { default: stripAnsi } = await import('strip-ansi');
         const cleanLevel = stripAnsi(level).toLowerCase();
 
         const colors: Record<string, number> = {
