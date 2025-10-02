@@ -9,7 +9,7 @@ import { authenticateUser } from '../middleware/auth';
  * @swagger
  * tags:
  *   - name: Authentication
- *     description: Complete user authentication system with OTP verification, registration, login, and session management
+ *     description: User authentication and session management
  */
 
 const authRouter = express.Router();
@@ -103,72 +103,17 @@ const authRouter = express.Router();
  *                       type: string
  *                       example: "1.0"
  *       400:
- *         description: Invalid phone number format
+ *         description: Invalid phone number format or validation failed
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Invalid phone number format"
- *                 error:
- *                   type: object
- *                   properties:
- *                     code:
- *                       type: string
- *                       example: "VALIDATION_ERROR"
- *                     details:
- *                       type: string
- *                       example: "INVALID_PHONE"
- *                     timestamp:
- *                       type: string
- *                       format: date-time
- *                       example: "2024-01-15T10:30:00.000Z"
- *                 meta:
- *                   type: object
- *                   properties:
- *                     timestamp:
- *                       type: string
- *                       format: date-time
- *                       example: "2024-01-15T10:30:00.000Z"
- *                     version:
- *                       type: string
- *                       example: "1.0"
+ *               $ref: '#/components/schemas/ValidationErrorResponse'
  *       404:
  *         description: User not found (only relevant for specific login OTP requests)
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "No account found with this phone number"
- *                 error:
- *                   type: object
- *                   properties:
- *                     code:
- *                       type: string
- *                       example: "NOT_FOUND"
- *                     timestamp:
- *                       type: string
- *                       format: date-time
- *                 meta:
- *                   type: object
- *                   properties:
- *                     timestamp:
- *                       type: string
- *                       format: date-time
- *                     version:
- *                       type: string
- *                       example: "1.0"
+ *               $ref: '#/components/schemas/NotFoundErrorResponse'
  *       409:
  *         description: User already exists (only relevant for specific registration OTP requests)
  *         content:
@@ -205,32 +150,7 @@ const authRouter = express.Router();
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Failed to send OTP"
- *                 error:
- *                   type: object
- *                   properties:
- *                     code:
- *                       type: string
- *                       example: "INTERNAL_ERROR"
- *                     timestamp:
- *                       type: string
- *                       format: date-time
- *                 meta:
- *                   type: object
- *                   properties:
- *                     timestamp:
- *                       type: string
- *                       format: date-time
- *                     version:
- *                       type: string
- *                       example: "1.0"
+ *               $ref: '#/components/schemas/ServerErrorResponse'
  */
 authRouter.post('/send-otp', 
     validateRequest(sendOTPSchema), 

@@ -7,7 +7,7 @@ import { AdvancedEngineController } from '../controllers/advancedEngineControlle
  * @swagger
  * tags:
  *   - name: Advanced Engine
- *     description: AI-powered screenshot processing and result extraction operations for tournament matches
+ *     description: AI screenshot processing and analysis
  */
 
 const advancedEngineRouter = express.Router();

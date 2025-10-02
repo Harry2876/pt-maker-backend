@@ -9,7 +9,7 @@ import { matchParamsSchema } from '../validations/matchValidation';
  * @swagger
  * tags:
  *   - name: Uploads
- *     description: File upload and management operations
+ *     description: File upload and storage
  */
 
 const uploadRouter = express.Router();

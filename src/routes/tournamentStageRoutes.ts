@@ -13,7 +13,7 @@ import {
  * @swagger
  * tags:
  *   - name: Tournament Stages
- *     description: Multi-stage tournament management operations
+ *     description: Tournament stage management
  */
 
 const tournamentStageRouter = express.Router();

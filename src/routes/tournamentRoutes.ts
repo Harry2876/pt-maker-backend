@@ -34,12 +34,98 @@ tournamentRouter.use(authenticateUser);
  *       - Includes tournament status and stage information
  *       - Shows registration and collaboration settings
  *       - Provides count of total tournaments
+ *       - Supports pagination, filtering, sorting, and search
  *       
  *       **Response Structure:**
  *       - Success: Returns tournaments array with count in data object
  *       - No tournaments: Returns 404 with appropriate message
+ *       
+ *       **Pagination:**
+ *       - Default: 20 tournaments per page
+ *       - Maximum: 100 tournaments per page
+ *       
+ *       **Filtering:**
+ *       - Filter by game type, status, or tournament format
+ *       
+ *       **Sorting:**
+ *       - Sort by creation date, name, or status
+ *       - Default: newest first (createdAt desc)
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Number of tournaments per page
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           maxLength: 100
+ *         description: Search tournaments by name or game
+ *         example: "BGMI Championship"
+ *       - in: query
+ *         name: game
+ *         schema:
+ *           type: string
+ *           maxLength: 50
+ *         description: Filter by specific game
+ *         example: "BGMI"
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [UPCOMING, ONGOING, COMPLETED]
+ *         description: Filter by tournament status
+ *         example: "ONGOING"
+ *       - in: query
+ *         name: tournamentFormat
+ *         schema:
+ *           type: string
+ *           enum: [ELIMINATION, ROUND_ROBIN, MIXED]
+ *         description: Filter by tournament format
+ *         example: "ELIMINATION"
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [createdAt, name, status, prizePool, maxTeams]
+ *           default: createdAt
+ *         description: Field to sort by
+ *         example: "createdAt"
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order (ascending or descending)
+ *         example: "desc"
+ *       - in: query
+ *         name: minPrizePool
+ *         schema:
+ *           type: number
+ *           minimum: 0
+ *         description: Filter tournaments with prize pool greater than or equal to this amount
+ *         example: 1000
+ *       - in: query
+ *         name: maxPrizePool
+ *         schema:
+ *           type: number
+ *           minimum: 0
+ *         description: Filter tournaments with prize pool less than or equal to this amount
+ *         example: 50000
  *     responses:
  *       200:
  *         description: User tournaments retrieved successfully
@@ -120,7 +206,54 @@ tournamentRouter.use(authenticateUser);
  *                     count:
  *                       type: integer
  *                       example: 5
- *                       description: "Total number of tournaments created by the user"
+ *                       description: "Number of tournaments in current page"
+ *                     total:
+ *                       type: integer
+ *                       example: 47
+ *                       description: "Total number of tournaments matching filters"
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page:
+ *                           type: integer
+ *                           example: 1
+ *                           description: "Current page number"
+ *                         limit:
+ *                           type: integer
+ *                           example: 20
+ *                           description: "Number of items per page"
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 3
+ *                           description: "Total number of pages"
+ *                         hasNext:
+ *                           type: boolean
+ *                           example: true
+ *                           description: "Whether there are more pages"
+ *                         hasPrev:
+ *                           type: boolean
+ *                           example: false
+ *                           description: "Whether there are previous pages"
+ *                     filters:
+ *                       type: object
+ *                       properties:
+ *                         applied:
+ *                           type: object
+ *                           description: "Currently applied filters"
+ *                           example: { "status": "ONGOING", "game": "BGMI" }
+ *                         search:
+ *                           type: string
+ *                           example: "Championship"
+ *                           description: "Applied search query"
+ *                     sorting:
+ *                       type: object
+ *                       properties:
+ *                         sortBy:
+ *                           type: string
+ *                           example: "createdAt"
+ *                         sortOrder:
+ *                           type: string
+ *                           example: "desc"
  *                 meta:
  *                   type: object
  *                   properties:

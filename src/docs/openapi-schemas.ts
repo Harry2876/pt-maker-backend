@@ -20,6 +20,84 @@ export const openApiSchemas = {
     }
   },
 
+  // ===== STANDARD HTTP ERROR RESPONSES =====
+  ValidationErrorResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string', example: 'Validation failed' },
+      error: { type: 'string', example: 'Request validation failed' },
+      details: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            field: { type: 'string', example: 'phoneNumber' },
+            message: { type: 'string', example: 'Phone number is required' }
+          }
+        }
+      },
+      timestamp: { type: 'string', format: 'date-time' },
+      path: { type: 'string', example: '/api/v1/auth/send-otp' }
+    }
+  },
+
+  UnauthorizedErrorResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string', example: 'Authentication required' },
+      error: { type: 'string', example: 'Missing or invalid authentication token' },
+      timestamp: { type: 'string', format: 'date-time' },
+      path: { type: 'string', example: '/api/v1/tournaments' }
+    }
+  },
+
+  ForbiddenErrorResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string', example: 'Access denied' },
+      error: { type: 'string', example: 'Insufficient permissions to access this resource' },
+      timestamp: { type: 'string', format: 'date-time' },
+      path: { type: 'string', example: '/api/v1/admin/users' }
+    }
+  },
+
+  NotFoundErrorResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string', example: 'Resource not found' },
+      error: { type: 'string', example: 'The requested resource does not exist' },
+      timestamp: { type: 'string', format: 'date-time' },
+      path: { type: 'string', example: '/api/v1/tournaments/123' }
+    }
+  },
+
+  RateLimitErrorResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string', example: 'Rate limit exceeded' },
+      error: { type: 'string', example: 'Too many requests, please try again later' },
+      retryAfter: { type: 'integer', example: 60, description: 'Seconds to wait before retrying' },
+      timestamp: { type: 'string', format: 'date-time' },
+      path: { type: 'string', example: '/api/v1/auth/send-otp' }
+    }
+  },
+
+  ServerErrorResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string', example: 'Internal server error' },
+      error: { type: 'string', example: 'An unexpected error occurred' },
+      timestamp: { type: 'string', format: 'date-time' },
+      path: { type: 'string', example: '/api/v1/tournaments' }
+    }
+  },
+
   Success: {
     type: 'object',
     properties: {
@@ -340,5 +418,67 @@ export const openApiSchemas = {
         example: '123e4567-e89b-12d3-a456-426614174000'
       }
     }
+  },
+    // ===== LEADERBOARD SCHEMAS =====
+  LeaderboardEntry: {
+    type: 'object',
+    properties: {
+      teamRegistrationId: { type: 'string', example: 'clm8k9j0x0000xyz123abc456' },
+      teamName: { type: 'string', example: 'Team Phoenix' },
+      totalMatches: { type: 'integer', minimum: 0, example: 15 },
+      totalKills: { type: 'integer', minimum: 0, example: 87 },
+      totalPoints: { type: 'integer', minimum: 0, example: 245 },
+      averageKills: { type: 'number', format: 'float', example: 5.8 },
+      averagePosition: { type: 'number', format: 'float', example: 8.3 },
+      bestPosition: { type: 'integer', minimum: 1, example: 2 },
+      wins: { type: 'integer', minimum: 0, example: 3 },
+      top5Finishes: { type: 'integer', minimum: 0, example: 8 },
+      top10Finishes: { type: 'integer', minimum: 0, example: 12 },
+      winRate: { type: 'number', format: 'float', example: 20.5 },
+      rank: { type: 'integer', minimum: 1, example: 4 },
+      previousRank: { type: 'integer', minimum: 1, example: 6 },
+      rankChange: { 
+        type: 'string', 
+        enum: ['UP', 'DOWN', 'SAME'],
+        example: 'UP'
+      },
+      lastUpdated: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00Z' }
+    },
+    required: ['teamRegistrationId', 'teamName', 'totalMatches', 'totalKills', 'totalPoints', 'rank']
+  },
+
+  TournamentLeaderboard: {
+    type: 'object',
+    properties: {
+      tournamentId: { type: 'string', example: 'clm8k9j0x0000xyz123abc456' },
+      tournamentName: { type: 'string', example: 'BGMI Pro Championship 2024' },
+      totalTeams: { type: 'integer', minimum: 0, example: 48 },
+      totalMatches: { type: 'integer', minimum: 0, example: 6 },
+      lastUpdated: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00Z' },
+      entries: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/LeaderboardEntry' }
+      },
+      generatedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00Z' }
+    },
+    required: ['tournamentId', 'tournamentName', 'totalTeams', 'totalMatches', 'entries', 'generatedAt']
+  },
+
+  GroupLeaderboard: {
+    type: 'object',
+    properties: {
+      groupId: { type: 'string', example: 'clm8k9j0x0000xyz123abc456' },
+      groupName: { type: 'string', example: 'Group A' },
+      tournamentId: { type: 'string', example: 'clm8k9j0x0000xyz123abc456' },
+      totalTeams: { type: 'integer', minimum: 0, example: 16 },
+      totalMatches: { type: 'integer', minimum: 0, example: 6 },
+      lastUpdated: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00Z' },
+      entries: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/LeaderboardEntry' }
+      },
+      generatedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00Z' }
+    },
+    required: ['groupId', 'groupName', 'tournamentId', 'totalTeams', 'totalMatches', 'entries', 'generatedAt']
   }
 };

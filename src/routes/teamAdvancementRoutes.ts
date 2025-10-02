@@ -6,30 +6,8 @@ import { authenticateUser } from '../middleware/auth';
  * @swagger
  * tags:
  *   - name: Team Advancement
- *     description: |
- *       Complete tournament progression system for advancing teams through tournament stages.
- *       
- *       **Tournament Flow Overview:**
- *       1. **Team Registration** → Teams register for tournament
- *       2. **Group Assignment** → Teams are assigned to groups within stages
- *       3. **Match Play** → Teams play matches within their groups
- *       4. **Team Qualification** → Top teams qualify based on group performance
- *       5. **Team Redistribution** → Qualified teams are redistributed to next stage groups
- *       6. **Stage Progression** → Tournament advances to next stage
- *       7. **Repeat** → Process continues until final stage
- *       
- *       **Key Features:**
- *       - Automatic team qualification based on group rankings
- *       - Flexible redistribution strategies (random, balanced, seeded, snake draft)
- *       - Complete stage progression automation
- *       - Real-time tournament progress tracking
- *       - Management slot reservation for organizer teams
- *       
- *       **Distribution Strategies:**
- *       - **RANDOM**: Teams distributed randomly across groups
- *       - **BALANCED**: Teams distributed to balance group strength by points
- *       - **SNAKE_DRAFT**: Top teams distributed in snake pattern (1-2-3-3-2-1)
- *       - **SEEDED**: Top teams spread evenly across all groups (round-robin style)
+ *     description: Team progression and bracket management
+
  */
 
 const router = Router();
