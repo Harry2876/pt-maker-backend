@@ -1,7 +1,8 @@
 import winston from 'winston';
 import path from 'path';
 import DiscordTransport from './discordTransport';
-import env from '../config/env';
+
+import {env} from '../config/env';
 import EnhancedDiscordTransport from './enhancedDiscordTransport';
 import { validateEnvironment } from './loggerValidation';
 
@@ -75,6 +76,28 @@ const transports: any[] = [
     ),
   }),
 ];
+
+// Production Datadog logging integration
+if (env.ENABLE_DATADOG && env.DD_API_KEY) {
+  try {
+    const DatadogWinston = require('datadog-winston');
+    transports.push(
+      new DatadogWinston({
+        apiKey: env.DD_API_KEY,
+        hostname: process.env.HOSTNAME || env.DD_SERVICE,
+        service: env.DD_SERVICE,
+        ddsource: 'nodejs',
+        ddtags: `env:${env.DD_ENV},version:${env.DD_VERSION},region:${process.env.AWS_REGION || 'unknown'}`,
+        level: env.DD_ENV === 'production' ? 'warn' : 'info'
+      })
+    );
+    console.log('✅ Datadog logging transport enabled');
+  } catch (error) {
+    console.error('❌ Failed to add Datadog transport:', error);
+  }
+} else {
+  console.log('⚠️ Datadog logging disabled - missing configuration');
+}
 
 // Add Discord transports based on environment
 const isProduction = validatedEnv.NODE_ENV === 'production';

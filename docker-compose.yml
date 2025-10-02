@@ -1,14 +1,62 @@
+
 services:
+  # Datadog Agent for Production
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7
+    container_name: scrymz-datadog-agent
+    environment:
+      - DD_API_KEY=${DD_API_KEY}
+      - DD_SITE=${DD_SITE:-datadoghq.com}
+      - DD_ENV=${DD_ENV:-production}
+      - DD_SERVICE=${DD_SERVICE:-pt-maker-backend}
+      - DD_VERSION=${DD_VERSION:-1.0.0}
+      - DD_APM_ENABLED=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+      - DD_LOGS_ENABLED=true
+      - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
+      - DD_LOGS_CONFIG_AUTO_MULTI_LINE_DETECTION=true
+      - DD_CONTAINER_EXCLUDE="name:datadog-agent"
+      - DD_PROCESS_AGENT_ENABLED=true
+    ports:
+      - "8126:8126"  # APM traces
+      - "8125:8125/udp"  # DogStatsD metrics
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    restart: unless-stopped
+    platform: linux/arm64/v8
+    depends_on:
+      - redis
+
+  # Redis with Datadog monitoring
   redis:
     image: redis:7-alpine
-    container_name: pt-maker-redis
+    container_name: pt-maker-redis-prod
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     restart: unless-stopped
     platform: linux/arm64/v8
+    labels:
+      - "com.datadoghq.ad.check_names=[\"redisdb\"]"
+      - "com.datadoghq.ad.init_configs=[{}]"
+      - "com.datadoghq.ad.instances=[{\"host\":\"%%host%%\",\"port\":\"6379\"}]"
+      - "com.datadoghq.ad.logs=[{\"source\":\"redis\",\"service\":\"redis\"}]"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   redis_data:
+    driver: local
+
+networks:
+  default:
+    name: scrymz-network
