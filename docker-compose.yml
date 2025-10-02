@@ -1,5 +1,37 @@
 
 services:
+  # Your Application
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: scrymz-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DD_AGENT_HOST=datadog-agent
+      - DD_TRACE_AGENT_PORT=8126
+      - DD_DOGSTATSD_PORT=8125
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - datadog-agent
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.datadoghq.ad.logs=[{\"source\":\"nodejs\",\"service\":\"pt-maker-backend\"}]"
+    networks:
+      - scrymz-network
+
   # Datadog Agent for Production
   datadog-agent:
     image: gcr.io/datadoghq/agent:7
@@ -30,11 +62,13 @@ services:
     platform: linux/arm64/v8
     depends_on:
       - redis
+    networks:
+      - scrymz-network
 
   # Redis with Datadog monitoring
   redis:
     image: redis:7-alpine
-    container_name: pt-maker-redis-prod
+    container_name: scrymz-redis
     ports:
       - "6379:6379"
     volumes:
@@ -52,11 +86,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - scrymz-network
 
 volumes:
   redis_data:
     driver: local
 
 networks:
-  default:
-    name: scrymz-network
+  scrymz-network:
+    driver: bridge
