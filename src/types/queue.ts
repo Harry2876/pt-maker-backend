@@ -72,7 +72,10 @@ export interface DatabaseSyncJob {
     | 'DELETE_SCORING_RULE'
     | 'MATCH_RESULT_CREATE'
     | 'MATCH_RESULT_UPDATE'
-    | 'DELETE_MATCH_RESULT';
+    | 'DELETE_MATCH_RESULT'
+    | 'TOURNAMENT_STAGE_CREATE'
+| 'TOURNAMENT_STAGE_UPDATE'  
+| 'DELETE_TOURNAMENT_STAGE_CREATE';
     entityId: string;
     data: any;
     userId: string;

@@ -39,6 +39,12 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncTeamRegistrationCreate(data);
                 case 'TEAM_REGISTRATION_UPDATE':
                     return await this.syncTeamRegistrationUpdate(entityId, data);
+                case 'TOURNAMENT_STAGE_CREATE':
+                    return await this.syncTournamentStageCreate(data);
+                case 'TOURNAMENT_STAGE_UPDATE':
+                    return await this.syncTournamentStageUpdate(entityId, data);
+                case 'DELETE_TOURNAMENT_STAGE_CREATE':
+                    return await this.syncTournamentStageDelete(entityId);
                 case 'SCREENSHOT_CREATE':
                     return await this.syncScreenshotCreate(data);
                 case 'SCREENSHOT_DELETE':
@@ -623,6 +629,80 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             logger.info(`Slot assignment ${slotId} deleted from database successfully`);
         } catch (error) {
             logger.error(`Error deleting slot assignment ${slotId}:`, error);
+            throw error;
+        }
+    }
+    private async syncTournamentStageCreate(data: any): Promise<void> {
+        try {
+            const tournamentStage = await db.tournamentStage.create({
+                data: {
+                    id: data.id,
+                    name: data.name,
+                    stageNumber: data.stageNumber,
+                    totalGroups: data.totalGroups,
+                    qualificationSpots: data.qualificationSpots,
+                    stageFormat: data.stageFormat,
+                    isActive: data.isActive,
+                    isCompleted: data.isCompleted,
+                    tournamentId: data.tournamentId,
+                    createdAt: new Date(data.createdAt),
+                    updatedAt: new Date(data.updatedAt || data.createdAt)
+                }
+            });
+
+            await redis.hset(`stage:${tournamentStage.id}`, 'dbStatus', 'SYNCED');
+            await redis.hset(`stage:${tournamentStage.id}`, 'dbSyncedAt', new Date().toISOString());
+            logger.info(`Tournament stage ${tournamentStage.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Tournament stage ${data.id} already exists in database`);
+                await redis.hset(`stage:${data.id}`, 'dbStatus', 'SYNCED');
+                await redis.hset(`stage:${data.id}`, 'dbSyncedAt', new Date().toISOString());
+            } else {
+                logger.error(`Error creating tournament stage ${data.id}:`, error);
+                await redis.hset(`stage:${data.id}`, 'dbStatus', 'ERROR');
+                throw error;
+            }
+        }
+    }
+
+    private async syncTournamentStageUpdate(entityId: string, data: any): Promise<void> {
+        try {
+            await db.tournamentStage.update({
+                where: { id: entityId },
+                data: {
+                    name: data.name,
+                    stageNumber: data.stageNumber,
+                    totalGroups: data.totalGroups,
+                    qualificationSpots: data.qualificationSpots,
+                    stageFormat: data.stageFormat,
+                    isActive: data.isActive,
+                    isCompleted: data.isCompleted,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`stage:${entityId}`, 'dbStatus', 'SYNCED');
+            await redis.hset(`stage:${entityId}`, 'dbSyncedAt', new Date().toISOString());
+            logger.info(`Tournament stage ${entityId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating tournament stage ${entityId}:`, error);
+            await redis.hset(`stage:${entityId}`, 'dbStatus', 'ERROR');
+            throw error;
+        }
+    }
+
+    private async syncTournamentStageDelete(entityId: string): Promise<void> {
+        try {
+            await db.tournamentStage.delete({
+                where: { id: entityId }
+            });
+
+            // Clean up Redis cache
+            await redis.delete(`stage:${entityId}`);
+            logger.info(`Tournament stage ${entityId} deleted from database successfully`);
+        } catch (error) {
+            logger.error(`Error deleting tournament stage ${entityId}:`, error);
             throw error;
         }
     }

@@ -1,12 +1,9 @@
-// CRITICAL: Must be first import for Datadog tracing
-import './config/datadog';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import logger from './utils/logger';
 import { dbManager } from './config/database';
 import healthRoutes from './routes/health';
-import { productionMetricsMiddleware } from './middleware/productionMetricsMiddleware';
 // Import route modules
 import authRouter from './routes/authRoutes';
 import tournamentRouter from './routes/tournamentRoutes';
@@ -71,7 +68,7 @@ app.use(helmet({
     }
 }));
 app.use(cors(corsOptions)); // Enable CORS
-app.use(productionMetricsMiddleware);
+
 
 // Add after CORS middleware
 app.use((req, res, next) => {
@@ -149,7 +146,6 @@ app.use((req, res, next) => {
 
     next();
 });
-
 // Health check route
 app.use('/', healthRoutes);
 

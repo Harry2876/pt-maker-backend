@@ -28,16 +28,6 @@ export const env = {
   ADVANCED_ENGINE_ENABLED: process.env.ADVANCED_ENGINE_ENABLED === 'true',
   ADVANCED_ENGINE_MAX_IMAGES_PER_BATCH: parseInt(process.env.ADVANCED_ENGINE_MAX_IMAGES_PER_BATCH || '10'),
   ADVANCED_ENGINE_TIMEOUT: parseInt(process.env.ADVANCED_ENGINE_TIMEOUT || '30000'),
-  DD_API_KEY: process.env.DD_API_KEY,
-  DD_APP_KEY: process.env.DD_APP_KEY,
-  DD_SITE: process.env.DD_SITE || 'us5.datadoghq.com',
-  DD_ENV: process.env.DD_ENV || 'production',
-  DD_SERVICE: process.env.DD_SERVICE || 'Scrymz Backend',
-  DD_VERSION: process.env.DD_VERSION || '1.0.0',
-  ENABLE_DATADOG: process.env.ENABLE_DATADOG === 'true',
-  DD_AGENT_HOST: process.env.DD_AGENT_HOST || 'localhost',
-  DD_TRACE_AGENT_PORT: parseInt(process.env.DD_TRACE_AGENT_PORT || '8126', 10),
-  DD_DOGSTATSD_PORT: parseInt(process.env.DD_DOGSTATSD_PORT || '8125', 10),
 };
 
 export default env;

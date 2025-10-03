@@ -9,16 +9,12 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - DD_AGENT_HOST=datadog-agent
-      - DD_TRACE_AGENT_PORT=8126
-      - DD_DOGSTATSD_PORT=8125
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     env_file:
       - .env
     depends_on:
       - redis
-      - datadog-agent
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
@@ -26,44 +22,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    labels:
-      - "com.datadoghq.ad.logs=[{\"source\":\"nodejs\",\"service\":\"pt-maker-backend\"}]"
     networks:
       - scrymz-network
 
-  # Datadog Agent for Production
-  datadog-agent:
-    image: gcr.io/datadoghq/agent:7
-    container_name: scrymz-datadog-agent
-    environment:
-      - DD_API_KEY=${DD_API_KEY}
-      - DD_SITE=${DD_SITE:-datadoghq.com}
-      - DD_ENV=${DD_ENV:-production}
-      - DD_SERVICE=${DD_SERVICE:-pt-maker-backend}
-      - DD_VERSION=${DD_VERSION:-1.0.0}
-      - DD_APM_ENABLED=true
-      - DD_APM_NON_LOCAL_TRAFFIC=true
-      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
-      - DD_LOGS_ENABLED=true
-      - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
-      - DD_LOGS_CONFIG_AUTO_MULTI_LINE_DETECTION=true
-      - DD_CONTAINER_EXCLUDE=name:datadog-agent
-      - DD_PROCESS_AGENT_ENABLED=true
-    ports:
-      - "8126:8126"  # APM traces
-      - "8125:8125/udp"  # DogStatsD metrics
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc/:/host/proc/:ro
-      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-    restart: unless-stopped
-    depends_on:
-      - redis
-    networks:
-      - scrymz-network
 
-  # Redis with Datadog monitoring
+
   redis:
     image: redis:7-alpine
     container_name: scrymz-redis
@@ -73,11 +36,6 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 1024mb --maxmemory-policy noeviction
     restart: unless-stopped
-    labels:
-      - "com.datadoghq.ad.check_names=[\"redisdb\"]"
-      - "com.datadoghq.ad.init_configs=[{}]"
-      - "com.datadoghq.ad.instances=[{\"host\":\"%%host%%\",\"port\":\"6379\"}]"
-      - "com.datadoghq.ad.logs=[{\"source\":\"redis\",\"service\":\"redis\"}]"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s

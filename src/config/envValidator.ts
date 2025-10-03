@@ -15,18 +15,6 @@ const envSchema = z.object({
   REDIS_HOST: z.string().min(1, 'REDIS_HOST is required'),
   REDIS_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)),
   REDIS_PASSWORD: z.string().optional(),
-
-  DD_API_KEY: z.string().min(1, 'DD_API_KEY is required when Datadog is enabled').optional(),
-  DD_APP_KEY: z.string().min(1, 'DD_APP_KEY is required when Datadog is enabled').optional(),
-  DD_SITE: z.string().optional().default('us5.datadoghq.com'),
-  DD_ENV: z.string().optional().default('production'),
-  DD_SERVICE: z.string().optional().default('Scrymz Backend'),
-  DD_VERSION: z.string().optional().default('1.0.0'),
-  ENABLE_DATADOG: z.string().transform(val => val === 'true').optional().default(false),
-    DD_AGENT_HOST: z.string().optional().default('localhost'),
-  DD_TRACE_AGENT_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).optional().default(8126),
-  DD_DOGSTATSD_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).optional().default(8125),
-
   // Discord (optional)
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
   DISCORD_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional(),
