@@ -15,6 +15,7 @@ import tournamentStageRouter from './routes/tournamentStageRoutes';             
 import teamRegistrationRouter from './routes/teamRegistrationRoutes';
 import teamAdvancementRouter from './routes/teamAdvancementRoutes';
 import advancedEngineRouter from './routes/advancedEngineRoutes';
+import slotManagementRouter from './routes/slotManagementRoutes';
 import leaderboardRouter from './routes/leaderboardRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
@@ -172,6 +173,7 @@ app.use('/api/v1', matchResultRouter);
 app.use('/api/v1/tournament-stages', tournamentStageRouter);
 app.use('/api/v1/team-advancement', teamAdvancementRouter);
 app.use('/api/v1/advanced-engine', advancedEngineRouter);
+app.use('/api/v1/slot-management', slotManagementRouter);
 app.use('/api/v1/leaderboards', leaderboardRouter);
 // app.use('/api/v1/admin', adminRouter);
 

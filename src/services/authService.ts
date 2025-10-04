@@ -719,6 +719,14 @@ export class AuthService extends BaseService {
         try {
             const sessionId = this.generateSecureSessionId();
 
+            //Revoke existing sessions for the user to prevent token abuse 
+            try {
+                await this.revokeAllUserSessions(userId);
+                this.logger.info(`Revoked existing sessions for user ${userId} before generating new tokens`);
+            } catch (error) {
+                this.logger.warn(`Failed to revoke existing sessions for user ${userId}:`, error);
+            }
+
             //generate access token with unique JTI
             const accessTokenPayload: AccessTokenPayload = {
                 userId,
@@ -841,7 +849,7 @@ export class AuthService extends BaseService {
             }
 
             //check token expiration in fallback
-            if (payload.exp < Math.floor(Date.now()/1000)) {
+            if (payload.exp < Math.floor(Date.now() / 1000)) {
                 this.logger.error(`Access Token Expired in JWT Fallback Verification`);
                 throw new Error(`Access Token Expired`);
             }
@@ -956,12 +964,15 @@ export class AuthService extends BaseService {
             if (currentAccessToken) {
                 try {
                     await this.verifySessionToken(currentAccessToken);
-
-                    //if verification succeeds, token is still valid
                     this.logger.warn(`Refresh attempted with valid access token for session ${refreshPayload.sessionId}`);
-                    wasExpired = false;
+
+                    // SECURITY FIX: Don't generate new token if current one is still valid
+                    return {
+                        accessToken: currentAccessToken,
+                        expiresIn: 1800, // Keep original expiry
+                        wasExpired: false
+                    };
                 } catch (error) {
-                    //token is expired or invalid, proceed to refresh
                     this.logger.info(`Current access token is expired or invalid, proceeding to refresh`);
                     wasExpired = true;
                 }
@@ -979,6 +990,12 @@ export class AuthService extends BaseService {
             };
 
             const newAccessToken = jwt.sign(newAccessTokenPayload, this.getJWTSecret());
+
+            // Clean up old access token to prevent multiple valid tokens
+if (currentAccessToken) {
+    await redis.delete(`access_token:${currentAccessToken}`);
+    this.logger.info(`Cleaned up expired access token for session ${refreshPayload.sessionId}`);
+}
 
             //store new access token in the redis with 30 min ttl
             await redis.setObject(`access_token:${newAccessToken}`, newAccessTokenPayload, 1800); //30 min ttl

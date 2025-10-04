@@ -117,8 +117,8 @@ uploadRouter.use(authenticateUser);
  *                             example: "image/png"
  *                           type:
  *                             type: string
- *                             enum: ["SLOT_LIST", "RESULT_SCREEN"]
- *                             example: "RESULT_SCREEN"
+ *                             enum: ["ATTENDANCE_IMAGE", "RESULT_IMAGE"]
+ *                             example: "RESULT_IMAGE"
  *                             description: "Screenshot type detected by AI"
  *                           storageUrl:
  *                             type: string

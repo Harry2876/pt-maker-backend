@@ -1,6 +1,6 @@
 import multer from "multer";
 import { r2Service } from "../services/cloudflareR2Service";
-import { Request, Response,NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from 'fs/promises';
@@ -75,10 +75,33 @@ const fileFilter = (uploadType: 'screenshot' | 'template') => {
 
 //progress tracking middleware
 export const trackUploadProgress = (uploadType: 'screenshot' | 'template') => {
-    return async (req: Request, res: Response, next: NextFunction): Promise<void>=> {
+    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const userId = req.user!.id;
             const uploadId = randomUUID();
+
+            // Extract and validate screenshotType for screenshot uploads
+            if (uploadType === 'screenshot') {
+                const screenshotType = req.query.type as string;
+
+                if (!screenshotType) {
+                    res.status(400).json({
+                        success: false,
+                        message: 'Screenshot type is required. Use ?type=ATTENDANCE_IMAGE or ?type=RESULT_IMAGE'
+                    });
+                    return;
+                }
+
+                if (screenshotType !== 'ATTENDANCE_IMAGE' && screenshotType !== 'RESULT_IMAGE') {
+                    res.status(400).json({
+                        success: false,
+                        message: 'Invalid screenshot type. Must be ATTENDANCE_IMAGE or RESULT_IMAGE'
+                    });
+                    return;
+                }
+
+                req.screenshotType = screenshotType as 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
+            }
 
             //check for concurrent uploads
             const activeUpload = await redis.get(`upload:active:${userId}`);
@@ -151,7 +174,7 @@ export const createUploadMiddleware = (uploadType: 'screenshot' | 'template') =>
 };
 
 //post upload processing
-const handleUploadComplete = async (req: Request, res: Response, next: NextFunction) : Promise<void> => {
+const handleUploadComplete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const uploadId = req.uploadId!;
         const files = req.files as Express.Multer.File[] || (req.file ? [req.file] : []);
@@ -189,18 +212,19 @@ const handleUploadComplete = async (req: Request, res: Response, next: NextFunct
 
         //upload files to R2 and get URLs
         const uploadedFiles = [];
-        for(const file of files){
-            try{
+        for (const file of files) {
+            try {
                 const r2Result = await r2Service.uploadFile(
                     file.buffer,
                     file.originalname,
                     file.mimetype,
-                    'screenshots'
+                    req.screenshotType!,
+                    req.params.id //matchId
                 );
 
                 uploadedFiles.push({
                     originalName: file.originalname,
-                    fileName:r2Result.key,
+                    fileName: r2Result.key,
                     size: file.size,
                     mimeType: file.mimetype,
                     path: r2Result.url,  // This will now be R2 URL
@@ -239,7 +263,7 @@ const cleanupFailedUpload = async (uploadId: string, userId: string, error?: Err
             for (const file of progress.files) {
                 try {
                     //extract R2 key from the file path or used stored r2Key
-                    if(file.path.includes('r2.cloudflarestorage.com')){
+                    if (file.path.includes('r2.cloudflarestorage.com')) {
                         const r2Key = file.path.split('/').slice(-2).join('/'); //extract key from the url
                         await r2Service.deleteFile(r2Key);
                     }
@@ -320,6 +344,7 @@ declare global {
         interface Request {
             uploadId?: string;
             uploadType?: 'screenshot' | 'template';
+            screenshotType?: 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
             uploadInfo?: {
                 uploadId: string;
                 files: Array<{

@@ -8,7 +8,7 @@ export class CloudflareR2Service extends BaseService {
     private bucketName: string;
     private publicUrl: string;
 
-    constructor(){
+    constructor() {
         super();
         this.bucketName = process.env.R2_BUCKET_NAME!;
         this.publicUrl = process.env.R2_PUBLIC_URL!; // e.g., https://<account_id>.r2.cloudflarestorage.com/<bucket_name>
@@ -16,22 +16,23 @@ export class CloudflareR2Service extends BaseService {
         this.s3Client = new S3Client({
             region: 'auto',
             endpoint: process.env.R2_ENDPOINT!,
-            credentials:{
-                accessKeyId:process.env.R2_ACCESS_KEY_ID!,
-                secretAccessKey:process.env.R2_SECRET_ACCESS_KEY!
+            credentials: {
+                accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+                secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!
             }
         });
     }
 
-     async uploadFile(
-        file: Buffer, 
-        originalName: string, 
+    async uploadFile(
+        file: Buffer,
+        originalName: string,
         mimeType: string,
-        folder: string = 'screenshots'
+        screenshotType: 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE',
+        matchId: string
     ): Promise<{ url: string; key: string }> {
         try {
             const fileExtension = originalName.split('.').pop();
-            const uniqueKey = `${folder}/${Date.now()}-${crypto.randomUUID()}.${fileExtension}`;
+            const uniqueKey = `${screenshotType}/match-${matchId}/${Date.now()}-${crypto.randomUUID()}.${fileExtension}`;
 
             const command = new PutObjectCommand({
                 Bucket: this.bucketName,
@@ -43,11 +44,11 @@ export class CloudflareR2Service extends BaseService {
             });
 
             await this.s3Client.send(command);
-            
+
             const fileUrl = `${this.publicUrl}/${uniqueKey}`;
-            
+
             this.logger.info(`File uploaded successfully to R2: ${uniqueKey}`);
-            
+
             return {
                 url: fileUrl,
                 key: uniqueKey

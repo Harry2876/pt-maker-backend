@@ -34,7 +34,7 @@ export class ScreenshotService extends BaseService {
                     matchId,
                     uploadedAt: new Date().toISOString(),
                     isProcessed: false,
-                    type: this.determineScreenshotType(file.originalName),
+                    type: file.screenshotType || 'RESULT_IMAGE',
                     dbStatus: 'PENDING_SYNC'
                 };
 
@@ -189,14 +189,6 @@ export class ScreenshotService extends BaseService {
 
         const tournament = await redis.hgetObject<TournamentCache>(`tournament:${match.tournamentId}`);
         return tournament !== null && tournament.userId === userId;
-    }
-
-    private determineScreenshotType(filename: string): 'SLOT_LIST' | 'RESULT_SCREEN' {
-        const lowerName = filename.toLowerCase();
-        if (lowerName.includes('slot') || lowerName.includes('team') || lowerName.includes('lobby')) {
-            return 'SLOT_LIST';
-        }
-        return 'RESULT_SCREEN';
     }
 
 

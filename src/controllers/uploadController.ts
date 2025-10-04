@@ -10,11 +10,12 @@ export class UploadController {
         const userId = req.user!.id;
         const uploadInfo = req.uploadInfo!;
 
-        const result = await screenshotService.saveScreenshots(matchId, userId, {
+                const result = await screenshotService.saveScreenshots(matchId, userId, {
             matchId,
             files:uploadInfo.files.map(file => ({
                 ...file,
-                uploadedAt: new Date().toISOString()
+                uploadedAt: new Date().toISOString(),
+                screenshotType: req.screenshotType
             })),
             uploadId: uploadInfo.uploadId,
         });

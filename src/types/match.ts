@@ -31,7 +31,7 @@ export interface Screenshot {
     fileName: string;
     fileSize: number;
     mimeType: string;
-    type: 'SLOT_LIST' | 'RESULT_SCREEN';
+    type: 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
     storageUrl: string;
     processingId?: string;
     processedAt?: string;
