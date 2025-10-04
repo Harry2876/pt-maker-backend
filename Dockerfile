@@ -1,56 +1,30 @@
-# Use Node.js 18 LTS (Alpine for smaller size)
 FROM node:18-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies for native modules
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    curl \
-    cairo-dev \
-    jpeg-dev \
-    pango-dev \
-    musl-dev \
-    giflib-dev \
-    pixman-dev \ 
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    freetype-dev
+RUN apk add --no-cache curl python3 make g++
 
-# Create non-root user for security
+# Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
 
 # Copy package files
-COPY package*.json ./
-COPY tsconfig.json ./
-
-# Install ALL dependencies (including dev for build)
+COPY package*.json tsconfig.json ./
 RUN npm ci && npm cache clean --force
 
-# Copy source code
+# Copy source
 COPY . .
 
-RUN npx prisma generate
+# Generate Prisma and build
+RUN npx prisma generate && npm run build
 
-RUN npm run build
-
-# Remove dev dependencies after build
-RUN npm prune --production
-
-# Change ownership to non-root user
+# Change ownership
 RUN chown -R nextjs:nodejs /app
 USER nextjs
 
-# Expose port
 EXPOSE 3000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node healthcheck.js
+    CMD curl -f http://localhost:3000/health || exit 1
 
-# Start the application
 CMD ["npm", "start"]
