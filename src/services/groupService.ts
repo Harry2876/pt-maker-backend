@@ -2,7 +2,7 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
-import { GroupCache, CreateGroupData, UpdateGroupData,CreateStageGroupData, StageGroupsResult } from '../types/group';
+import { GroupCache, CreateGroupData, UpdateGroupData, CreateStageGroupData, StageGroupsResult } from '../types/group';
 import { TournamentCache, TournamentStageCache } from '../types/tournament';
 
 export class GroupService extends BaseService {
@@ -35,6 +35,9 @@ export class GroupService extends BaseService {
             // 4. Store in Redis immediately
             await redis.hsetObject(`group:${groupId}`, group);
             await redis.sadd(`tournament:${tournamentId}:groups`, groupId);
+
+            //Update cached group list intelligently
+            await this.updateGroupListCache(tournamentId, group, 'ADD');
 
             // 5. Queue database sync
             await QueueService.syncImmediately('GROUP', groupId, group, userId);
@@ -192,8 +195,21 @@ export class GroupService extends BaseService {
                 timestamp: new Date().toISOString()
             });
 
-            // 5. Invalidate related caches
-            await redis.delete(`tournament:${currentGroup.tournamentId}:groups:list`);
+            // 5. Update related caches
+            const cacheCompatibleGroup: GroupCache = {
+                id: updatedGroup.id,
+                name: updatedGroup.name,
+                maxTeams: updatedGroup.maxTeams,
+                qualificationSpots: updatedGroup.qualificationSpots,
+                tournamentId: updatedGroup.tournamentId,
+                stageId: updatedGroup.stageId ?? undefined,
+                createdAt: typeof updatedGroup.createdAt === 'string'
+                    ? updatedGroup.createdAt
+                    : updatedGroup.createdAt.toISOString(),
+                updatedAt: updatedGroup.updatedAt,
+                dbStatus: 'PENDING_SYNC'
+            };
+            await this.updateGroupListCache(currentGroup.tournamentId, cacheCompatibleGroup, 'UPDATE');
 
             this.logger.info(`Group ${groupId} updated`);
             return updatedGroup;
@@ -227,8 +243,23 @@ export class GroupService extends BaseService {
                 timestamp: new Date().toISOString()
             });
 
-            // 4. Invalidate caches
-            await redis.delete(`tournament:${group.tournamentId}:groups:list`);
+            // 4. Update caches
+            const cacheCompatibleGroup: GroupCache = {
+                id: group.id,
+                name: group.name,
+                maxTeams: group.maxTeams,
+                qualificationSpots: group.qualificationSpots,
+                tournamentId: group.tournamentId,
+                stageId: group.stageId ?? undefined,
+                createdAt: typeof group.createdAt === 'string'
+                    ? group.createdAt
+                    : group.createdAt.toISOString(),
+                updatedAt: typeof group.updatedAt === 'string'
+                    ? group.updatedAt
+                    : group.updatedAt.toISOString(),
+                dbStatus: 'SYNCED'
+            };
+            await this.updateGroupListCache(group.tournamentId, cacheCompatibleGroup, 'DELETE');
 
             this.logger.info(`Group ${groupId} deleted`);
             return { success: true, message: 'Group deleted successfully' };
@@ -263,7 +294,43 @@ export class GroupService extends BaseService {
             this.logger.error('Failed to populate group cache:', error);
         }
     }
-    // Add these methods to your GroupService class:
+
+    private async updateGroupListCache(tournamentId: string, group: GroupCache, operation: 'ADD' | 'UPDATE' | 'DELETE'): Promise<void> {
+        try {
+            const cacheKey = `tournament:${tournamentId}:groups:list`;
+            const cachedList = await redis.getObject<GroupCache[]>(cacheKey);
+
+            if (cachedList) {
+                let updatedList = [...cachedList];
+
+                switch (operation) {
+                    case 'ADD':
+                        // Add in alphabetical order by name
+                        updatedList.push(group);
+                        updatedList.sort((a, b) => a.name.localeCompare(b.name));
+                        break;
+                    case 'UPDATE':
+                        const updateIndex = updatedList.findIndex(g => g.id === group.id);
+                        if (updateIndex !== -1) {
+                            updatedList[updateIndex] = group;
+                            // Re-sort if name changed
+                            updatedList.sort((a, b) => a.name.localeCompare(b.name));
+                        }
+                        break;
+                    case 'DELETE':
+                        updatedList = updatedList.filter(g => g.id !== group.id);
+                        break;
+                }
+
+                await redis.setObject(cacheKey, updatedList, this.CACHE_TTL);
+                this.logger.info(`✅ Group cache updated for tournament ${tournamentId}, operation: ${operation}, group: ${group.id}`);
+            } else {
+                this.logger.debug(`No cached group list found for tournament ${tournamentId}, will be populated on next GET request`);
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to update group list cache for tournament ${tournamentId}:`, error);
+        }
+    }
 
     // Create multiple groups for a specific stage
     async createStageGroups(data: CreateStageGroupData, userId: string): Promise<StageGroupsResult | null> {

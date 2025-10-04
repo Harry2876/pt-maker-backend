@@ -1,5 +1,5 @@
 import { BaseService } from "./baseService";
-import {TournamentStatus} from "@prisma/client";
+import { TournamentStatus } from "@prisma/client";
 import redis from "../config/redis";
 import { QueueService } from "./queueService";
 import { randomUUID } from "crypto";
@@ -56,6 +56,9 @@ export class TournamentService extends BaseService {
 
             //add to user tournament list
             await redis.sadd(`user:${userId}:tournaments`, tournamentId);
+
+            //update cached tournament list intelligently
+            await this.updateTournamentListCache(userId, tournament, 'ADD');
 
             //add to queue for db sync
             await QueueService.syncImmediately('TOURNAMENT', tournamentId, tournament, userId);
@@ -220,8 +223,15 @@ export class TournamentService extends BaseService {
                 timestamp: new Date().toISOString()
             });
 
-            // 5. Invalidate related caches
-            await redis.delete(`user:${userId}:tournaments:list`);
+            //update related caches
+            const cacheCompatibleTournament: TournamentCache = {
+                ...updatedTournament,
+                createdAt: typeof updatedTournament.createdAt === 'string'
+                    ? updatedTournament.createdAt
+                    : updatedTournament.createdAt.toISOString(),
+                updatedAt: updatedTournament.updatedAt
+            };
+            await this.updateTournamentListCache(userId, cacheCompatibleTournament, 'UPDATE');
 
             this.logger.info(`Tournament ${tournamentId} updated and queued for sync`);
             return updatedTournament;
@@ -255,8 +265,22 @@ export class TournamentService extends BaseService {
                 timestamp: new Date().toISOString()
             });
 
-            // 4. Invalidate caches
-            await redis.delete(`user:${userId}:tournaments:list`);
+                       // 4. Update caches
+            const cacheCompatibleTournament: TournamentCache = {
+                id: tournament.id,
+                name: tournament.name,
+                game: tournament.game,
+                status: tournament.status,
+                userId: tournament.userId,
+                createdAt: typeof tournament.createdAt === 'string' 
+                    ? tournament.createdAt 
+                    : tournament.createdAt.toISOString(),
+                updatedAt: typeof tournament.updatedAt === 'string'
+                    ? tournament.updatedAt
+                    : tournament.updatedAt.toISOString(),
+                dbStatus: 'SYNCED'
+            };
+            await this.updateTournamentListCache(userId, cacheCompatibleTournament, 'DELETE');
 
             this.logger.info(`Tournament ${tournamentId} deleted and queued for database cleanup`);
             return { success: true, message: 'Tournament deleted successfully' };
@@ -264,6 +288,40 @@ export class TournamentService extends BaseService {
         } catch (error) {
             this.handleError(error, 'Delete tournament');
             return null;
+        }
+    }
+
+    private async updateTournamentListCache(userId: string, tournament: TournamentCache, operation: 'ADD' | 'UPDATE' | 'DELETE'): Promise<void> {
+        try {
+            const cacheKey = `user:${userId}:tournaments:list`;
+            const cachedList = await redis.getObject<TournamentCache[]>(cacheKey);
+
+            if (cachedList) {
+                let updatedList = [...cachedList];
+
+                switch (operation) {
+                    case 'ADD':
+                        updatedList.push(tournament);
+                        break;
+                    case 'UPDATE':
+                        const updateIndex = updatedList.findIndex(t => t.id === tournament.id);
+                        if (updateIndex !== -1) {
+                            updatedList[updateIndex] = tournament;
+                        }
+                        break;
+                    case 'DELETE':
+                        updatedList = updatedList.filter(t => t.id !== tournament.id);
+                        break;
+                }
+
+                //update cache with new list
+                await redis.setObject(cacheKey, updatedList, this.CACHE_TTL);
+                this.logger.info(`✅ Cache updated for user ${userId}, operation: ${operation}, tournament: ${tournament.id}`);
+            } else {
+                this.logger.debug(`No cached list found for user ${userId}, will be populated on next GET request`);
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to update tournament list cache for the user ${userId}`, error);
         }
     }
 

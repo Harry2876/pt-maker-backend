@@ -15,7 +15,7 @@ RUN apk add --no-cache \
     pango-dev \
     musl-dev \
     giflib-dev \
-    pixman-dev \
+    pixman-dev \ 
     pangomm-dev \
     libjpeg-turbo-dev \
     freetype-dev
