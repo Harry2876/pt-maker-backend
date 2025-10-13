@@ -80,6 +80,57 @@ discordRouter.get('/oauth/url', DiscordAuthController.getAuthURL);
 
 /**
  * @swagger
+ * /api/v1/discord/bot/invite:
+ *   get:
+ *     tags: [Discord Integration]
+ *     summary: Get Discord Bot Invite URL
+ *     description: |
+ *       Generates a Discord bot invite URL for adding the bot to servers.
+ *       
+ *       **Features:**
+ *       - Configurable bot permissions
+ *       - Direct server invitation link
+ *       - No OAuth flow required for bot invitation
+ *     parameters:
+ *       - in: query
+ *         name: permissions
+ *         schema:
+ *           type: string
+ *         description: Bot permissions (numeric string)
+ *         example: "8"
+ *     responses:
+ *       200:
+ *         description: Bot invite URL generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Bot invite URL generated"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     inviteURL:
+ *                       type: string
+ *                       example: "https://discord.com/oauth2/authorize?client_id=...&scope=bot&permissions=8"
+ *                     instructions:
+ *                       type: string
+ *                       example: "Share this URL with Discord server owners to add the bot"
+ *                     permissions:
+ *                       type: string
+ *                       example: "8"
+ *       500:
+ *         description: Server error
+ */
+discordRouter.get('/bot/invite', DiscordAuthController.getBotInviteURL);
+
+/**
+ * @swagger
  * /api/v1/discord/oauth/callback:
  *   post:
  *     tags: [Discord Integration]

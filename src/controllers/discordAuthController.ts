@@ -12,34 +12,44 @@ const prisma = dbManager.getClient();
 export class DiscordAuthController {
 
     // Get Discord OAuth authorization URL
-   static getAuthURL(state?: string): string {
-logger.info('🤖 GENERATING DISCORD BOT AUTHORIZATION URL');
-    
-    // Bot authorization requires bot scope + user scopes
-    const params = new URLSearchParams({
-        client_id: env.DISCORD_CLIENT_ID,
-        redirect_uri: env.DISCORD_REDIRECT_URI,
-        response_type: 'code',
-        scope: 'bot identify guilds', // Added guilds scope
-        permissions: '8' // Administrator permission
+    static getAuthURL = asyncHandler(async (req: Request, res: Response) => {
+        try {
+            const { state } = req.query;
+            const authURL = DiscordOAuthService.getAuthURL(state as string);
+            
+            return res.status(200).json(ResponseHelper.success(
+                'Discord authorization URL generated',
+                { 
+                    authURL,
+                    expiresIn: 600,
+                    scopes: ['bot', 'identify', 'guilds']
+                }
+            ));
+        } catch (error) {
+            logger.error('Failed to generate Discord auth URL:', error);
+            return res.status(500).json(ResponseHelper.serverError('Failed to generate authorization URL'));
+        }
     });
 
-    // Only add state if it's a valid string
-    if (state && typeof state === 'string' && state !== '[object Object]') {
-        params.set('state', state);
-    }
-
-    const authURL = `https://discord.com/oauth2/authorize?${params.toString()}`;
-    
-logger.info(`- Client ID: ${env.DISCORD_CLIENT_ID}`);
-logger.info(`- Redirect URI: ${env.DISCORD_REDIRECT_URI}`);
-logger.info(`- Scopes: bot identify guilds`);
-logger.info(`- Permissions: 8`);
-logger.info(`- State: ${state || 'none'}`);
-logger.info(`- Generated URL: ${authURL}`);
-
-    return authURL;
-}
+    // Get Discord bot invite URL
+    static getBotInviteURL = asyncHandler(async (req: Request, res: Response) => {
+        try {
+            const { permissions } = req.query;
+            const inviteURL = DiscordOAuthService.getBotInviteURL(permissions as string);
+            
+            return res.status(200).json(ResponseHelper.success(
+                'Bot invite URL generated',
+                { 
+                    inviteURL,
+                    instructions: 'Share this URL with Discord server owners to add the bot',
+                    permissions: permissions || '8'
+                }
+            ));
+        } catch (error) {
+            logger.error('Failed to generate bot invite URL:', error);
+            return res.status(500).json(ResponseHelper.serverError('Failed to generate invite URL'));
+        }
+    });
 
     // Handle Discord OAuth callback
     static handleOAuthCallback = asyncHandler(async (req: Request, res: Response) => {
