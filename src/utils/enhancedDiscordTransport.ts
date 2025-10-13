@@ -55,11 +55,11 @@ class EnhancedDiscordTransport extends Transport {
         try {
             // Extract and clean all data from Winston's log object
             const { level, message, timestamp, stack, ...otherData } = info;
-            
+
             // Clean ANSI codes from level and message
             const cleanLevel = this.cleanLogMessage(level || 'info');
             const cleanMessage = this.cleanLogMessage(message || 'No message');
-            
+
             // Filter out invalid metadata keys (symbols, nulls, etc.)
             const cleanMetadata: Record<string, any> = {};
             for (const [key, value] of Object.entries(otherData)) {
@@ -71,7 +71,7 @@ class EnhancedDiscordTransport extends Transport {
                     }
                 }
             }
-            
+
             const normalizedInfo = {
                 level: cleanLevel,
                 message: cleanMessage,
@@ -186,7 +186,7 @@ class EnhancedDiscordTransport extends Transport {
 
             // Create detailed description with metadata
             const description = this.createDetailedDescription(logs, level);
-            
+
             // Create fields with metadata details
             const fields = this.createDetailedFields(logs);
 
@@ -220,12 +220,12 @@ class EnhancedDiscordTransport extends Transport {
 
         const descriptions = logs.map((log, index) => {
             let desc = `**${logs.length > 1 ? `${index + 1}. ` : ''}${this.cleanLogMessage(log.message)}**`;
-            
+
             // Add stack trace if available
             if (log.stack) {
                 desc += `\n\`\`\`\n${log.stack}\n\`\`\``;
             }
-            
+
             return desc;
         });
 
@@ -238,27 +238,33 @@ class EnhancedDiscordTransport extends Transport {
      */
     private createDetailedFields(logs: EnhancedLogInfo[]): any[] {
         const fields: any[] = [];
-        
+
         logs.forEach((log, logIndex) => {
             if (log.metadata && Object.keys(log.metadata).length > 0) {
                 // Skip the originalInfo to avoid circular reference
                 const { originalInfo, ...cleanMetadata } = log.metadata;
-                
+
                 Object.entries(cleanMetadata).forEach(([key, value]) => {
                     if (key && value !== undefined && value !== null) {
                         let displayValue = '';
-                        
+
                         if (typeof value === 'object') {
-                            displayValue = `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
+                            try {
+                                // Safe JSON stringify with circular reference handling
+                                displayValue = `\`\`\`json\n${JSON.stringify(value, this.safeJsonReplacer, 2)}\n\`\`\``;
+                            } catch (jsonError) {
+                                // Fallback for circular references
+                                displayValue = `\`[Object: ${value.constructor?.name || 'Unknown'}]\``;
+                            }
                         } else {
                             displayValue = `\`${String(value)}\``;
                         }
-                        
+
                         // Ensure field values don't exceed Discord limits
                         if (displayValue.length > 1024) {
                             displayValue = displayValue.substring(0, 1021) + '...';
                         }
-                        
+
                         fields.push({
                             name: `📋 ${key}${logs.length > 1 ? ` (Log ${logIndex + 1})` : ''}`,
                             value: displayValue,
@@ -275,7 +281,7 @@ class EnhancedDiscordTransport extends Transport {
 
     private cleanLogMessage(message: string): string {
         if (!message) return '';
-        
+
         return message
             // Remove all ANSI escape sequences
             .replace(/\u001b\[[0-9;]*[mGKHfJABCDHlrsu]/g, '')
@@ -401,6 +407,48 @@ class EnhancedDiscordTransport extends Transport {
             }
         }
     }
+
+        private safeJsonReplacer(key: string, value: any): any {
+        // Handle circular references and problematic objects
+        if (value === null || value === undefined) {
+            return value;
+        }
+
+        // Skip circular reference prone objects
+        if (typeof value === 'object') {
+            // Skip axios request/response objects
+            if (value.constructor?.name === 'ClientRequest' || 
+                value.constructor?.name === 'IncomingMessage' ||
+                value.constructor?.name === 'Socket' ||
+                key === 'request' || key === 'response' || key === 'config') {
+                return '[Circular Reference Removed]';
+            }
+
+            // Handle axios errors specifically
+            if (value.isAxiosError) {
+                return {
+                    isAxiosError: true,
+                    message: value.message,
+                    status: value.response?.status,
+                    statusText: value.response?.statusText,
+                    data: value.response?.data
+                };
+            }
+
+            // Handle standard errors
+            if (value instanceof Error) {
+                return {
+                    name: value.name,
+                    message: value.message,
+                    stack: value.stack?.split('\n').slice(0, 5) // Truncate stack trace
+                };
+            }
+        }
+
+        return value;
+    }
 }
+
+
 
 export default EnhancedDiscordTransport;

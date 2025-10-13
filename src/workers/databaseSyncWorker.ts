@@ -69,6 +69,20 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncSlotAssignmentUpdate(entityId, data);
                 case 'SLOT_ASSIGNMENT_DELETE':
                     return await this.syncSlotAssignmentDelete(entityId);
+                case 'DISCORD_GUILD_CREATE':
+                    return await this.syncDiscordGuildCreate(data);
+                case 'DISCORD_GUILD_UPDATE':
+                    return await this.syncDiscordGuildUpdate(entityId, data);
+                case 'DISCORD_GUILD_DELETE':
+                    return await this.syncDiscordGuildDelete(entityId);
+                case 'DISCORD_USER_CREATE':
+                    return await this.syncDiscordUserCreate(data);
+                case 'DISCORD_USER_UPDATE':
+                    return await this.syncDiscordUserUpdate(entityId, data);
+                case 'DISCORD_GUILD_MEMBER_CREATE':
+                    return await this.syncDiscordGuildMemberCreate(data);
+                case 'DISCORD_GUILD_MEMBER_UPDATE':
+                    return await this.syncDiscordGuildMemberUpdate(entityId, data);
                 default:
                     throw new Error(`Unknown sync type: ${type}`);
             }
@@ -706,4 +720,159 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             throw error;
         }
     }
+
+    private async syncDiscordGuildCreate(guildData: any): Promise<void> {
+        try {
+            const guild = await db.discordGuild.create({
+                data: {
+                    id: guildData.id,
+                    name: guildData.name,
+                    icon: guildData.icon,
+                    description: guildData.description,
+                    memberCount: guildData.memberCount || 0,
+                    ownerId: guildData.ownerId,
+                    botEnabled: guildData.botEnabled || true,
+                    commandPrefix: guildData.commandPrefix || 'sz',
+                    isPremium: guildData.isPremium || false,
+                    premiumUntil: guildData.premiumUntil ? new Date(guildData.premiumUntil) : null,
+                    createdAt: new Date(guildData.createdAt),
+                    updatedAt: new Date(guildData.updatedAt || guildData.createdAt)
+                }
+            });
+
+            // Update Redis status
+            await redis.hset(`guild:${guild.id}`, 'dbStatus', 'SYNCED');
+            await redis.hset(`guild:${guild.id}`, 'dbSyncedAt', new Date().toISOString());
+
+            logger.info(`Discord Guild ${guild.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Discord Guild ${guildData.id} already exists in database`);
+            } else {
+                logger.error(`Error creating Discord Guild ${guildData.id}:`, error);
+                throw error;
+            }
+        }
+    }
+    private async syncDiscordGuildUpdate(guildId: string, updateData: any): Promise<void> {
+        try {
+            await db.discordGuild.update({
+                where: { id: guildId },
+                data: {
+                    ...updateData,
+                    premiumUntil: updateData.premiumUntil ? new Date(updateData.premiumUntil) : undefined,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`guild:${guildId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Discord Guild ${guildId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating Discord Guild ${guildId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncDiscordGuildDelete(guildId: string): Promise<void> {
+        try {
+            await db.discordGuild.delete({
+                where: { id: guildId }
+            });
+
+            // Clean up Redis cache
+            await redis.delete(`guild:${guildId}`);
+            logger.info(`Discord Guild ${guildId} deleted successfully from database`);
+        } catch (error) {
+            logger.error(`Error deleting Discord Guild ${guildId}:`, error);
+            throw error;
+        }
+    }
+    private async syncDiscordUserCreate(userData: any): Promise<void> {
+        try {
+            const user = await db.discordUser.create({
+                data: {
+                    id: userData.id,
+                    username: userData.username,
+                    discriminator: userData.discriminator,
+                    avatar: userData.avatar,
+                    email: userData.email,
+                    createdAt: new Date(userData.createdAt),
+                    updatedAt: new Date(userData.updatedAt || userData.createdAt)
+                }
+            });
+
+            await redis.hset(`discord_user:${user.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Discord User ${user.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Discord User ${userData.id} already exists in database`);
+            } else {
+                logger.error(`Error creating Discord User ${userData.id}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncDiscordUserUpdate(userId: string, updateData: any): Promise<void> {
+    try {
+        await db.discordUser.update({
+            where: { id: userId },
+            data: {
+                ...updateData,
+                updatedAt: new Date()
+            }
+        });
+
+        await redis.hset(`discord_user:${userId}`, 'dbStatus', 'SYNCED');
+        logger.info(`Discord User ${userId} updated successfully in database`);
+    } catch (error) {
+        logger.error(`Error updating Discord User ${userId}:`, error);
+        throw error;
+    }
+}
+
+private async syncDiscordGuildMemberCreate(memberData: any): Promise<void> {
+    try {
+        const member = await db.discordGuildMember.create({
+            data: {
+                id: memberData.id,
+                guildId: memberData.guildId,
+                userId: memberData.userId,
+                nickname: memberData.nickname,
+                roles: memberData.roles || [],
+                joinedAt: new Date(memberData.joinedAt),
+                createdAt: new Date(memberData.createdAt),
+                updatedAt: new Date(memberData.updatedAt || memberData.createdAt)
+            }
+        });
+
+        await redis.hset(`guild_member:${member.id}`, 'dbStatus', 'SYNCED');
+        logger.info(`Discord Guild Member ${member.id} created and synced to database successfully`);
+    } catch (error) {
+        if ((error as any).code === 'P2002') {
+            logger.error(`Discord Guild Member ${memberData.id} already exists in database`);
+        } else {
+            logger.error(`Error creating Discord Guild Member ${memberData.id}:`, error);
+            throw error;
+        }
+    }
+}
+private async syncDiscordGuildMemberUpdate(memberId: string, updateData: any): Promise<void> {
+    try {
+        await db.discordGuildMember.update({
+            where: { id: memberId },
+            data: {
+                ...updateData,
+                joinedAt: updateData.joinedAt ? new Date(updateData.joinedAt) : undefined,
+                updatedAt: new Date()
+            }
+        });
+
+        await redis.hset(`guild_member:${memberId}`, 'dbStatus', 'SYNCED');
+        logger.info(`Discord Guild Member ${memberId} updated successfully in database`);
+    } catch (error) {
+        logger.error(`Error updating Discord Guild Member ${memberId}:`, error);
+        throw error;
+    }
+}
 }

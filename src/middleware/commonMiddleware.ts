@@ -2,12 +2,20 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError, ZodType } from 'zod';
 import logger from '../utils/logger';
 
+declare global {
+    namespace Express {
+        interface Request {
+            validatedQuery?: any;
+        }
+    }
+}
+
 // Enhanced validation middleware that can handle body, params, and query
 export const validateRequest = (schema: ZodType, target: 'body' | 'params' | 'query' = 'body') => {
     return (req: Request, res: Response, next: NextFunction): void | Response => {
         try {
             let dataToValidate;
-            
+
             switch (target) {
                 case 'body':
                     dataToValidate = req.body;
@@ -23,16 +31,34 @@ export const validateRequest = (schema: ZodType, target: 'body' | 'params' | 'qu
             }
 
             const validatedData = schema.parse(dataToValidate);
-            
+
             // Replace with validated data
             if (target === 'body') {
                 req.body = validatedData;
             } else if (target === 'params') {
                 req.params = validatedData as { [key: string]: string };
             } else if (target === 'query') {
-                req.query = validatedData as { [key: string]: any };
+                // Express 5.x compatibility: Don't reassign req.query directly
+                // Instead, store validated data in a custom property
+                (req as any).validatedQuery = validatedData;
+
+                // For backward compatibility, also try to update individual properties
+                try {
+                    // Type guard and assertion
+                    if (validatedData && typeof validatedData === 'object') {
+                        const validatedObject = validatedData as Record<string, any>;
+                        Object.keys(validatedObject).forEach(key => {
+                            if (req.query && typeof req.query === 'object') {
+                                (req.query as any)[key] = validatedObject[key];
+                            }
+                        });
+                    }
+                } catch (error) {
+                    // If assignment fails, validation still passed, so continue
+                    logger.warn('Query parameter assignment failed (Express 5.x compatibility mode):', error);
+                }
             }
-            
+
             next();
         } catch (error) {
             if (error instanceof ZodError) {

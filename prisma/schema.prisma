@@ -111,6 +111,11 @@ enum TextAlignment {
   RIGHT
 }
 
+// Add new enum
+enum TournamentType {
+  TOURNAMENT // Multiple groups, qualification system
+}
+
 // ============================================================================
 // CORE MODELS
 // ============================================================================
@@ -149,6 +154,7 @@ model User {
   invitedCollaborators TournamentCollaborator[] @relation("InvitedCollaborators")
   slotAssignments      SlotAssignment[]
   verifiedResults      MatchResult[]
+  discordUser          DiscordUser?      @relation("UserDiscordLink")
 
   @@map("users")
 }
@@ -249,11 +255,10 @@ model SlotAssignment {
   teamRegistration TeamRegistration? @relation(fields: [teamRegistrationId], references: [id], onDelete: SetNull)
   assignedByUser   User              @relation(fields: [assignedBy], references: [id])
 
+  @@unique([groupId, slotNumber])
   @@index([groupId, isActive]) // For active slot queries
   @@index([teamRegistrationId]) // For team's slot assignments
   @@index([groupId, slotNumber]) // For slot ordering (duplicate of unique but for performance)
-  
-  @@unique([groupId, slotNumber])
   @@map("slot_assignments")
 }
 
@@ -357,13 +362,11 @@ model Tournament {
   scoringRule       ScoringRule[]
   playerStats       PlayerStat[]
 
-
   @@index([userId, status]) // For user's tournament filtering
   @@index([userId, createdAt(sort: Desc)]) // For user's recent tournaments
   @@index([status, createdAt]) // For global tournament listings
   @@index([game, status]) // For game-specific tournaments
   @@index([name]) // For tournament name searches
-
   @@map("tournaments")
 }
 
@@ -407,7 +410,6 @@ model Match {
   @@index([status, createdAt]) // For processing queue
   @@index([tournamentId, status]) // For tournament match filtering
   @@index([resultStatus]) // For result processing
-
   @@map("matches")
 }
 
@@ -494,7 +496,6 @@ model Group {
   @@index([tournamentId]) // For tournament's groups
   @@index([stageId]) // For stage-specific groups
   @@index([tournamentId, createdAt]) // For chronological group ordering
-
   @@map("groups")
 }
 
@@ -610,7 +611,103 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
-// Add new enum
-enum TournamentType {
-  TOURNAMENT // Multiple groups, qualification system
+model DiscordUser {
+  id            String  @id
+  username      String
+  discriminator String?
+  email         String?
+  avatar        String?
+  verified      Boolean @default(false)
+  locale        String?
+  mfaEnabled    Boolean @default(false)
+
+  //optional for linking and data migration later
+linkedUserId String? @unique  
+linkedUser   User?   @relation("UserDiscordLink", fields: [linkedUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guildMemberships DiscordGuildMember[]
+  ownedGuilds      DiscordGuild[]       @relation("GuildOwner")
+
+  @@map("discord_users")
+}
+
+model DiscordGuild {
+  id          String  @id // Discord guild ID
+  name        String
+  icon        String?
+  description String?
+  memberCount Int     @default(0)
+
+  // Owner information
+  ownerId String
+  owner   DiscordUser @relation("GuildOwner", fields: [ownerId], references: [id])
+
+  // Bot settings
+  botEnabled    Boolean @default(true)
+  commandPrefix String  @default("sz")
+
+  // Premium features (connect to your existing subscription system later)
+  isPremium    Boolean   @default(false)
+  premiumUntil DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  members     DiscordGuildMember[]
+  scrims      DiscordScrim[]
+
+  @@map("discord_guilds")
+}
+
+model DiscordGuildMember {
+  id String @id @default(cuid())
+
+  userId  String
+  user    DiscordUser  @relation(fields: [userId], references: [id])
+  guildId String
+  guild   DiscordGuild @relation(fields: [guildId], references: [id])
+
+  nickname String?
+  roles    String[] // Discord role IDs
+  joinedAt DateTime
+
+  // Bot permissions
+  isAdmin              Boolean @default(false)
+  canManageTournaments Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, guildId])
+  @@map("discord_guild_members")
+}
+
+
+// Discord Scrims
+model DiscordScrim {
+  id          String   @id @default(cuid())
+  
+  guildId     String
+  guild       DiscordGuild @relation(fields: [guildId], references: [id])
+  
+  // Scrim data
+  name        String
+  description String?
+  game        String
+  maxTeams    Int
+  status      String   @default("open") // "open", "registration", "ongoing", "completed"
+  
+  // Scheduling
+  scheduledAt DateTime?
+  duration    Int?     // in minutes
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("discord_scrims")
 }

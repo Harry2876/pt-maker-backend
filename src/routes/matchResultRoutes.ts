@@ -25,7 +25,7 @@ matchResultRouter.use(authenticateUser);
 
 /**
  * @swagger
- * /api/v1/matches/{matchId}/results:
+ * /api/v1/match-results/matches/{matchId}/results:
  *   post:
  *     tags: [Match Results]
  *     summary: Create match result
@@ -90,7 +90,7 @@ matchResultRouter.post('/matches/:matchId/results',
 
 /**
  * @swagger
- * /api/v1/matches/{matchId}/results:
+ *  /api/v1/match-results/matches/{matchId}/results:
  *   get:
  *     tags: [Match Results]
  *     summary: Get match results
@@ -120,7 +120,7 @@ matchResultRouter.get('/matches/:matchId/results',
 
 /**
  * @swagger
- * /api/v1/results/{resultId}:
+ * /api/v1/match-results/results/{resultId}:
  *   get:
  *     tags: [Match Results]
  *     summary: Get match result by ID
@@ -149,7 +149,7 @@ matchResultRouter.get('/results/:resultId',
 
 /**
  * @swagger
- * /api/v1/results/{resultId}:
+ * /api/v1/match-results/results/{resultId}:
  *   put:
  *     tags: [Match Results]
  *     summary: Update match result
@@ -190,7 +190,7 @@ matchResultRouter.put('/results/:resultId',
 
 /**
  * @swagger
- * /api/v1/results/{resultId}/verify:
+ * /api/v1/match-results/results/{resultId}/verify:
  *   post:
  *     tags: [Match Results]
  *     summary: Verify match results
@@ -232,7 +232,7 @@ matchResultRouter.post('/results/:resultId/verify',
 
 /**
  * @swagger
- * /api/v1/results/{resultId}/publish:
+ * /api/v1/match-results/results/{resultId}/publish:
  *   post:
  *     tags: [Match Results]
  *     summary: Publish verified results
@@ -273,7 +273,7 @@ matchResultRouter.post('/results/:resultId/publish',
 
 /**
  * @swagger
- * /api/v1/results/{resultId}:
+ * /api/v1/match-results/results/{resultId}:
  *   delete:
  *     tags: [Match Results]
  *     summary: Delete match result
@@ -300,7 +300,7 @@ matchResultRouter.delete('/results/:resultId',
 
 /**
  * @swagger
- * /api/v1/tournaments/{tournamentId}/calculate-scores:
+ * /api/v1/match-results/tournaments/{tournamentId}/calculate-scores:
  *   post:
  *     tags: [Match Results]
  *     summary: Calculate scores for team results
@@ -337,7 +337,7 @@ matchResultRouter.post('/tournaments/:tournamentId/calculate-scores',
 
 /**
  * @swagger
- * /api/v1/tournaments/{tournamentId}/results:
+ * /api/v1/match-results/tournaments/{tournamentId}/results:
  *   get:
  *     tags: [Match Results]
  *     summary: Get tournament results summary
