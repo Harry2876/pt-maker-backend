@@ -265,15 +265,15 @@ export class TournamentService extends BaseService {
                 timestamp: new Date().toISOString()
             });
 
-            // 4. Update caches
+                       // 4. Update caches
             const cacheCompatibleTournament: TournamentCache = {
                 id: tournament.id,
                 name: tournament.name,
                 game: tournament.game,
                 status: tournament.status,
                 userId: tournament.userId,
-                createdAt: typeof tournament.createdAt === 'string'
-                    ? tournament.createdAt
+                createdAt: typeof tournament.createdAt === 'string' 
+                    ? tournament.createdAt 
                     : tournament.createdAt.toISOString(),
                 updatedAt: typeof tournament.updatedAt === 'string'
                     ? tournament.updatedAt

@@ -1,18 +1,18 @@
-import { Request, Response } from 'express';
-import { screenshotService } from '../services/screenshotService';
-import { asyncHandler } from '../middleware/commonMiddleware';
+import {Request, Response} from 'express';
+import { screenshotService} from '../services/screenshotService';
+import {asyncHandler} from '../middleware/commonMiddleware';
 import { ResponseHelper } from '../utils/responseHelper';
 
 export class UploadController {
     //upload screenshots  for match
     static uploadScreenshots = asyncHandler(async (req: Request, res: Response) => {
-        const { id: matchId } = req.params;
+        const {id: matchId} = req.params;
         const userId = req.user!.id;
         const uploadInfo = req.uploadInfo!;
 
-        const result = await screenshotService.saveScreenshots(matchId, userId, {
+                const result = await screenshotService.saveScreenshots(matchId, userId, {
             matchId,
-            files: uploadInfo.files.map(file => ({
+            files:uploadInfo.files.map(file => ({
                 ...file,
                 uploadedAt: new Date().toISOString(),
                 screenshotType: req.screenshotType
@@ -20,7 +20,7 @@ export class UploadController {
             uploadId: uploadInfo.uploadId,
         });
 
-        if (!result) {
+        if(!result){
             return res.status(500).json(ResponseHelper.serverError('Failed to upload screenshots'));
         }
 
@@ -30,7 +30,7 @@ export class UploadController {
         }));
     });
 
-    // Get match screenshots
+        // Get match screenshots
     static getMatchScreenshots = asyncHandler(async (req: Request, res: Response) => {
         const { id: matchId } = req.params;
         const userId = req.user!.id;

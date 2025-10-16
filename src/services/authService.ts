@@ -992,10 +992,10 @@ export class AuthService extends BaseService {
             const newAccessToken = jwt.sign(newAccessTokenPayload, this.getJWTSecret());
 
             // Clean up old access token to prevent multiple valid tokens
-            if (currentAccessToken) {
-                await redis.delete(`access_token:${currentAccessToken}`);
-                this.logger.info(`Cleaned up expired access token for session ${refreshPayload.sessionId}`);
-            }
+if (currentAccessToken) {
+    await redis.delete(`access_token:${currentAccessToken}`);
+    this.logger.info(`Cleaned up expired access token for session ${refreshPayload.sessionId}`);
+}
 
             //store new access token in the redis with 30 min ttl
             await redis.setObject(`access_token:${newAccessToken}`, newAccessTokenPayload, 1800); //30 min ttl

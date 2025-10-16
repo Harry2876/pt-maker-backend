@@ -16,15 +16,38 @@ export class DiscordAuthController {
         try {
             const { state } = req.query;
             const authURL = DiscordOAuthService.getAuthURL(state as string);
-
-            return res.json(ResponseHelper.success('Discord authorization URL generated', {
-                authURL,
-                expiresIn: 600, // Discord auth URLs typically expire in 10 minutes
-                scopes: ['identify', 'email', 'guilds']
-            }));
+            
+            return res.status(200).json(ResponseHelper.success(
+                'Discord authorization URL generated',
+                { 
+                    authURL,
+                    expiresIn: 600,
+                    scopes: ['bot', 'identify', 'guilds']
+                }
+            ));
         } catch (error) {
             logger.error('Failed to generate Discord auth URL:', error);
             return res.status(500).json(ResponseHelper.serverError('Failed to generate authorization URL'));
+        }
+    });
+
+    // Get Discord bot invite URL
+    static getBotInviteURL = asyncHandler(async (req: Request, res: Response) => {
+        try {
+            const { permissions } = req.query;
+            const inviteURL = DiscordOAuthService.getBotInviteURL(permissions as string);
+            
+            return res.status(200).json(ResponseHelper.success(
+                'Bot invite URL generated',
+                { 
+                    inviteURL,
+                    instructions: 'Share this URL with Discord server owners to add the bot',
+                    permissions: permissions || '8'
+                }
+            ));
+        } catch (error) {
+            logger.error('Failed to generate bot invite URL:', error);
+            return res.status(500).json(ResponseHelper.serverError('Failed to generate invite URL'));
         }
     });
 
@@ -93,6 +116,97 @@ export class DiscordAuthController {
 
         } catch (error) {
             logger.error('Discord OAuth callback failed:', error);
+
+            if (error instanceof Error && error.message.includes('Invalid token response')) {
+                return res.status(400).json(ResponseHelper.validationError('Invalid authorization code'));
+            }
+
+            return res.status(500).json(ResponseHelper.serverError('OAuth authentication failed'));
+        }
+    });
+
+    // Handle Discord OAuth callback via GET (when OAuth2 Code Grant is enabled)
+    static handleOAuthCallbackGet = asyncHandler(async (req: Request, res: Response) => {
+        try {
+            const queryData = (req as any).validatedQuery || req.query;
+            const { code, state, guild_id, permissions } = queryData;
+
+            if (!code) {
+                return res.status(400).json(ResponseHelper.validationError('Authorization code is required'));
+            }
+
+            // Exchange code for tokens
+            const tokenData = await DiscordOAuthService.exchangeCodeForToken(code as string);
+
+            // Get user info
+            const discordUser = await DiscordOAuthService.getUser(tokenData.access_token);
+
+            // Get user's guilds
+            const guilds = await DiscordOAuthService.getUserGuilds(tokenData.access_token);
+
+            // Store or update Discord user in database
+            const user = await prisma.discordUser.upsert({
+                where: { id: discordUser.id },
+                create: {
+                    id: discordUser.id,
+                    username: discordUser.username,
+                    discriminator: discordUser.discriminator,
+                    email: discordUser.email,
+                    avatar: discordUser.avatar,
+                    verified: discordUser.verified || false,
+                    locale: discordUser.locale,
+                    mfaEnabled: discordUser.mfa_enabled || false
+                },
+                update: {
+                    username: discordUser.username,
+                    discriminator: discordUser.discriminator,
+                    email: discordUser.email,
+                    avatar: discordUser.avatar,
+                    verified: discordUser.verified || false,
+                    locale: discordUser.locale,
+                    mfaEnabled: discordUser.mfa_enabled || false
+                }
+            });
+
+            // If guild_id is provided, handle bot installation
+            if (guild_id) {
+                const guildData = guilds.find(g => g.id === guild_id);
+                if (guildData) {
+                    // Register guild with backend
+                    await guildService.handleBotInstallation({
+                        id: guild_id as string,
+                        name: guildData.name,
+                        icon: guildData.icon,
+                        ownerId: discordUser.id,
+                        memberCount: 0 // Bot will update this via webhook
+                    });
+
+                    logger.info(`Guild ${guildData.name} registered via OAuth callback`);
+                }
+            }
+
+            // Return JSON response (pure backend)
+            return res.json(ResponseHelper.success('Discord OAuth completed successfully', {
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    avatar: user.avatar,
+                    verified: user.verified
+                },
+                guild: guild_id ? {
+                    id: guild_id,
+                    registered: true
+                } : null,
+                redirectMethod: 'GET',
+                tokens: {
+                    access_token: tokenData.access_token,
+                    expires_in: tokenData.expires_in,
+                    scope: tokenData.scope
+                }
+            }));
+
+        } catch (error) {
+            logger.error('Discord OAuth GET callback failed:', error);
 
             if (error instanceof Error && error.message.includes('Invalid token response')) {
                 return res.status(400).json(ResponseHelper.validationError('Invalid authorization code'));

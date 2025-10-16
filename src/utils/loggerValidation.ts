@@ -3,11 +3,11 @@ import CryptoJS from 'crypto-js';
 
 // Zod schemas for validation
 export const LogInfoSchema = z.object({
-    level: z.string(), // Accept any string level
-    message: z.string().min(1),
-    timestamp: z.string().optional(),
-    stack: z.string().optional(),
-    metadata: z.record(z.string(), z.any()).optional().default({}), // Default to empty object
+  level: z.string(), // Accept any string level
+  message: z.string().min(1),
+  timestamp: z.string().optional(),
+  stack: z.string().optional(),
+  metadata: z.record(z.string(), z.any()).optional().default({}), // Default to empty object
 }).passthrough(); // Allow additional properties that Winston might add
 
 export const DiscordWebhookSchema = z.object({
@@ -94,13 +94,13 @@ export class LogSecurity {
 // Environment validation
 export const validateEnvironment = () => {
     const envSchema = z.object({
-        DISCORD_WEBHOOK_URL: z.string().url().optional(),
-        DISCORD_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('info'),
-        DISCORD_DEV_WEBHOOK_URL: z.string().url().optional(),
-        DISCORD_DEV_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('debug'),
-        NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-        LOG_ENCRYPTION_KEY: z.string().min(16).optional(),
-    });
+    DISCORD_WEBHOOK_URL: z.string().url().optional(),
+    DISCORD_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('info'),
+    DISCORD_DEV_WEBHOOK_URL: z.string().url().optional(),
+    DISCORD_DEV_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('debug'),
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    LOG_ENCRYPTION_KEY: z.string().min(16).optional(),
+});
 
     try {
         return envSchema.parse(process.env);
