@@ -20,10 +20,6 @@ import {
 
 const discordRouter = express.Router();
 
-discordRouter.get('/test', (req, res) => {
-    console.log('🎯 SIMPLE TEST ROUTE HIT!');
-    res.json({ message: 'Discord router is working!', path: req.path, url: req.url });
-});
 
 /**
  * @swagger
