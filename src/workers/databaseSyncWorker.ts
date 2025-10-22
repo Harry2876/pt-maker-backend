@@ -83,6 +83,10 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncDiscordGuildMemberCreate(data);
                 case 'DISCORD_GUILD_MEMBER_UPDATE':
                     return await this.syncDiscordGuildMemberUpdate(entityId, data);
+                case 'BOT_STATE_CREATE':
+                    return await this.syncBotStateCreate(data);
+                case 'BOT_STATE_UPDATE':
+                    return await this.syncBotStateUpdate(entityId, data);
                 default:
                     throw new Error(`Unknown sync type: ${type}`);
             }
@@ -814,64 +818,110 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncDiscordUserUpdate(userId: string, updateData: any): Promise<void> {
-    try {
-        await db.discordUser.update({
-            where: { id: userId },
-            data: {
-                ...updateData,
-                updatedAt: new Date()
-            }
-        });
+        try {
+            await db.discordUser.update({
+                where: { id: userId },
+                data: {
+                    ...updateData,
+                    updatedAt: new Date()
+                }
+            });
 
-        await redis.hset(`discord_user:${userId}`, 'dbStatus', 'SYNCED');
-        logger.info(`Discord User ${userId} updated successfully in database`);
-    } catch (error) {
-        logger.error(`Error updating Discord User ${userId}:`, error);
-        throw error;
+            await redis.hset(`discord_user:${userId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Discord User ${userId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating Discord User ${userId}:`, error);
+            throw error;
+        }
     }
-}
 
-private async syncDiscordGuildMemberCreate(memberData: any): Promise<void> {
+    private async syncDiscordGuildMemberCreate(memberData: any): Promise<void> {
+        try {
+            const member = await db.discordGuildMember.create({
+                data: {
+                    id: memberData.id,
+                    guildId: memberData.guildId,
+                    userId: memberData.userId,
+                    nickname: memberData.nickname,
+                    roles: memberData.roles || [],
+                    joinedAt: new Date(memberData.joinedAt),
+                    createdAt: new Date(memberData.createdAt),
+                    updatedAt: new Date(memberData.updatedAt || memberData.createdAt)
+                }
+            });
+
+            await redis.hset(`guild_member:${member.id}`, 'dbStatus', 'SYNCED');
+            logger.info(`Discord Guild Member ${member.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.error(`Discord Guild Member ${memberData.id} already exists in database`);
+            } else {
+                logger.error(`Error creating Discord Guild Member ${memberData.id}:`, error);
+                throw error;
+            }
+        }
+    }
+    private async syncDiscordGuildMemberUpdate(memberId: string, updateData: any): Promise<void> {
+        try {
+            await db.discordGuildMember.update({
+                where: { id: memberId },
+                data: {
+                    ...updateData,
+                    joinedAt: updateData.joinedAt ? new Date(updateData.joinedAt) : undefined,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`guild_member:${memberId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Discord Guild Member ${memberId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating Discord Guild Member ${memberId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncBotStateCreate(stateData: any): Promise<void> {
     try {
-        const member = await db.discordGuildMember.create({
+        await db.botState.create({
             data: {
-                id: memberData.id,
-                guildId: memberData.guildId,
-                userId: memberData.userId,
-                nickname: memberData.nickname,
-                roles: memberData.roles || [],
-                joinedAt: new Date(memberData.joinedAt),
-                createdAt: new Date(memberData.createdAt),
-                updatedAt: new Date(memberData.updatedAt || memberData.createdAt)
+                id: stateData.id,
+                guildId: stateData.guildId,
+                state: stateData.state,
+                previousState: stateData.previousState,
+                reason: stateData.reason,
+                changedAt: new Date(stateData.changedAt),
+                changedBy: stateData.changedBy,
+                metadata: stateData.metadata,
+                createdAt: new Date(stateData.createdAt),
+                updatedAt: new Date(stateData.updatedAt)
             }
         });
 
-        await redis.hset(`guild_member:${member.id}`, 'dbStatus', 'SYNCED');
-        logger.info(`Discord Guild Member ${member.id} created and synced to database successfully`);
+        logger.info(`Bot State ${stateData.id} created successfully in database`);
     } catch (error) {
         if ((error as any).code === 'P2002') {
-            logger.error(`Discord Guild Member ${memberData.id} already exists in database`);
+            logger.error(`Bot State ${stateData.id} already exists in database`);
         } else {
-            logger.error(`Error creating Discord Guild Member ${memberData.id}:`, error);
+            logger.error(`Error creating Bot State ${stateData.id}:`, error);
             throw error;
         }
     }
 }
-private async syncDiscordGuildMemberUpdate(memberId: string, updateData: any): Promise<void> {
+
+private async syncBotStateUpdate(stateId: string, updateData: any): Promise<void> {
     try {
-        await db.discordGuildMember.update({
-            where: { id: memberId },
+        await db.botState.update({
+            where: { id: stateId },
             data: {
                 ...updateData,
-                joinedAt: updateData.joinedAt ? new Date(updateData.joinedAt) : undefined,
+                changedAt: updateData.changedAt ? new Date(updateData.changedAt) : undefined,
                 updatedAt: new Date()
             }
         });
 
-        await redis.hset(`guild_member:${memberId}`, 'dbStatus', 'SYNCED');
-        logger.info(`Discord Guild Member ${memberId} updated successfully in database`);
+        logger.info(`Bot State ${stateId} updated successfully in database`);
     } catch (error) {
-        logger.error(`Error updating Discord Guild Member ${memberId}:`, error);
+        logger.error(`Error updating Bot State ${stateId}:`, error);
         throw error;
     }
 }

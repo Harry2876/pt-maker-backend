@@ -562,11 +562,6 @@ model ActivityLog {
 
   @@map("activity_logs")
 }
-
-// ============================================================================
-// BETTER AUTH REQUIRED MODELS
-// ============================================================================
-
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -661,6 +656,8 @@ model DiscordGuild {
   members     DiscordGuildMember[]
   scrims      DiscordScrim[]
 
+  botStates     BotState[] @relation(name: "BotStateGuild")
+
   @@map("discord_guilds")
 }
 
@@ -710,4 +707,31 @@ model DiscordScrim {
   updatedAt   DateTime @updatedAt
   
   @@map("discord_scrims")
+}
+
+// Bot State Tracking
+model BotState {
+  id            String   @id @default(cuid())
+  
+  guildId       String
+  guild         DiscordGuild @relation(fields: [guildId], references: [id], name: "BotStateGuild")
+  
+  // State information
+  state         String   // ACTIVE, REMOVED, REINSTALLED, etc.
+  previousState String?
+  reason        String   // BOT_INVITED, BOT_KICKED, etc.
+  
+  // Change tracking
+  changedAt     DateTime @default(now())
+  changedBy     String?  // User ID who caused the change
+  
+  // Metadata as JSON
+  metadata      Json?    // Flexible metadata storage
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@map("bot_states")
+  @@index([guildId])
+  @@index([state])
 }
