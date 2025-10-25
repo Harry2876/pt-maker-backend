@@ -21,7 +21,7 @@ export class GuildMemberService extends BaseService {
                 updatedAt: new Date().toISOString()
             };
             // Queue for immediate database sync
-            await QueueService.syncImmediately('DISCORD_GUILD_MEMBER', memberData.id, memberDataWithTimestamps, memberData.userId);
+            await QueueService.syncDiscordImmediately('DISCORD_GUILD_MEMBER', memberData.id, memberDataWithTimestamps, memberData.userId);
 
             this.logger.info(`Guild member ${memberData.id} queued for database creation`);
             return memberData;
@@ -89,7 +89,7 @@ export class GuildMemberService extends BaseService {
             }
 
             // Queue for database sync
-            await QueueService.syncImmediately('DISCORD_GUILD_MEMBER', memberId, updateData, existingMember.userId);
+            await QueueService.syncDiscordImmediately('DISCORD_GUILD_MEMBER', memberId, updateData, existingMember.userId);
 
             this.logger.info(`Guild member ${memberId} queued for database update`);
             return updateData;
@@ -138,7 +138,7 @@ export class GuildMemberService extends BaseService {
             };
 
             // Queue each member for database sync
-            await QueueService.syncImmediately('DISCORD_GUILD_MEMBER', memberData.id, memberDataWithTimestamps, memberData.userId);
+            await QueueService.syncDiscordImmediately('DISCORD_GUILD_MEMBER', memberData.id, memberDataWithTimestamps, memberData.userId);
             createdMembers.push(memberData);
         }
             this.logger.info(`Queued ${createdMembers.length} guild members for database creation`);

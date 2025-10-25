@@ -4,6 +4,7 @@ import { UserSyncWorker } from './userSyncWorker';
 import { DatabaseSyncWorker } from './databaseSyncWorker';
 import { ResultProcessingWorker } from './resultProcessingWorker';
 import { ScalableAdvancedEngineWorker } from './scalableAdvancedEngineWorker';
+import { DiscordSyncWorker } from './discordSyncWorker';
 import { BatchProcessingWorker } from './batchProcessingWorker';
 import { LeaderboardBatchWorker } from './leaderboardBatchWorker';
 // import { ScreenshotWorker } from './screenshotWorker'; // TODO: Create later
@@ -22,6 +23,7 @@ export class WorkersManager {
             await this.startWorker('User Sync', () => new UserSyncWorker());
             await this.startWorker('Database Sync', () => new DatabaseSyncWorker());
             await this.startWorker('ResultProcessing', () => new ResultProcessingWorker());
+            await this.startWorker('Discord Sync', () => new DiscordSyncWorker());
 
             // Start scalable workers
             await this.startWorker('Scalable Advanced Engine', () => new ScalableAdvancedEngineWorker());

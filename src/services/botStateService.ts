@@ -1,9 +1,9 @@
 import { BaseService } from './baseService';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
-import { 
-    BotState, 
-    StateChangeReason 
+import {
+    BotState,
+    StateChangeReason
 } from '../types/botState';
 
 export class BotStateService extends BaseService {
@@ -20,11 +20,11 @@ export class BotStateService extends BaseService {
     }> {
         try {
             const stateId = randomUUID();
-            
+
             // Check if there's existing state
             const existingState = await this.getBotState(guildId);
             const isReinstallation = existingState && existingState.state === 'REMOVED';
-            
+
             const botStateData = {
                 id: stateId,
                 guildId,
@@ -33,13 +33,13 @@ export class BotStateService extends BaseService {
                 reason: 'BOT_INVITED' as StateChangeReason,
                 changedAt: new Date().toISOString(),
                 changedBy: installedBy || null,
-                                metadata: {
+                metadata: {
                     installationCount: isReinstallation ? (
-                        existingState.metadata && 
-                        typeof existingState.metadata === 'object' && 
-                        existingState.metadata !== null && 
-                        'installationCount' in existingState.metadata 
-                            ? ((existingState.metadata as any).installationCount || 0) + 1 
+                        existingState.metadata &&
+                            typeof existingState.metadata === 'object' &&
+                            existingState.metadata !== null &&
+                            'installationCount' in existingState.metadata
+                            ? ((existingState.metadata as any).installationCount || 0) + 1
                             : 1
                     ) : 1,
                     lastActiveAt: new Date().toISOString()
@@ -49,8 +49,8 @@ export class BotStateService extends BaseService {
             };
 
             // Queue for immediate database sync
-            await QueueService.syncImmediately('BOT_STATE', stateId, botStateData, installedBy || 'system');
-            
+            await QueueService.syncDiscordImmediately('BOT_STATE', stateId, botStateData, installedBy || 'system');
+
             this.logger.info(`Bot installation tracked for guild ${guildId}`, {
                 guildId,
                 state: botStateData.state,
@@ -84,7 +84,7 @@ export class BotStateService extends BaseService {
     }> {
         try {
             const existingState = await this.getBotState(guildId);
-            
+
             if (!existingState) {
                 throw new Error(`No bot state found for guild ${guildId}`);
             }
@@ -95,14 +95,14 @@ export class BotStateService extends BaseService {
                 reason,
                 changedAt: new Date().toISOString(),
                 changedBy: removedBy || null,
-                                metadata: {
+                metadata: {
                     ...(existingState.metadata && typeof existingState.metadata === 'object' && existingState.metadata !== null ? existingState.metadata as any : {}),
                     lastActiveAt: (
-                        existingState.metadata && 
-                        typeof existingState.metadata === 'object' && 
-                        existingState.metadata !== null && 
-                        'lastActiveAt' in existingState.metadata 
-                            ? (existingState.metadata as any).lastActiveAt 
+                        existingState.metadata &&
+                            typeof existingState.metadata === 'object' &&
+                            existingState.metadata !== null &&
+                            'lastActiveAt' in existingState.metadata
+                            ? (existingState.metadata as any).lastActiveAt
                             : null
                     ) || new Date().toISOString(),
                     removalReason: reason
@@ -111,7 +111,7 @@ export class BotStateService extends BaseService {
             };
 
             // Queue for immediate database sync
-            await QueueService.syncImmediately('BOT_STATE', existingState.id, updateData, removedBy || 'system');
+            await QueueService.syncDiscordImmediately('BOT_STATE', existingState.id, updateData, removedBy || 'system');
 
             this.logger.info(`Bot removal tracked for guild ${guildId}`, {
                 guildId,
@@ -175,8 +175,8 @@ export class BotStateService extends BaseService {
      * Update bot state (for manual state changes) - queues for database sync
      */
     async updateBotState(
-        guildId: string, 
-        newState: BotState, 
+        guildId: string,
+        newState: BotState,
         reason: StateChangeReason,
         updatedBy: string,
         metadata?: any
@@ -189,7 +189,7 @@ export class BotStateService extends BaseService {
     }> {
         try {
             const existingState = await this.getBotState(guildId);
-            
+
             if (!existingState) {
                 throw new Error(`No bot state found for guild ${guildId}`);
             }
@@ -200,7 +200,7 @@ export class BotStateService extends BaseService {
                 reason,
                 changedAt: new Date().toISOString(),
                 changedBy: updatedBy,
-                                metadata: {
+                metadata: {
                     ...(existingState.metadata && typeof existingState.metadata === 'object' && existingState.metadata !== null ? existingState.metadata as any : {}),
                     ...metadata
                 },
@@ -208,7 +208,7 @@ export class BotStateService extends BaseService {
             };
 
             // Queue for immediate database sync
-            await QueueService.syncImmediately('BOT_STATE', existingState.id, updateData, updatedBy);
+            await QueueService.syncDiscordImmediately('BOT_STATE', existingState.id, updateData, updatedBy);
 
             this.logger.info(`Bot state updated for guild ${guildId}`, {
                 guildId,
@@ -250,7 +250,7 @@ export class BotStateService extends BaseService {
 
             for (const botStateData of botStates) {
                 const stateId = randomUUID();
-                
+
                 // Add timestamps for EACH individual state
                 const stateDataWithTimestamps = {
                     id: stateId,
@@ -266,7 +266,7 @@ export class BotStateService extends BaseService {
                 };
 
                 // Queue each state for database sync
-                await QueueService.syncImmediately('BOT_STATE', stateId, stateDataWithTimestamps, createdBy);
+                await QueueService.syncDiscordImmediately('BOT_STATE', stateId, stateDataWithTimestamps, createdBy);
                 createdStates.push(botStateData);
             }
 
@@ -322,10 +322,10 @@ export class BotStateService extends BaseService {
         try {
             const states = await this.db.botState.findMany({
                 where: { state },
-                select: { 
+                select: {
                     guildId: true,
                     changedAt: true,
-                    changedBy: true 
+                    changedBy: true
                 },
                 orderBy: { changedAt: 'desc' }
             });

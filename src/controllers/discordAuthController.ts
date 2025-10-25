@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { DiscordOAuthService } from "../services/discordOAuthService";
 import { guildService } from "../services/guildService";
+import { botStateService  } from "../services/botStateService";
 import { dbManager } from "../config/database";
 import { env } from "../config/env";
 import { asyncHandler } from "../middleware/commonMiddleware";
@@ -301,19 +302,55 @@ export class DiscordAuthController {
                 return res.status(400).json(ResponseHelper.validationError('Invalid guild data'));
             }
 
-            const result = await guildService.handleBotInstallation({
-                id: guild.id,
-                name: guild.name,
-                icon: guild.icon,
-                ownerId: guild.owner_id,
-                memberCount: guild.member_count
-            });
+            const [guildResult, botStateResult] = await Promise.all([
+                guildService.handleBotInstallation({
+                    id: guild.id,
+                    name: guild.name,
+                    icon: guild.icon,
+                    ownerId: guild.owner_id,
+                    memberCount: guild.member_count
+                }),
+                botStateService.trackBotInstallation(guild.id,user?.id)
+            ]);
 
-            return res.json(ResponseHelper.success('Bot installation processed', result));
+            return res.json(ResponseHelper.success('Bot installation processed', {
+                guild: guildResult,
+                botState: botStateResult
+            }));
 
         } catch (error) {
             logger.error('Bot installation failed:', error);
             return res.status(500).json(ResponseHelper.serverError('Failed to process bot installation'));
+        }
+    });
+
+    // Handle bot removal webhook
+    static handleBotRemoval = asyncHandler(async (req: Request, res: Response) => {
+        try {
+            const { guild, user } = req.body;
+
+            if (!guild || !guild.id) {
+                return res.status(400).json(ResponseHelper.validationError('Invalid guild data'));
+            }
+
+            const [guildResult, botStateResult] = await Promise.all([
+                // Update guild to mark bot as disabled (takes only guildId)
+                guildService.handleBotRemoval(guild.id),
+                // Track bot removal state
+                botStateService.trackBotRemoval(
+                    guild.id,
+                    user?.id
+                )
+            ]);
+
+            return res.json(ResponseHelper.success('Bot removal processed', {
+                guild: guildResult,
+                botState: botStateResult
+            }));
+
+        } catch (error) {
+            logger.error('Bot removal failed:', error);
+            return res.status(500).json(ResponseHelper.serverError('Failed to process bot removal'));
         }
     });
 }

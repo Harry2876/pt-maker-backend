@@ -43,7 +43,7 @@ export class GuildService extends BaseService {
             await redis.hsetObject(`guild:${guildData.id}`, guild);
 
             // Add to sync queue for database
-            await QueueService.syncImmediately('DISCORD_GUILD', guildData.id, guild, guildData.ownerId);
+            await QueueService.syncDiscordImmediately('DISCORD_GUILD', guildData.id, guild, guildData.ownerId);
 
             this.logger.info(`Guild ${guildData.id} registered for bot installation`);
 
@@ -110,7 +110,14 @@ export class GuildService extends BaseService {
             await redis.hsetObject(`guild:${guildId}`, updateData);
 
             // Queue for database sync
-            await QueueService.syncImmediately('DISCORD_GUILD_UPDATE', guildId, updateData, userId);
+            await QueueService.queueDiscordSync({
+                type: 'DISCORD_GUILD_UPDATE',
+                entityId: guildId,
+                data: updateData,
+                userId: userId,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Guild ${guildId} premium status updated to ${isPremium}`);
 
@@ -140,7 +147,14 @@ export class GuildService extends BaseService {
             await redis.hsetObject(`guild:${guildId}`, updateData);
 
             // Queue for database sync
-            await QueueService.syncImmediately('DISCORD_GUILD_UPDATE', guildId, updateData, userId);
+            await QueueService.queueDiscordSync({
+                type: 'DISCORD_GUILD_UPDATE',
+                entityId: guildId,
+                data: updateData,
+                userId: userId,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Guild ${guildId} settings updated`);
 
@@ -167,9 +181,14 @@ export class GuildService extends BaseService {
             // Update Redis cache
             await redis.hsetObject(`guild:${guildId}`, updateData);
 
-            // Queue for database sync
-            await QueueService.syncImmediately('DISCORD_GUILD_UPDATE', guildId, updateData, userId);
-
+            await QueueService.queueDiscordSync({
+                type: 'DISCORD_GUILD_UPDATE',
+                entityId: guildId,
+                data: updateData,
+                userId: userId,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
             this.logger.info(`Bot removed from guild ${guildId}`);
 
             return { success: true, message: 'Bot removal processed' };

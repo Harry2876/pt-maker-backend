@@ -7,6 +7,7 @@ import healthRoutes from './routes/health';
 // Import route modules
 import authRouter from './routes/authRoutes';
 import tournamentRouter from './routes/tournamentRoutes';
+import teamEnrollmentRouter from './routes/teamEnrollmentRoutes';
 import matchRouter from './routes/matchRoutes';
 import uploadRouter from './routes/uploadRoutes';
 import { matchResultRouter } from './routes/matchResultRoutes';
@@ -177,6 +178,7 @@ app.use('/api/v1/team-advancement', teamAdvancementRouter);
 app.use('/api/v1/advanced-engine', advancedEngineRouter);
 app.use('/api/v1/slot-management', slotManagementRouter);
 app.use('/api/v1/leaderboards', leaderboardRouter);
+app.use('/api/v1/teams', teamEnrollmentRouter);
 
 
 // app.use('/api/v1/admin', adminRouter);

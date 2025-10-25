@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,9 +7,609 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================================================
-// ENUMS
-// ============================================================================
+model User {
+  id                   String                   @id @default(cuid())
+  username             String                   @unique
+  subscriptionId       String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  phoneNumber          String                   @unique
+  credits              Int                      @default(0)
+  otp                  String?
+  otpExpiresAt         DateTime?
+  passwordHash         String?
+  subscriptionEndDate  DateTime?
+  subscriptionStatus   SubscriptionStatus       @default(INACTIVE)
+  fullName             String
+  organization         String?
+  accounts             Account[]
+  activityLogs         ActivityLog[]
+  discordUser          DiscordUser?             @relation("UserDiscordLink")
+  verifiedResults      MatchResult[]
+  payments             Payment[]
+  sessions             Session[]
+  slotAssignments      SlotAssignment[]
+  teams                Team[]
+  templates            Template[]
+  invitedCollaborators TournamentCollaborator[] @relation("InvitedCollaborators")
+  collaborations       TournamentCollaborator[]
+  tournaments          Tournament[]
+  subscription         Subscription?            @relation(fields: [subscriptionId], references: [id])
+
+  @@map("users")
+}
+
+model TournamentCollaborator {
+  id           String             @id @default(cuid())
+  tournamentId String
+  userId       String
+  role         UserRole           @default(VIEWER)
+  status       CollaboratorStatus @default(PENDING)
+  invitedBy    String
+  invitedAt    DateTime           @default(now())
+  acceptedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  inviter      User               @relation("InvitedCollaborators", fields: [invitedBy], references: [id])
+  tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_collaborators")
+}
+
+model TournamentStage {
+  id                 String      @id @default(cuid())
+  name               String
+  stageNumber        Int
+  totalGroups        Int         @default(1)
+  qualificationSpots Int         @default(8)
+  stageFormat        StageFormat @default(ELIMINATION)
+  isActive           Boolean     @default(false)
+  isCompleted        Boolean     @default(false)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  tournamentId       String
+  groups             Group[]
+  tournament         Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@map("tournament_stages")
+}
+
+model Player {
+  id           String       @id @default(cuid())
+  name         String
+  gameUuid     String?
+  email        String?
+  phoneNumber  String?
+  totalMatches Int          @default(0)
+  totalKills   Int          @default(0)
+  totalPoints  Int          @default(0)
+  averageKills Float        @default(0)
+  bestPosition Int?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  playerStats  PlayerStat[]
+
+  @@map("players")
+}
+
+model PlayerStat {
+  id           String     @id @default(cuid())
+  playerId     String
+  tournamentId String
+  teamName     String
+  matches      Int        @default(0)
+  totalKills   Int        @default(0)
+  totalPoints  Int        @default(0)
+  averageKills Float      @default(0)
+  bestPosition Int?
+  player       Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, tournamentId])
+  @@map("player_stats")
+}
+
+model SlotAssignment {
+  id                 String            @id @default(cuid())
+  slotNumber         Int
+  groupId            String
+  teamRegistrationId String?
+  isActive           Boolean           @default(true)
+  assignedAt         DateTime          @default(now())
+  assignedBy         String
+  slotType           String            @default("TEAM_SLOT")
+  assignedByUser     User              @relation(fields: [assignedBy], references: [id])
+  group              Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  teamRegistration   TeamRegistration? @relation(fields: [teamRegistrationId], references: [id])
+
+  @@unique([groupId, slotNumber])
+  @@index([groupId, isActive])
+  @@index([teamRegistrationId])
+  @@index([groupId, slotNumber])
+  @@map("slot_assignments")
+}
+
+model ScoringRule {
+  id                 String     @id @default(cuid())
+  tournamentId       String
+  killPoints         Int        @default(1)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  createdBy          String
+  customFormula      String?
+  description        String?
+  isActive           Boolean    @default(true)
+  positionMultiplier Float      @default(1.0)
+  priority           Int        @default(1)
+  ruleName           String
+  ruleType           String
+  tournament         Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, priority])
+  @@map("scoring_rules")
+}
+
+model MatchResult {
+  id                 String           @id @default(cuid())
+  matchId            String
+  teamRegistrationId String
+  slotNumber         Int
+  position           Int
+  totalKills         Int
+  killPoints         Int
+  positionPoints     Int
+  totalMatchPoints   Int
+  playerResults      Json
+  verifiedBy         String?
+  verifiedAt         DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  match              Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  teamRegistration   TeamRegistration @relation(fields: [teamRegistrationId], references: [id], onDelete: Cascade)
+  verifier           User?            @relation(fields: [verifiedBy], references: [id])
+
+  @@unique([matchId, teamRegistrationId])
+  @@index([teamRegistrationId, createdAt])
+  @@index([matchId, position])
+  @@index([teamRegistrationId, totalMatchPoints(sort: Desc)])
+  @@index([matchId, totalKills(sort: Desc)])
+  @@index([createdAt])
+  @@map("match_results")
+}
+
+model Subscription {
+  id            String       @id @default(cuid())
+  price         Float
+  features      Json
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  billingCycle  BillingCycle
+  planName      String
+  stripePriceId String?      @unique
+  users         User[]
+
+  @@map("subscriptions")
+}
+
+model Tournament {
+  id                 String                   @id @default(cuid())
+  name               String
+  game               String
+  status             TournamentStatus         @default(UPCOMING)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  userId             String
+  entryFee           Float?
+  maxTeams           Int?
+  prizePool          Float?
+  tournamentType     TournamentType           @default(TOURNAMENT)
+  allowCollaborators Boolean                  @default(false)
+  currentStage       Int                      @default(1)
+  maxTeamsPerGroup   Int                      @default(25)
+  registrationFields Json?
+  totalStages        Int                      @default(1)
+  tournamentFormat   TournamentFormat         @default(ELIMINATION)
+  groups             Group[]
+  matches            Match[]
+  playerStats        PlayerStat[]
+  scoringRule        ScoringRule[]
+  teamRegistrations  TeamRegistration[]
+  collaborators      TournamentCollaborator[]
+  stages             TournamentStage[]
+  user               User                     @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@index([game, status])
+  @@index([name])
+  @@map("tournaments")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("teams")
+}
+
+model Match {
+  id            String        @id @default(cuid())
+  matchNumber   Int
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  matchDate     DateTime      @default(now())
+  processedData Json?
+  status        MatchStatus   @default(PENDING_PROCESSING)
+  tournamentId  String
+  groupId       String?
+  resultStatus  ResultStatus  @default(PENDING)
+  stageNumber   Int?
+  matchResults  MatchResult[]
+  group         Group?        @relation(fields: [groupId], references: [id])
+  tournament    Tournament    @relation(fields: [tournamentId], references: [id])
+  screenshots   Screenshot[]
+
+  @@index([tournamentId, matchNumber])
+  @@index([groupId, matchNumber])
+  @@index([status, createdAt])
+  @@index([tournamentId, status])
+  @@index([resultStatus])
+  @@map("matches")
+}
+
+model Screenshot {
+  id           String         @id @default(cuid())
+  originalName String
+  fileName     String
+  fileSize     Int
+  mimeType     String
+  type         ScreenshotType
+  storageUrl   String
+  isProcessed  Boolean        @default(false)
+  uploadedAt   DateTime       @default(now())
+  matchId      String
+  match        Match          @relation(fields: [matchId], references: [id])
+
+  @@map("screenshots")
+}
+
+model Template {
+  id               String              @id @default(cuid())
+  templateName     String
+  imageUrl         String
+  configJson       Json
+  isPublic         Boolean             @default(false)
+  templateType     TemplateType        @default(PREDEFINED)
+  originalImageUrl String?
+  isActive         Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  userId           String
+  dataFields       TemplateDataField[]
+  user             User                @relation(fields: [userId], references: [id])
+
+  @@map("templates")
+}
+
+model TemplateDataField {
+  id         String        @id @default(cuid())
+  fieldType  DataFieldType
+  x          Int
+  y          Int
+  width      Int
+  height     Int
+  fontSize   Int?
+  fontColor  String?
+  alignment  TextAlignment @default(LEFT)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  templateId String
+  template   Template      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("template_data_fields")
+}
+
+model Group {
+  id                 String             @id @default(cuid())
+  name               String
+  maxTeams           Int                @default(24)
+  qualificationSpots Int                @default(8)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  tournamentId       String
+  matchCount         Int                @default(1)
+  maxSlots           Int                @default(25)
+  stageId            String?
+  stage              TournamentStage?   @relation(fields: [stageId], references: [id])
+  tournament         Tournament         @relation(fields: [tournamentId], references: [id])
+  matches            Match[]
+  slotAssignments    SlotAssignment[]
+  teamRegistrations  TeamRegistration[]
+
+  @@index([tournamentId])
+  @@index([stageId])
+  @@index([tournamentId, createdAt])
+  @@map("groups")
+}
+
+model TeamRegistration {
+  id                 String           @id @default(cuid())
+  teamName           String
+  contactInfo        String
+  registrationStatus String           @default("PENDING")
+  finalPosition      Int?
+  totalPoints        Int              @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  tournamentId       String
+  groupId            String?
+  currentStage       Int              @default(1)
+  playerDetails      Json?
+  slotNumber         Int?
+  matchResults       MatchResult[]
+  slotAssignments    SlotAssignment[]
+  group              Group?           @relation(fields: [groupId], references: [id])
+  tournament         Tournament       @relation(fields: [tournamentId], references: [id])
+
+  @@index([tournamentId, totalPoints(sort: Desc)])
+  @@index([groupId, totalPoints(sort: Desc)])
+  @@index([tournamentId, createdAt])
+  @@index([tournamentId, registrationStatus])
+  @@index([teamName])
+  @@index([totalPoints(sort: Desc), createdAt])
+  @@index([currentStage, totalPoints(sort: Desc)])
+  @@map("team_registrations")
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  amount        Float
+  currency      String        @default("INR")
+  status        PaymentStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  userId        String
+  creditsAdded  Int?
+  purchaseType  PurchaseType
+  transactionId String        @unique
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@map("payments")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  action    String
+  details   Json?
+  timestamp DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id                    String   @id @default(cuid())
+  userId                String
+  createdAt             DateTime @default(now())
+  deviceInfo            String?
+  ipAddress             String?
+  isActive              Boolean  @default(true)
+  lastUsedAt            DateTime @default(now())
+  refreshTokenExpiresAt DateTime
+  refreshTokenHash      String   @unique
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model DiscordUser {
+  id               String               @id
+  username         String
+  discriminator    String?
+  email            String?
+  avatar           String?
+  verified         Boolean              @default(false)
+  locale           String?
+  mfaEnabled       Boolean              @default(false)
+  linkedUserId     String?              @unique
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  guildMemberships DiscordGuildMember[]
+  ownedGuilds      DiscordGuild[]       @relation("GuildOwner")
+  linkedUser       User?                @relation("UserDiscordLink", fields: [linkedUserId], references: [id])
+
+  @@map("discord_users")
+}
+
+model DiscordGuild {
+  id              String               @id
+  name            String
+  icon            String?
+  description     String?
+  memberCount     Int                  @default(0)
+  ownerId         String
+  botEnabled      Boolean              @default(true)
+  commandPrefix   String               @default("sz")
+  isPremium       Boolean              @default(false)
+  premiumUntil    DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  botStates       BotState[]           @relation("BotStateGuild")
+  members         DiscordGuildMember[]
+  owner           DiscordUser          @relation("GuildOwner", fields: [ownerId], references: [id])
+  scrims          DiscordScrim[]
+  teamEnrollments TeamEnrollment[]
+
+  @@map("discord_guilds")
+}
+
+model DiscordGuildMember {
+  id                   String       @id @default(cuid())
+  userId               String
+  guildId              String
+  nickname             String?
+  roles                String[]
+  joinedAt             DateTime
+  isAdmin              Boolean      @default(false)
+  canManageTournaments Boolean      @default(false)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  guild                DiscordGuild @relation(fields: [guildId], references: [id])
+  user                 DiscordUser  @relation(fields: [userId], references: [id])
+
+  @@unique([userId, guildId])
+  @@map("discord_guild_members")
+}
+
+model DiscordScrim {
+  id          String       @id @default(cuid())
+  guildId     String
+  name        String
+  description String?
+  game        String
+  maxTeams    Int
+  status      String       @default("open")
+  scheduledAt DateTime?
+  duration    Int?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  guild       DiscordGuild @relation(fields: [guildId], references: [id])
+
+  @@map("discord_scrims")
+}
+
+model BotState {
+  id            String       @id @default(cuid())
+  guildId       String
+  state         String
+  previousState String?
+  reason        String
+  changedAt     DateTime     @default(now())
+  changedBy     String?
+  metadata      Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  guild         DiscordGuild @relation("BotStateGuild", fields: [guildId], references: [id])
+
+  @@index([guildId])
+  @@index([state])
+  @@map("bot_states")
+}
+
+model TeamEnrollment {
+  id       String @id @default(cuid())
+  guildId  String
+  teamName String
+
+  // Leader info
+  leaderId      String
+  leaderIgn     String
+  leaderDiscord String
+
+  players Json
+
+  // Status and validation
+  isVerified     Boolean @default(false)
+  isComplete     Boolean @default(false)
+  enrollmentStep Int     @default(1)
+
+  // Metadata
+  threadId   String?
+  enrolledBy String
+  enrolledAt DateTime  @default(now())
+  verifiedAt DateTime?
+
+  // Relations
+  guild        DiscordGuild      @relation(fields: [guildId], references: [id])
+  activityLogs TeamActivityLog[]
+  nameChanges  TeamNameChange[]
+
+  @@unique([guildId, teamName])
+  @@map("team_enrollments")
+}
+
+model TeamActivityLog {
+  id           String   @id @default(cuid())
+  teamId       String
+  guildId      String
+  action       String
+  performedBy  String
+  previousData Json?
+  newData      Json?
+  timestamp    DateTime @default(now())
+
+  team TeamEnrollment @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_activity_logs")
+}
+
+// User Rate Limiting (for enrollment threads)
+model UserRateLimit {
+  id            String   @id @default(cuid())
+  userId        String
+  guildId       String
+  action        String
+  lastAttempt   DateTime @default(now())
+  attemptCount  Int      @default(1)
+  cooldownUntil DateTime
+  isAdmin       Boolean  @default(false)
+
+  @@unique([userId, guildId, action])
+  @@map("user_rate_limits")
+}
+
+model TeamNameChange {
+  id        String   @id @default(cuid())
+  teamId    String
+  guildId   String
+  oldName   String
+  newName   String
+  changedBy String
+  changedAt DateTime @default(now())
+
+  team TeamEnrollment @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_name_changes")
+}
 
 enum SubscriptionStatus {
   ACTIVE
@@ -53,24 +647,24 @@ enum PurchaseType {
 }
 
 enum ScreenshotType {
-  SLOT_LIST // Team slot assignments
-  RESULT_SCREEN // Match results
+  SLOT_LIST
+  RESULT_SCREEN
 }
 
 enum TemplateType {
-  PREDEFINED // Pre-designed templates provided by platform
-  CUSTOM // User-uploaded custom designs
+  PREDEFINED
+  CUSTOM
 }
 
 enum DataFieldType {
-  TEAM_NAME // Team name field
-  PLAYER_NAME // Player name field
-  KILLS // Kill count field
-  POSITION // Position/rank field
-  POINTS // Points field
-  MATCH_TITLE // Match title field
-  DATE // Date field
-  TOURNAMENT_NAME // Tournament name field
+  TEAM_NAME
+  PLAYER_NAME
+  KILLS
+  POSITION
+  POINTS
+  MATCH_TITLE
+  DATE
+  TOURNAMENT_NAME
 }
 
 enum TournamentFormat {
@@ -111,627 +705,6 @@ enum TextAlignment {
   RIGHT
 }
 
-// Add new enum
 enum TournamentType {
-  TOURNAMENT // Multiple groups, qualification system
-}
-
-// ============================================================================
-// CORE MODELS
-// ============================================================================
-
-// Users (Tournament Organizers)
-model User {
-  id                  String             @id @default(cuid())
-  username            String             @unique
-  phoneNumber         String             @unique // Primary authentication field
-  fullName            String
-  organization        String?
-  passwordHash        String? // Optional for future email auth
-  otp                 String? // Current OTP for phone verification
-  otpExpiresAt        DateTime? // OTP expiration time
-  credits             Int                @default(0) // Credits for generating graphics
-  subscriptionStatus  SubscriptionStatus @default(INACTIVE)
-  subscriptionEndDate DateTime? // When subscription expires
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-
-  // Relations
-  subscriptionId String?
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
-
-  // User-owned entities
-  tournaments  Tournament[]
-  teams        Team[]
-  templates    Template[]
-  payments     Payment[]
-  activityLogs ActivityLog[]
-
-  // Better Auth relations (keeping for compatibility)
-  accounts             Account[]
-  sessions             Session[]
-  collaborations       TournamentCollaborator[]
-  invitedCollaborators TournamentCollaborator[] @relation("InvitedCollaborators")
-  slotAssignments      SlotAssignment[]
-  verifiedResults      MatchResult[]
-  discordUser          DiscordUser?      @relation("UserDiscordLink")
-
-  @@map("users")
-}
-
-// Multi-user collaboration for tournaments
-model TournamentCollaborator {
-  id           String             @id @default(cuid())
-  tournamentId String
-  userId       String
-  role         UserRole           @default(VIEWER)
-  status       CollaboratorStatus @default(PENDING)
-  invitedBy    String // User ID who sent invitation
-  invitedAt    DateTime           @default(now())
-  acceptedAt   DateTime?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-
-  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  inviter    User       @relation("InvitedCollaborators", fields: [invitedBy], references: [id])
-
-  @@unique([tournamentId, userId])
-  @@map("tournament_collaborators")
-}
-
-// Tournament stages for multi-round tournaments
-model TournamentStage {
-  id                 String      @id @default(cuid())
-  name               String // "Round 1", "Quarter Finals", etc.
-  stageNumber        Int
-  totalGroups        Int         @default(1)
-  qualificationSpots Int         @default(8) // Teams qualifying to next stage
-  stageFormat        StageFormat @default(ELIMINATION)
-  isActive           Boolean     @default(false)
-  isCompleted        Boolean     @default(false)
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-
-  tournamentId String
-  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  groups       Group[]
-
-  @@map("tournament_stages")
-}
-
-// Global player database for analytics
-model Player {
-  id           String   @id @default(cuid())
-  name         String
-  gameUuid     String? // BGMI character UUID
-  email        String?
-  phoneNumber  String?
-  totalMatches Int      @default(0)
-  totalKills   Int      @default(0)
-  totalPoints  Int      @default(0)
-  averageKills Float    @default(0)
-  bestPosition Int? // Best finishing position
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  // Relations
-  playerStats PlayerStat[]
-
-  @@map("players")
-}
-
-// Player statistics per tournament
-model PlayerStat {
-  id           String @id @default(cuid())
-  playerId     String
-  tournamentId String
-  teamName     String
-  matches      Int    @default(0)
-  totalKills   Int    @default(0)
-  totalPoints  Int    @default(0)
-  averageKills Float  @default(0)
-  bestPosition Int?
-
-  player     Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-
-  @@unique([playerId, tournamentId])
-  @@map("player_stats")
-}
-
-// Slot assignments for each group
-model SlotAssignment {
-  id                 String   @id @default(cuid())
-  slotNumber         Int // 1-25
-  groupId            String
-  teamRegistrationId String? // null for empty slots
-  slotType           String   @default("TEAM_SLOT")
-  isActive           Boolean  @default(true)
-  assignedAt         DateTime @default(now())
-  assignedBy         String // User who assigned the slot
-
-  group            Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  teamRegistration TeamRegistration? @relation(fields: [teamRegistrationId], references: [id], onDelete: SetNull)
-  assignedByUser   User              @relation(fields: [assignedBy], references: [id])
-
-  @@unique([groupId, slotNumber])
-  @@index([groupId, isActive]) // For active slot queries
-  @@index([teamRegistrationId]) // For team's slot assignments
-  @@index([groupId, slotNumber]) // For slot ordering (duplicate of unique but for performance)
-  @@map("slot_assignments")
-}
-
-// Custom scoring rules per tournament
-model ScoringRule {
-  id                 String   @id @default(cuid())
-  tournamentId       String
-  ruleName           String
-  ruleType           String // 'KILL_POINTS' | 'POSITION_POINTS' | 'SURVIVAL_TIME' | 'CUSTOM_FORMULA'
-  isActive           Boolean  @default(true)
-  priority           Int      @default(1)
-  killPoints         Int      @default(1)
-  positionMultiplier Float    @default(1.0)
-  customFormula      String?
-  description        String?
-  createdBy          String
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-
-  @@unique([tournamentId, priority]) // Prevent duplicate priorities
-  @@map("scoring_rules")
-}
-
-// Match results for each team per match
-model MatchResult {
-  id                 String    @id @default(cuid())
-  matchId            String
-  teamRegistrationId String
-  slotNumber         Int
-  position           Int // Final position (1-25)
-  totalKills         Int // Sum of all player kills
-  killPoints         Int // Calculated kill points
-  positionPoints     Int // Calculated position points
-  totalMatchPoints   Int // killPoints + positionPoints
-  playerResults      Json // [{playerName, kills}, ...] 
-  verifiedBy         String? // User who verified the results
-  verifiedAt         DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  match            Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  teamRegistration TeamRegistration @relation(fields: [teamRegistrationId], references: [id], onDelete: Cascade)
-  verifier         User?            @relation(fields: [verifiedBy], references: [id])
-
-  @@unique([matchId, teamRegistrationId])
-  @@index([teamRegistrationId, createdAt]) // For team's match history
-  @@index([matchId, position]) // For match rankings
-  @@index([teamRegistrationId, totalMatchPoints(sort: Desc)]) // For team performance
-  @@index([matchId, totalKills(sort: Desc)]) // For kill leaderboards
-  @@index([createdAt]) // For time-based queries
-  @@map("match_results")
-}
-
-// Subscription Plans (Free, Pro, Enterprise)
-model Subscription {
-  id            String       @id @default(cuid())
-  planName      String // "Free", "Pro", "Enterprise"
-  price         Float // Monthly/Yearly price
-  stripePriceId String?      @unique // Stripe price ID for billing
-  billingCycle  BillingCycle // MONTHLY or YEARLY
-  features      Json // {"maxTournaments": 10, "maxCreditsPerMonth": 100}
-  isActive      Boolean      @default(true)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-
-  // Relations
-  users User[]
-
-  @@map("subscriptions")
-}
-
-// Tournament Events (e.g., "BGMI Championship 2024")
-model Tournament {
-  id                 String           @id @default(cuid())
-  name               String
-  game               String
-  tournamentType     TournamentType   @default(TOURNAMENT) // Add this
-  maxTeams           Int? // Total teams for tournament
-  entryFee           Float? // Entry fee per team
-  prizePool          Float? // Total prize pool
-  status             TournamentStatus @default(UPCOMING)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  totalStages        Int              @default(1)
-  currentStage       Int              @default(1)
-  tournamentFormat   TournamentFormat @default(ELIMINATION)
-  maxTeamsPerGroup   Int              @default(25)
-  registrationFields Json? // Custom fields like player names, UUIDs
-  allowCollaborators Boolean          @default(false)
-
-  // Relations
-  userId            String
-  user              User                     @relation(fields: [userId], references: [id])
-  matches           Match[]
-  groups            Group[]
-  teamRegistrations TeamRegistration[]
-  collaborators     TournamentCollaborator[]
-  stages            TournamentStage[]
-  scoringRule       ScoringRule[]
-  playerStats       PlayerStat[]
-
-  @@index([userId, status]) // For user's tournament filtering
-  @@index([userId, createdAt(sort: Desc)]) // For user's recent tournaments
-  @@index([status, createdAt]) // For global tournament listings
-  @@index([game, status]) // For game-specific tournaments
-  @@index([name]) // For tournament name searches
-  @@map("tournaments")
-}
-
-// Teams participating in tournaments
-model Team {
-  id        String   @id @default(cuid())
-  name      String // "Team Alpha", "Mystic Warriors"
-  logoUrl   String? // URL to team logo image
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@map("teams")
-}
-
-// Individual matches within tournaments
-model Match {
-  id            String       @id @default(cuid())
-  matchDate     DateTime     @default(now())
-  matchNumber   Int
-  status        MatchStatus  @default(PENDING_PROCESSING)
-  processedData Json?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  stageNumber   Int?
-  resultStatus  ResultStatus @default(PENDING)
-
-  // Relations
-  tournamentId String
-  tournament   Tournament    @relation(fields: [tournamentId], references: [id])
-  groupId      String? // Add this for group-specific matches
-  group        Group?        @relation(fields: [groupId], references: [id]) // Add this
-  screenshots  Screenshot[]
-  matchResults MatchResult[]
-
-  @@index([tournamentId, matchNumber]) // For tournament match ordering
-  @@index([groupId, matchNumber]) // For group match ordering
-  @@index([status, createdAt]) // For processing queue
-  @@index([tournamentId, status]) // For tournament match filtering
-  @@index([resultStatus]) // For result processing
-  @@map("matches")
-}
-
-// Screenshots uploaded for processing
-model Screenshot {
-  id           String         @id @default(cuid())
-  originalName String // Original filename
-  fileName     String // Stored filename
-  fileSize     Int // File size in bytes
-  mimeType     String // image/png, image/jpeg
-  type         ScreenshotType // SLOT_LIST or RESULT_SCREEN
-  storageUrl   String // URL where file is stored
-  isProcessed  Boolean        @default(false)
-  uploadedAt   DateTime       @default(now())
-
-  // Relations
-  matchId String
-  match   Match  @relation(fields: [matchId], references: [id])
-
-  @@map("screenshots")
-}
-
-// Custom graphic templates
-model Template {
-  id               String       @id @default(cuid())
-  templateName     String // "Dark Theme", "Neon Style"
-  imageUrl         String // URL to template preview image
-  configJson       Json // Layout configuration for Python service
-  isPublic         Boolean      @default(false) // Public templates available to all
-  templateType     TemplateType @default(PREDEFINED) // PREDEFINED or CUSTOM
-  originalImageUrl String? // Original uploaded image for custom templates
-  isActive         Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-
-  // Relations
-  userId     String
-  user       User                @relation(fields: [userId], references: [id])
-  dataFields TemplateDataField[] // Marked data placement areas
-
-  @@map("templates")
-}
-
-// Data field positioning for custom templates
-model TemplateDataField {
-  id        String        @id @default(cuid())
-  fieldType DataFieldType // What type of data goes here
-  x         Int // X coordinate on image
-  y         Int // Y coordinate on image
-  width     Int // Field width
-  height    Int // Field height
-  fontSize  Int? // Font size for text
-  fontColor String? // Hex color code for text
-  alignment TextAlignment @default(LEFT)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-
-  // Relations
-  templateId String
-  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  @@map("template_data_fields")
-}
-
-model Group {
-  id                 String   @id @default(cuid())
-  name               String // "Group A", "Group B", etc.
-  maxTeams           Int      @default(24) // Max teams per group
-  qualificationSpots Int      @default(8) // Top N teams qualify
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  stageId            String?
-  matchCount         Int      @default(1)
-  maxSlots           Int      @default(25)
-
-  // Relations
-  tournamentId      String
-  tournament        Tournament         @relation(fields: [tournamentId], references: [id])
-  teamRegistrations TeamRegistration[]
-  matches           Match[]
-  stage             TournamentStage?   @relation(fields: [stageId], references: [id])
-  slotAssignments   SlotAssignment[]
-
-  @@index([tournamentId]) // For tournament's groups
-  @@index([stageId]) // For stage-specific groups
-  @@index([tournamentId, createdAt]) // For chronological group ordering
-  @@map("groups")
-}
-
-model TeamRegistration {
-  id                 String   @id @default(cuid())
-  teamName           String
-  contactInfo        String // Phone/email
-  registrationStatus String   @default("PENDING") // PENDING, CONFIRMED, QUALIFIED, ELIMINATED
-  finalPosition      Int? // Final position in group
-  totalPoints        Int      @default(0) // Cumulative points
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  playerDetails      Json? // [{name, uuid, email}, ...]
-  currentStage       Int      @default(1)
-  slotNumber         Int? // Current assigned slot
-
-  // Relations
-  tournamentId    String
-  tournament      Tournament       @relation(fields: [tournamentId], references: [id])
-  groupId         String?
-  group           Group?           @relation(fields: [groupId], references: [id])
-  slotAssignments SlotAssignment[]
-  matchResults    MatchResult[]
-
-  @@index([tournamentId, totalPoints(sort: Desc)]) // For leaderboard queries
-  @@index([groupId, totalPoints(sort: Desc)]) // For group leaderboards
-  @@index([tournamentId, createdAt]) // For chronological ordering
-  @@index([tournamentId, registrationStatus]) // For filtering by status
-  @@index([teamName]) // For team name searches
-  @@index([totalPoints(sort: Desc), createdAt]) // For global rankings
-  @@index([currentStage, totalPoints(sort: Desc)]) // For stage-based queries
-  @@map("team_registrations")
-}
-
-// Payment transactions
-model Payment {
-  id            String        @id @default(cuid())
-  amount        Float // Payment amount
-  currency      String        @default("INR")
-  transactionId String        @unique // Payment gateway transaction ID
-  status        PaymentStatus @default(PENDING)
-  purchaseType  PurchaseType // SUBSCRIPTION or CREDIT_PACK
-  creditsAdded  Int? // Credits added if credit pack purchase
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-
-  // Relations
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@map("payments")
-}
-
-// Activity logging for auditing
-model ActivityLog {
-  id        String   @id @default(cuid())
-  action    String // "TOURNAMENT_CREATED", "MATCH_PROCESSED", etc.
-  details   Json? // Additional context data
-  timestamp DateTime @default(now())
-
-  // Relations
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@map("activity_logs")
-}
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-  @@map("accounts")
-}
-
-model Session {
-  id                    String   @id @default(cuid())
-  userId                String
-  refreshTokenHash      String   @unique
-  refreshTokenExpiresAt DateTime
-  isActive              Boolean  @default(true)
-  deviceInfo            String? // Browser/Mobile app info
-  ipAddress             String? // For suspicious login detection
-  lastUsedAt            DateTime @default(now())
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("sessions")
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
-  @@map("verification_tokens")
-}
-
-model DiscordUser {
-  id            String  @id
-  username      String
-  discriminator String?
-  email         String?
-  avatar        String?
-  verified      Boolean @default(false)
-  locale        String?
-  mfaEnabled    Boolean @default(false)
-
-  //optional for linking and data migration later
-linkedUserId String? @unique  
-linkedUser   User?   @relation("UserDiscordLink", fields: [linkedUserId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  guildMemberships DiscordGuildMember[]
-  ownedGuilds      DiscordGuild[]       @relation("GuildOwner")
-
-  @@map("discord_users")
-}
-
-model DiscordGuild {
-  id          String  @id // Discord guild ID
-  name        String
-  icon        String?
-  description String?
-  memberCount Int     @default(0)
-
-  // Owner information
-  ownerId String
-  owner   DiscordUser @relation("GuildOwner", fields: [ownerId], references: [id])
-
-  // Bot settings
-  botEnabled    Boolean @default(true)
-  commandPrefix String  @default("sz")
-
-  // Premium features (connect to your existing subscription system later)
-  isPremium    Boolean   @default(false)
-  premiumUntil DateTime?
-
-  // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  members     DiscordGuildMember[]
-  scrims      DiscordScrim[]
-
-  botStates     BotState[] @relation(name: "BotStateGuild")
-
-  @@map("discord_guilds")
-}
-
-model DiscordGuildMember {
-  id String @id @default(cuid())
-
-  userId  String
-  user    DiscordUser  @relation(fields: [userId], references: [id])
-  guildId String
-  guild   DiscordGuild @relation(fields: [guildId], references: [id])
-
-  nickname String?
-  roles    String[] // Discord role IDs
-  joinedAt DateTime
-
-  // Bot permissions
-  isAdmin              Boolean @default(false)
-  canManageTournaments Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, guildId])
-  @@map("discord_guild_members")
-}
-
-
-// Discord Scrims
-model DiscordScrim {
-  id          String   @id @default(cuid())
-  
-  guildId     String
-  guild       DiscordGuild @relation(fields: [guildId], references: [id])
-  
-  // Scrim data
-  name        String
-  description String?
-  game        String
-  maxTeams    Int
-  status      String   @default("open") // "open", "registration", "ongoing", "completed"
-  
-  // Scheduling
-  scheduledAt DateTime?
-  duration    Int?     // in minutes
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@map("discord_scrims")
-}
-
-// Bot State Tracking
-model BotState {
-  id            String   @id @default(cuid())
-  
-  guildId       String
-  guild         DiscordGuild @relation(fields: [guildId], references: [id], name: "BotStateGuild")
-  
-  // State information
-  state         String   // ACTIVE, REMOVED, REINSTALLED, etc.
-  previousState String?
-  reason        String   // BOT_INVITED, BOT_KICKED, etc.
-  
-  // Change tracking
-  changedAt     DateTime @default(now())
-  changedBy     String?  // User ID who caused the change
-  
-  // Metadata as JSON
-  metadata      Json?    // Flexible metadata storage
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  @@map("bot_states")
-  @@index([guildId])
-  @@index([state])
+  TOURNAMENT
 }
