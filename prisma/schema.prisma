@@ -478,6 +478,11 @@ model DiscordGuild {
   owner           DiscordUser          @relation("GuildOwner", fields: [ownerId], references: [id])
   scrims          DiscordScrim[]
   teamEnrollments TeamEnrollment[]
+  registrationSessions DiscordRegistrationSession[]
+  teamMerits          DiscordTeamMerit[]
+  registrationDelays  DiscordRegistrationDelay[]
+  registrationToggle  DiscordRegistrationToggle?
+  teamBans           DiscordTeamBan[]
 
   @@map("discord_guilds")
 }
@@ -611,6 +616,149 @@ model TeamNameChange {
   @@map("team_name_changes")
 }
 
+model DiscordRegistrationSession {
+  id           String   @id @default(cuid())
+  guildId      String
+  channelId    String
+  name         String
+  groupId      Int
+  isActive     Boolean  @default(false)
+  maxSlots     Int      @default(21)
+  currentSlots Int      @default(0)
+  startedAt    DateTime?
+  endedAt      DateTime?
+  duration     Int      @default(30) // minutes
+  status       RegistrationStatus @default(PENDING)
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  guild        DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  queueEntries DiscordRegistrationQueue[]
+  
+  // Indexes for performance (following your patterns)
+  @@index([guildId])
+  @@index([channelId])
+  @@index([status])
+  @@unique([guildId, channelId]) // One session per channel
+  @@map("discord_registration_sessions")
+}
+
+model DiscordRegistrationQueue {
+  id            String   @id @default(cuid())
+  sessionId     String
+  guildId       String
+  teamName      String
+  userId        String
+  userDiscord   String
+  merit         Int      @default(100)
+  position      Int
+  status        QueueStatus @default(QUEUED)
+  joinedAt      DateTime @default(now())
+  assignedSlot  Int?
+  assignedAt    DateTime?
+  processedAt   DateTime?
+  
+  // Relations
+  session       DiscordRegistrationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  // Indexes for performance
+  @@index([sessionId])
+  @@index([guildId])
+  @@index([merit]) // For merit-based sorting
+  @@index([status])
+  @@unique([sessionId, teamName]) // One queue entry per team per session
+  @@map("discord_registration_queue")
+}
+
+model DiscordTeamMerit {
+  id           String   @id @default(cuid())
+  guildId      String
+  teamName     String
+  currentMerit Int      @default(100)
+  totalEarned  Int      @default(0)
+  totalLost    Int      @default(0)
+  lastAction   MeritAction?
+  lastUpdated  DateTime @updatedAt
+  updatedBy    String?
+  notes        String?
+  
+  // Relations
+  guild        DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  
+  // Indexes for performance
+  @@index([guildId])
+  @@index([currentMerit]) // For merit rankings
+  @@unique([guildId, teamName]) // One merit record per team per guild
+  @@map("discord_team_merit")
+}
+
+model DiscordRegistrationDelay {
+  id           String   @id @default(cuid())
+  guildId      String
+  teamName     String?  // null means server-wide delay
+  delayType    DelayType @default(REGISTRATION_COOLDOWN)
+  delayMinutes Int
+  reason       String
+  expiresAt    DateTime
+  setBy        String
+  setByName    String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  guild        DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  
+  // Indexes for performance
+  @@index([guildId])
+  @@index([expiresAt])
+  @@index([isActive])
+  @@map("discord_registration_delays")
+}
+
+model DiscordRegistrationToggle {
+  id          String   @id @default(cuid())
+  guildId     String   @unique
+  enabled     Boolean  @default(true)
+  toggledBy   String
+  toggledByName String
+  toggledAt   DateTime @default(now())
+  toggleCount Int      @default(0)
+  reason      String?
+  
+  // Relations
+  guild       DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  
+  // Indexes for performance
+  @@index([enabled])
+  @@map("discord_registration_toggles")
+}
+
+model DiscordTeamBan {
+  id             String   @id @default(cuid())
+  guildId        String
+  teamName       String
+  punishmentType PunishmentType
+  reason         String
+  bannedBy       String
+  bannedByName   String
+  bannedAt       DateTime @default(now())
+  endTime        DateTime?
+  isActive       Boolean  @default(true)
+  appealNotes    String?
+  
+  // Relations
+  guild          DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  
+  // Indexes for performance
+  @@index([guildId])
+  @@index([isActive])
+  @@index([endTime])
+  @@unique([guildId, teamName]) // One active ban per team per guild
+  @@map("discord_team_bans")
+}
+
 enum SubscriptionStatus {
   ACTIVE
   INACTIVE
@@ -707,4 +855,40 @@ enum TextAlignment {
 
 enum TournamentType {
   TOURNAMENT
+}
+
+enum RegistrationStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum QueueStatus {
+  QUEUED
+  ASSIGNED
+  WAITING_LIST
+  EXPIRED
+}
+
+enum MeritAction {
+  GOOD_REGISTRATION
+  ATTENDED_MATCH
+  SLOT_WASTE
+  BAN_VIOLATION
+  ADMIN_ADJUSTMENT
+}
+
+enum PunishmentType {
+  TEMPORARY_BAN
+  PERMANENT_BAN
+  SLOT_WASTE_BAN
+  MERIT_REDUCTION
+  WARNING
+}
+
+enum DelayType {
+  REGISTRATION_COOLDOWN
+  PUNISHMENT_DELAY
+  ADMIN_IMPOSED
 }

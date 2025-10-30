@@ -6,19 +6,19 @@ import { json, templateLiteral } from "zod";
 class RedisManager {
 
     private sanitizeKeyForLogging(key: string): string {
-    // Hide sensitive tokens but show pattern
-    if (key.startsWith('access_token:')) {
-        return `access_token:***[HIDDEN]***`;
+        // Hide sensitive tokens but show pattern
+        if (key.startsWith('access_token:')) {
+            return `access_token:***[HIDDEN]***`;
+        }
+        if (key.startsWith('refresh_token:')) {
+            return `refresh_token:***[HIDDEN]***`;
+        }
+        if (key.includes('session:session_')) {
+            return key.replace(/session_\d+_[a-f0-9]+/, 'session_***[HIDDEN]***');
+        }
+        // Add other sensitive patterns as needed
+        return key;
     }
-    if (key.startsWith('refresh_token:')) {
-        return `refresh_token:***[HIDDEN]***`;
-    }
-    if (key.includes('session:session_')) {
-        return key.replace(/session_\d+_[a-f0-9]+/, 'session_***[HIDDEN]***');
-    }
-    // Add other sensitive patterns as needed
-    return key;
-}
     private static instance: RedisManager;
     private redisClient: Redis;
     private queueRedis: Redis;
@@ -350,20 +350,28 @@ class RedisManager {
     }
 
     //utility method for setting object as hash
-    public async hsetObject(key: string, obj: Record<string, any>): Promise<boolean> {
-        try {
-            const flatObj: Record<string, string> = {};
-            for (const [field, value] of Object.entries(obj)) {
-                flatObj[field] = typeof value === 'string' ? value : JSON.stringify(value);
-            }
-            const result = await this.redisClient.hset(key, flatObj);
-            logger.info(`Set object ${JSON.stringify(obj)} for key ${key} in Redis`);
-            return result >= 0;
-        } catch (error) {
-            logger.error(`Error setting object ${key} in Redis`, error);
-            return false;
+    public async hsetObject(key: string, obj: Record<string, any>, ttlSeconds?: number): Promise<boolean> {
+    try {
+        const flatObj: Record<string, string> = {};
+        for (const [field, value] of Object.entries(obj)) {
+            flatObj[field] = typeof value === 'string' ? value : JSON.stringify(value);
         }
+        const result = await this.redisClient.hset(key, flatObj);
+        
+        // Set TTL if provided
+        if (ttlSeconds) {
+            await this.redisClient.expire(key, ttlSeconds);
+            logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis with TTL ${ttlSeconds}s`);
+        } else {
+            logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis without TTL`);
+        }
+        
+        return result >= 0;
+    } catch (error) {
+        logger.error(`Error setting object ${this.sanitizeKeyForLogging(key)} in Redis`, error);
+        return false;
     }
+}
 
 
     // Utility method for getting object from hash
@@ -395,6 +403,62 @@ class RedisManager {
         } catch (error) {
             logger.error(`Error getting TTL for key ${key} for Redis`, error);
             return -1;
+        }
+    }
+
+    public async zadd(key: string, score: number, member: string): Promise<number> {
+        try {
+            const result = await this.redisClient.zadd(key, score, member);
+            logger.info(`Added member ${member} with score ${score} to sorted set ${key} in Redis`);
+            return result;
+        } catch (error) {
+            logger.error(`Error adding member ${member} to sorted set ${key} in Redis`, error);
+            return 0;
+        }
+    }
+
+    public async zcount(key: string, min: string | number, max: string | number): Promise<number> {
+        try {
+            const result = await this.redisClient.zcount(key, min, max);
+            return result;
+        } catch (error) {
+            logger.error(`Error counting members in sorted set ${key} in Redis`, error);
+            return 0;
+        }
+    }
+
+    public async zrange(key: string, start: number, stop: number, withScores?: boolean): Promise<string[]> {
+        try {
+            const args: any[] = [key, start, stop];
+            if (withScores) args.push('WITHSCORES');
+            const result = await this.redisClient.zrange(...args);
+            return result;
+        } catch (error) {
+            logger.error(`Error getting range from sorted set ${key} in Redis`, error);
+            return [];
+        }
+    }
+
+    public async zrem(key: string, ...members: string[]): Promise<number> {
+        try {
+            const result = await this.redisClient.zrem(key, ...members);
+            logger.info(`Removed members ${members.join(", ")} from sorted set ${key} in Redis`);
+            return result;
+        } catch (error) {
+            logger.error(`Error removing members from sorted set ${key} in Redis`, error);
+            return 0;
+        }
+    }
+
+    public async zrevrange(key: string, start: number, stop: number, withScores?: boolean): Promise<string[]> {
+        try {
+            const args: any[] = [key, start, stop];
+            if (withScores) args.push('WITHSCORES');
+            const result = await this.redisClient.zrevrange(...args);
+            return result;
+        } catch (error) {
+            logger.error(`Error getting reverse range from sorted set ${key} in Redis`, error);
+            return [];
         }
     }
 
