@@ -10,8 +10,11 @@ import {
     ProcessedQueueResult,
     QueueStatusOptions,
     GuildRegistrationSessionsCache,
-    GuildQueueCache
+    GuildQueueCache,
+    SessionMetrics,
+    QueuePosition
 } from "../types/discordRegistration";
+import { GetObjectAttributesRequestFilterSensitiveLog } from "@aws-sdk/client-s3";
 
 export class DiscordRegistrationService extends BaseService {
     private CACHE_TTL = 300; // 5 minutes (following your patterns)
@@ -50,7 +53,7 @@ export class DiscordRegistrationService extends BaseService {
 
             // Store in Redis with extended TTL for active sessions
             await redis.hsetObject(`registration_session:${sessionId}`, session, this.SESSION_CACHE_TTL);
-            
+
             // Add to guild active sessions set
             await redis.sadd(`guild:${data.guildId}:active_sessions`, sessionId);
             await redis.expire(`guild:${data.guildId}:active_sessions`, this.SESSION_CACHE_TTL);
@@ -147,7 +150,7 @@ export class DiscordRegistrationService extends BaseService {
 
             // Get session details
             const session = await redis.hgetObject<DiscordRegistrationSessionCache>(`registration_session:${sessionId}`);
-            
+
             if (session && session.isActive && session.guildId === guildId) {
                 return session;
             }
@@ -162,7 +165,7 @@ export class DiscordRegistrationService extends BaseService {
     async toggleSession(guildId: string, sessionId: string): Promise<DiscordRegistrationSessionCache | null> {
         try {
             const session = await redis.hgetObject<DiscordRegistrationSessionCache>(`registration_session:${sessionId}`);
-            
+
             if (!session || session.guildId !== guildId) {
                 throw new Error('Session not found');
             }
@@ -207,7 +210,7 @@ export class DiscordRegistrationService extends BaseService {
     async endSession(guildId: string, sessionId: string): Promise<ProcessedQueueResult | null> {
         try {
             const session = await redis.hgetObject<DiscordRegistrationSessionCache>(`registration_session:${sessionId}`);
-            
+
             if (!session || session.guildId !== guildId) {
                 throw new Error('Session not found');
             }
@@ -284,7 +287,7 @@ export class DiscordRegistrationService extends BaseService {
 
             // Store in Redis
             await redis.hsetObject(`queue_entry:${queueId}`, queueEntry, this.QUEUE_CACHE_TTL);
-            
+
             // Add to session queue with merit as score for sorting
             await redis.zadd(`session:${data.sessionId}:queue`, merit, queueId);
 
@@ -306,15 +309,13 @@ export class DiscordRegistrationService extends BaseService {
         }
     }
 
-    // Helper method to get team merit (placeholder - will be implemented in merit service)
     private async getTeamMerit(guildId: string, teamName: string): Promise<number> {
         try {
-            // This will be implemented when we create the merit service
-            // For now, return default merit
-            return 100;
+            const { discordMeritService } = await import('./discordMeritService');
+            return await discordMeritService.getTeamMerit(guildId, teamName);
         } catch (error) {
             this.logger.warn(`Failed to get merit for team ${teamName}, using default: ${error}`);
-            return 100; // Default merit
+            return 100;
         }
     }
 
@@ -344,16 +345,257 @@ export class DiscordRegistrationService extends BaseService {
         }
     }
 
-    // Placeholder for queue processing (will be implemented)
+
     private async processSessionQueue(sessionId: string): Promise<ProcessedQueueResult> {
-        // This will implement merit-based slot assignment
-        return {
-            assignedSlots: {},
-            waitingList: [],
-            processedCount: 0,
-            waitingCount: 0
-        };
+        try {
+            this.logger.info(`Processing queue for session ${sessionId}`);
+
+            //get all queue entries sorted by merit
+            const queueIds = await redis.zrevrange(`session:${sessionId}:queue`, 0, -1);
+
+            if (queueIds.length === 0) {
+                this.logger.info(`No teams in queue for session ${sessionId}`);
+                return {
+                    assignedSlots: {},
+                    waitingList: [],
+                    processedCount: 0,
+                    waitingCount: 0
+                };
+            }
+
+            //get all queue entries with merit data
+            const queueEntries: DiscordRegistrationQueueEntry[] = [];
+            for (const queueId of queueIds) {
+                const entry = await redis.hgetObject<DiscordRegistrationQueueEntry>(`queue_entry:${queueId}`);
+                if (entry) {
+                    queueEntries.push(entry);
+                }
+            }
+
+            //sort by merit
+            queueEntries.sort((a, b) => b.merit - a.merit);
+
+            // 4. Define available slots (3-23, excluding reserved slots 1,2 and management 24,25)
+            const availableSlots = Array.from({ length: 21 }, (_, i) => i + 3); // [3,4,5...23]
+            const assignedSlots: { [slotNumber: string]: string } = {};
+            const waitingList: DiscordRegistrationQueueEntry[] = [];
+
+            let processedCount = 0;
+
+            //Assign slots based on merit priority
+            for (const entry of queueEntries) {
+                processedCount++;
+
+                if (availableSlots.length > 0) {
+                    const assignedSlot = availableSlots.shift()!;
+                    assignedSlots[assignedSlot.toString()] = entry.teamName;
+
+                    entry.status = 'ASSIGNED';
+                    entry.assignedSlot = assignedSlot;
+                    entry.assignedAt = new Date().toISOString();
+                    entry.processedAt = new Date().toISOString();
+
+                    await redis.hsetObject(`queue_entry:${entry.id}`, entry, this.QUEUE_CACHE_TTL);
+
+                    this.logger.info(`Assigned slot ${assignedSlot} to team ${entry.teamName} (merit: ${entry.merit})`);
+                } else {
+                    entry.status = 'WAITING_LIST';
+                    entry.processedAt = new Date().toISOString();
+                    waitingList.push(entry);
+
+                    await redis.hsetObject(`queue_entry:${entry.id}`, entry, this.QUEUE_CACHE_TTL);
+
+                    this.logger.info(`Team ${entry.teamName} added to waiting list (merit: ${entry.merit})`);
+                }
+            }
+
+            const result: ProcessedQueueResult = {
+                assignedSlots,
+                waitingList,
+                processedCount,
+                waitingCount: waitingList.length
+            };
+            await redis.hsetObject(`session:${sessionId}:processed_result`, result, this.SESSION_CACHE_TTL);
+
+            this.logger.info(`Queue processed for session ${sessionId}. Assigned: ${Object.keys(assignedSlots).length}, Waiting: ${waitingList.length}`);
+
+            return result;
+        } catch (error) {
+            this.handleError(error, 'Process session queue');
+            return {
+                assignedSlots: {},
+                waitingList: [],
+                processedCount: 0,
+                waitingCount: 0
+            };
+        }
     }
+
+    // Add these methods to DiscordRegistrationService class:
+
+    // Get queue status for display
+    async getQueueStatus(sessionId: string, options?: QueueStatusOptions): Promise<GuildQueueCache | null> {
+        try {
+            const cachedResult = await redis.hgetObject<GuildQueueCache>(`session:${sessionId}:queue:list`);
+            if (cachedResult) {
+                return cachedResult;
+            }
+
+            // Get all queue entries
+            const queueIds = await redis.zrevrange(`session:${sessionId}:queue`, 0, -1);
+            const entries: DiscordRegistrationQueueEntry[] = [];
+
+            for (const queueId of queueIds) {
+                const entry = await redis.hgetObject<DiscordRegistrationQueueEntry>(`queue_entry:${queueId}`);
+                if (entry) {
+                    // Apply status filter if provided
+                    if (!options?.status || entry.status === options.status) {
+                        entries.push(entry);
+                    }
+                }
+            }
+
+            // Apply limit if provided
+            const limitedEntries = options?.limit ? entries.slice(0, options.limit) : entries;
+
+            // Calculate counts
+            const queuedCount = entries.filter(e => e.status === 'QUEUED').length;
+            const assignedCount = entries.filter(e => e.status === 'ASSIGNED').length;
+            const waitingListCount = entries.filter(e => e.status === 'WAITING_LIST').length;
+
+            const result: GuildQueueCache = {
+                entries: limitedEntries,
+                totalCount: entries.length,
+                queuedCount,
+                assignedCount,
+                waitingListCount,
+                lastUpdated: new Date().toISOString()
+            };
+
+            // Cache result
+            await redis.hsetObject(`session:${sessionId}:queue:list`, result, this.QUEUE_CACHE_TTL);
+
+            return result;
+        } catch (error) {
+            this.handleError(error, 'Get queue status');
+            return null;
+        }
+    }
+
+    // Remove team from queue
+    async removeTeamFromQueue(sessionId: string, teamName: string, removedBy: string): Promise<boolean> {
+        try {
+            // Get queue entry
+            const entryId = await redis.get(`session:${sessionId}:team:${teamName}`);
+            if (!entryId) {
+                throw new Error('Team not found in queue');
+            }
+
+            const entry = await redis.hgetObject<DiscordRegistrationQueueEntry>(`queue_entry:${entryId}`);
+            if (!entry) {
+                throw new Error('Queue entry not found');
+            }
+
+            // Remove from Redis structures
+            await redis.zrem(`session:${sessionId}:queue`, entryId);
+            await redis.delete(`queue_entry:${entryId}`);
+            await redis.delete(`session:${sessionId}:team:${teamName}`);
+
+            // Clear cache
+            await redis.delete(`session:${sessionId}:queue:list`);
+
+            // Queue for database sync
+            await QueueService.syncDiscordImmediately('REGISTRATION_QUEUE', entryId, { teamName, removedBy }, removedBy);
+
+            this.logger.info(`Team ${teamName} removed from queue ${sessionId}`);
+            return true;
+        } catch (error) {
+            this.handleError(error, 'Remove team from queue');
+            return false;
+        }
+    }
+
+    // Get session metrics for admin dashboard
+    async getSessionMetrics(sessionId: string): Promise<SessionMetrics | null> {
+        try {
+            const session = await redis.hgetObject<DiscordRegistrationSessionCache>(`registration_session:${sessionId}`);
+            if (!session) {
+                return null;
+            }
+
+            const queueStatus = await this.getQueueStatus(sessionId);
+            if (!queueStatus) {
+                return null;
+            }
+
+            // Calculate metrics
+            const totalRegistrations = queueStatus.totalCount;
+            const averageWaitTime = this.calculateAverageWaitTime(queueStatus.entries);
+            const slotUtilization = (queueStatus.assignedCount / (session.maxSlots || 21)) * 100;
+
+            // Popular times would be calculated from historical data
+            const popularTimes = ["18:00-20:00", "20:00-22:00"]; // Placeholder
+
+            const metrics: SessionMetrics = {
+                totalRegistrations,
+                averageWaitTime,
+                slotUtilization,
+                popularTimes
+            };
+
+            return metrics;
+        } catch (error) {
+            this.handleError(error, 'Get session metrics');
+            return null;
+        }
+    }
+
+    // Get team's position in queue
+    async getQueuePosition(sessionId: string, teamName: string): Promise<QueuePosition | null> {
+        try {
+            const entryId = await redis.get(`session:${sessionId}:team:${teamName}`);
+            if (!entryId) {
+                return null;
+            }
+
+            const entry = await redis.hgetObject<DiscordRegistrationQueueEntry>(`queue_entry:${entryId}`);
+            if (!entry) {
+                return null;
+            }
+
+            // Get position in sorted set (by merit)
+            const position = await redis.zrevrank(`session:${sessionId}:queue`, entryId);
+
+            return {
+                teamName: entry.teamName,
+                position: position !== null ? position + 1 : -1, // Redis rank is 0-based
+                merit: entry.merit,
+                estimatedWaitTime: this.calculateEstimatedWaitTime(position !== null ? position + 1 : -1)
+            };
+        } catch (error) {
+            this.handleError(error, 'Get queue position');
+            return null;
+        }
+    }
+
+    // Helper methods
+    private calculateAverageWaitTime(entries: DiscordRegistrationQueueEntry[]): number {
+        const processedEntries = entries.filter(e => e.processedAt && e.joinedAt);
+        if (processedEntries.length === 0) return 0;
+
+        const totalWaitTime = processedEntries.reduce((sum, entry) => {
+            const waitTime = new Date(entry.processedAt!).getTime() - new Date(entry.joinedAt).getTime();
+            return sum + waitTime;
+        }, 0);
+
+        return totalWaitTime / processedEntries.length / 1000 / 60; // Return in minutes
+    }
+
+    private calculateEstimatedWaitTime(position: number): number {
+        // Simple estimation: position * 2 minutes (placeholder logic)
+        return Math.max(0, (position - 21) * 2); // Only for waiting list positions
+    }
+
 }
 
 // Export singleton instance (following your pattern)

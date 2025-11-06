@@ -1,5 +1,5 @@
 import express from 'express';
-// import { DiscordRegistrationController } from '../controllers/discordRegistrationController';
+import { DiscordRegistrationController } from '../controllers/discordRegistrationController';
 import { validateRequest } from '../middleware/commonMiddleware';
 import {
     serverIdParamSchema,
@@ -105,8 +105,7 @@ discordRegistrationRouter.post(
     '/servers/:serverId/registration/sessions/start',
     validateRequest(serverIdParamSchema, 'params'),
     validateRequest(createRegistrationSessionSchema),
-    // DiscordRegistrationController.startRegistrationSession  // We'll add this in Phase 4
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.startRegistrationSession
 );
 
 /**
@@ -146,8 +145,7 @@ discordRegistrationRouter.post(
 discordRegistrationRouter.get(
     '/servers/:serverId/registration/sessions/active',
     validateRequest(serverIdParamSchema, 'params'),
-    // DiscordRegistrationController.getActiveSessions
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getActiveSessions
 );
 
 /**
@@ -192,8 +190,7 @@ discordRegistrationRouter.get(
 discordRegistrationRouter.put(
     '/servers/:serverId/registration/sessions/:sessionId/toggle',
     validateRequest(sessionIdParamSchema, 'params'),
-    // DiscordRegistrationController.toggleSession
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.toggleSession
 );
 
 /**
@@ -238,8 +235,7 @@ discordRegistrationRouter.put(
 discordRegistrationRouter.delete(
     '/servers/:serverId/registration/sessions/:sessionId/end',
     validateRequest(sessionIdParamSchema, 'params'),
-    // DiscordRegistrationController.endSession
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.endSession
 );
 
 // ========================================
@@ -305,8 +301,7 @@ discordRegistrationRouter.post(
     '/servers/:serverId/registration/queue/join',
     validateRequest(serverIdParamSchema, 'params'),
     validateRequest(joinQueueSchema),
-    // DiscordRegistrationController.joinQueue
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.joinQueue
 );
 
 /**
@@ -352,8 +347,7 @@ discordRegistrationRouter.post(
 discordRegistrationRouter.delete(
     '/servers/:serverId/registration/queue/:userId/remove',
     validateRequest(userIdParamSchema, 'params'),
-    // DiscordRegistrationController.removeFromQueue
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.removeFromQueue
 );
 
 /**
@@ -404,8 +398,7 @@ discordRegistrationRouter.get(
     '/servers/:serverId/registration/queue/status',
     validateRequest(serverIdParamSchema, 'params'),
     validateRequest(queueStatusQuerySchema, 'query'),
-    // DiscordRegistrationController.getQueueStatus
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getQueueStatus
 );
 
 /**
@@ -444,8 +437,7 @@ discordRegistrationRouter.get(
 discordRegistrationRouter.put(
     '/servers/:serverId/registration/queue/process',
     validateRequest(serverIdParamSchema, 'params'),
-    // DiscordRegistrationController.processQueue
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.processQueue
 );
 
 // ========================================
@@ -497,8 +489,7 @@ discordRegistrationRouter.put(
 discordRegistrationRouter.get(
     '/servers/:serverId/teams/:teamName/merit',
     validateRequest(teamNameParamSchema, 'params'),
-    // DiscordRegistrationController.getTeamMerit
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getTeamMerit
 );
 
 /**
@@ -574,11 +565,10 @@ discordRegistrationRouter.get(
  *         description: Server error
  */
 discordRegistrationRouter.put(
-    '/servers/:serverId/teams/:teamName/merit/update',
+    '/servers/:serverId/teams/:teamName/merit',
     validateRequest(teamNameParamSchema, 'params'),
     validateRequest(updateMeritSchema),
-    // DiscordRegistrationController.updateTeamMerit
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.updateTeamMerit
 );
 
 /**
@@ -630,8 +620,7 @@ discordRegistrationRouter.get(
     '/servers/:serverId/merit/rankings',
     validateRequest(serverIdParamSchema, 'params'),
     validateRequest(meritRankingsQuerySchema, 'query'),
-    // DiscordRegistrationController.getMeritRankings
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getMeritRankings
 );
 
 /**
@@ -668,8 +657,7 @@ discordRegistrationRouter.get(
 discordRegistrationRouter.get(
     '/servers/:serverId/merit/requirements',
     validateRequest(serverIdParamSchema, 'params'),
-    // DiscordRegistrationController.getMeritRequirements
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getMeritRequirements
 );
 
 // ========================================
@@ -710,8 +698,7 @@ discordRegistrationRouter.get(
 discordRegistrationRouter.get(
     '/servers/:serverId/registration/status',
     validateRequest(serverIdParamSchema, 'params'),
-    // DiscordRegistrationController.getRegistrationStatus
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getRegistrationStatus
 );
 
 /**
@@ -765,8 +752,7 @@ discordRegistrationRouter.put(
     '/servers/:serverId/registration/toggle',
     validateRequest(serverIdParamSchema, 'params'),
     validateRequest(toggleRegistrationSchema),
-    // DiscordRegistrationController.toggleRegistration
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.toggleRegistration
 );
 
 /**
@@ -831,8 +817,7 @@ discordRegistrationRouter.post(
     '/servers/:serverId/registration/delay/set',
     validateRequest(serverIdParamSchema, 'params'),
     validateRequest(setDelaySchema),
-    // DiscordRegistrationController.setRegistrationDelay
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.setRegistrationDelay
 );
 
 /**
@@ -876,8 +861,7 @@ discordRegistrationRouter.post(
 discordRegistrationRouter.get(
     '/servers/:serverId/registration/delay/status',
     validateRequest(serverIdParamSchema, 'params'),
-    // DiscordRegistrationController.getDelayStatus
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getDelayStatus
 );
 
 /**
@@ -923,8 +907,7 @@ discordRegistrationRouter.get(
 discordRegistrationRouter.delete(
     '/servers/:serverId/registration/delay/clear',
     validateRequest(serverIdParamSchema, 'params'),
-    // DiscordRegistrationController.clearDelay
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.clearDelay
 );
 
 // ========================================
@@ -1006,8 +989,7 @@ discordRegistrationRouter.post(
     '/servers/:serverId/bans/teams',
     validateRequest(serverIdParamSchema, 'params'),
     validateRequest(banTeamSchema),
-    // DiscordRegistrationController.banTeam
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.banTeam
 );
 
 /**
@@ -1050,8 +1032,7 @@ discordRegistrationRouter.post(
 discordRegistrationRouter.get(
     '/servers/:serverId/bans/teams',
     validateRequest(serverIdParamSchema, 'params'),
-    // DiscordRegistrationController.getBannedTeams
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.getBannedTeams
 );
 
 /**
@@ -1098,8 +1079,7 @@ discordRegistrationRouter.get(
 discordRegistrationRouter.get(
     '/servers/:serverId/bans/teams/:teamName',
     validateRequest(teamNameParamSchema, 'params'),
-    // DiscordRegistrationController.checkTeamBan
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.checkTeamBan
 );
 
 /**
@@ -1146,8 +1126,7 @@ discordRegistrationRouter.get(
 discordRegistrationRouter.delete(
     '/servers/:serverId/bans/teams/:teamName',
     validateRequest(teamNameParamSchema, 'params'),
-    // DiscordRegistrationController.unbanTeam
-    (req, res) => res.status(501).json({ message: 'Controller not implemented yet' })
+    DiscordRegistrationController.unbanTeam
 );
 
 export default discordRegistrationRouter;

@@ -351,27 +351,27 @@ class RedisManager {
 
     //utility method for setting object as hash
     public async hsetObject(key: string, obj: Record<string, any>, ttlSeconds?: number): Promise<boolean> {
-    try {
-        const flatObj: Record<string, string> = {};
-        for (const [field, value] of Object.entries(obj)) {
-            flatObj[field] = typeof value === 'string' ? value : JSON.stringify(value);
+        try {
+            const flatObj: Record<string, string> = {};
+            for (const [field, value] of Object.entries(obj)) {
+                flatObj[field] = typeof value === 'string' ? value : JSON.stringify(value);
+            }
+            const result = await this.redisClient.hset(key, flatObj);
+
+            // Set TTL if provided
+            if (ttlSeconds) {
+                await this.redisClient.expire(key, ttlSeconds);
+                logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis with TTL ${ttlSeconds}s`);
+            } else {
+                logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis without TTL`);
+            }
+
+            return result >= 0;
+        } catch (error) {
+            logger.error(`Error setting object ${this.sanitizeKeyForLogging(key)} in Redis`, error);
+            return false;
         }
-        const result = await this.redisClient.hset(key, flatObj);
-        
-        // Set TTL if provided
-        if (ttlSeconds) {
-            await this.redisClient.expire(key, ttlSeconds);
-            logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis with TTL ${ttlSeconds}s`);
-        } else {
-            logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis without TTL`);
-        }
-        
-        return result >= 0;
-    } catch (error) {
-        logger.error(`Error setting object ${this.sanitizeKeyForLogging(key)} in Redis`, error);
-        return false;
     }
-}
 
 
     // Utility method for getting object from hash
@@ -428,16 +428,19 @@ class RedisManager {
     }
 
     public async zrange(key: string, start: number, stop: number, withScores?: boolean): Promise<string[]> {
-        try {
-            const args: any[] = [key, start, stop];
-            if (withScores) args.push('WITHSCORES');
-            const result = await this.redisClient.zrange(...args);
+    try {
+        if (withScores) {
+            const result = await this.redisClient.zrange(key, start, stop, 'WITHSCORES');
             return result;
-        } catch (error) {
-            logger.error(`Error getting range from sorted set ${key} in Redis`, error);
-            return [];
+        } else {
+            const result = await this.redisClient.zrange(key, start, stop);
+            return result;
         }
+    } catch (error) {
+        logger.error(`Error getting range from sorted set ${key} in Redis`, error);
+        return [];
     }
+}
 
     public async zrem(key: string, ...members: string[]): Promise<number> {
         try {
@@ -451,16 +454,29 @@ class RedisManager {
     }
 
     public async zrevrange(key: string, start: number, stop: number, withScores?: boolean): Promise<string[]> {
-        try {
-            const args: any[] = [key, start, stop];
-            if (withScores) args.push('WITHSCORES');
-            const result = await this.redisClient.zrevrange(...args);
+    try {
+        if (withScores) {
+            const result = await this.redisClient.zrevrange(key, start, stop, 'WITHSCORES');
             return result;
-        } catch (error) {
-            logger.error(`Error getting reverse range from sorted set ${key} in Redis`, error);
-            return [];
+        } else {
+            const result = await this.redisClient.zrevrange(key, start, stop);
+            return result;
         }
+    } catch (error) {
+        logger.error(`Error getting reverse range from sorted set ${key} in Redis`, error);
+        return [];
     }
+}
+
+public async zrevrank(key: string, member: string): Promise<number | null> {
+    try {
+        const result = await this.redisClient.zrevrank(key, member);
+        return result;
+    } catch (error) {
+        logger.error(`Error getting reverse rank for member ${member} in sorted set ${key} in Redis`, error);
+        return null;
+    }
+}
 
     //get queue redis connection for bull mq
     public getQueueConnection(): Redis {

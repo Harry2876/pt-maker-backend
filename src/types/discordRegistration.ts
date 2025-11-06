@@ -62,6 +62,8 @@ export interface DiscordRegistrationDelayCache {
     setByName: string;
     isActive: boolean;
     createdAt: string;
+    createdBy: string;
+    dbStatus: 'PENDING_SYNC' | 'SYNCED' | 'ERROR';
 }
 
 // Registration Toggle Interface
@@ -230,4 +232,25 @@ export interface SessionMetrics {
     averageWaitTime: number;
     slotUtilization: number;
     popularTimes: string[];
+}
+
+export type MeritAction = 'GOOD_REGISTRATION' | 'ATTENDED_MATCH' | 'SLOT_WASTE' | 'BAN_VIOLATION' | 'ADMIN_ADJUSTMENT';
+
+// Create Merit Data Interface  
+export interface CreateMeritData {
+    guildId: string;
+    teamName: string;
+    initialMerit?: number;
+    createdBy: string;
+    notes?: string;
+}
+
+// Create Delay Data Interface
+export interface CreateDelayData {
+    guildId: string;
+    teamName?: string;
+    delayMinutes: number;
+    reason: string;
+    createdBy: string;
+    delayType?: 'REGISTRATION_COOLDOWN' | 'PUNISHMENT_DELAY' | 'ADMIN_IMPOSED';
 }
