@@ -46,7 +46,7 @@ export const updateGroupSchema = z.object({
 });
 
 export const groupParamsSchema = z.object({
-    id: z.string()
+    groupId: z.string()
         .uuid('Invalid group ID format')
 });
 
