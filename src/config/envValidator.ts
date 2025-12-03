@@ -52,6 +52,12 @@ const envSchema = z.object({
   ADVANCED_ENGINE_MAX_IMAGES_PER_BATCH: z.string().transform(Number).pipe(z.number().min(1).max(50)).optional().default(10),
   ADVANCED_ENGINE_TIMEOUT: z.string().transform(Number).pipe(z.number().min(5000).max(120000)).optional().default(30000),
 
+  PYTHON_AI_API_URL: z.string().url('Invalid PYTHON_AI_API_URL').optional().default('http://localhost:8000'),
+  PYTHON_AI_API_KEY: z.string().min(10, 'PYTHON_AI_API_KEY must be at least 10 characters').optional(),
+  PYTHON_AI_TIMEOUT: z.string().transform(Number).pipe(z.number().min(10000).max(120000)).optional().default(60000),
+  ENABLE_GEMINI_FALLBACK: z.string().transform(val => val === 'true').optional().default(true),
+  AI_PROCESSING_MAX_RETRIES: z.string().transform(Number).pipe(z.number().min(1).max(5)).optional().default(2),
+
   // Security settings
   ALLOWED_ORIGINS: z.string().optional(),
   PRODUCTION_ORIGINS: z.string().optional(),

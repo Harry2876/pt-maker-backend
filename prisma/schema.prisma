@@ -34,6 +34,7 @@ model User {
   invitedCollaborators TournamentCollaborator[] @relation("InvitedCollaborators")
   collaborations       TournamentCollaborator[]
   tournaments          Tournament[]
+  quickMatches         QuickMatch[]
   subscription         Subscription?            @relation(fields: [subscriptionId], references: [id])
 
   @@map("users")
@@ -461,28 +462,28 @@ model DiscordUser {
 }
 
 model DiscordGuild {
-  id              String               @id
-  name            String
-  icon            String?
-  description     String?
-  memberCount     Int                  @default(0)
-  ownerId         String
-  botEnabled      Boolean              @default(true)
-  commandPrefix   String               @default("sz")
-  isPremium       Boolean              @default(false)
-  premiumUntil    DateTime?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  botStates       BotState[]           @relation("BotStateGuild")
-  members         DiscordGuildMember[]
-  owner           DiscordUser          @relation("GuildOwner", fields: [ownerId], references: [id])
-  scrims          DiscordScrim[]
-  teamEnrollments TeamEnrollment[]
+  id                   String                       @id
+  name                 String
+  icon                 String?
+  description          String?
+  memberCount          Int                          @default(0)
+  ownerId              String
+  botEnabled           Boolean                      @default(true)
+  commandPrefix        String                       @default("sz")
+  isPremium            Boolean                      @default(false)
+  premiumUntil         DateTime?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  botStates            BotState[]                   @relation("BotStateGuild")
+  members              DiscordGuildMember[]
+  owner                DiscordUser                  @relation("GuildOwner", fields: [ownerId], references: [id])
+  scrims               DiscordScrim[]
+  teamEnrollments      TeamEnrollment[]
   registrationSessions DiscordRegistrationSession[]
-  teamMerits          DiscordTeamMerit[]
-  registrationDelays  DiscordRegistrationDelay[]
-  registrationToggle  DiscordRegistrationToggle?
-  teamBans           DiscordTeamBan[]
+  teamMerits           DiscordTeamMerit[]
+  registrationDelays   DiscordRegistrationDelay[]
+  registrationToggle   DiscordRegistrationToggle?
+  teamBans             DiscordTeamBan[]
 
   @@map("discord_guilds")
 }
@@ -617,99 +618,99 @@ model TeamNameChange {
 }
 
 model DiscordRegistrationSession {
-  id           String   @id @default(cuid())
+  id           String             @id @default(cuid())
   guildId      String
   channelId    String
   name         String
   groupId      Int
-  isActive     Boolean  @default(false)
-  maxSlots     Int      @default(21)
-  currentSlots Int      @default(0)
+  isActive     Boolean            @default(false)
+  maxSlots     Int                @default(21)
+  currentSlots Int                @default(0)
   startedAt    DateTime?
   endedAt      DateTime?
-  duration     Int      @default(30) // minutes
+  duration     Int                @default(30) // minutes
   status       RegistrationStatus @default(PENDING)
   createdBy    String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
   // Relations
-  guild        DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  guild        DiscordGuild               @relation(fields: [guildId], references: [id], onDelete: Cascade)
   queueEntries DiscordRegistrationQueue[]
-  
+
+  @@unique([guildId, channelId]) // One session per channel
   // Indexes for performance (following your patterns)
   @@index([guildId])
   @@index([channelId])
   @@index([status])
-  @@unique([guildId, channelId]) // One session per channel
   @@map("discord_registration_sessions")
 }
 
 model DiscordRegistrationQueue {
-  id            String   @id @default(cuid())
-  sessionId     String
-  guildId       String
-  teamName      String
-  userId        String
-  userDiscord   String
-  merit         Int      @default(100)
-  position      Int
-  status        QueueStatus @default(QUEUED)
-  joinedAt      DateTime @default(now())
-  assignedSlot  Int?
-  assignedAt    DateTime?
-  processedAt   DateTime?
-  
+  id           String      @id @default(cuid())
+  sessionId    String
+  guildId      String
+  teamName     String
+  userId       String
+  userDiscord  String
+  merit        Int         @default(100)
+  position     Int
+  status       QueueStatus @default(QUEUED)
+  joinedAt     DateTime    @default(now())
+  assignedSlot Int?
+  assignedAt   DateTime?
+  processedAt  DateTime?
+
   // Relations
-  session       DiscordRegistrationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  
+  session DiscordRegistrationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, teamName]) // One queue entry per team per session
   // Indexes for performance
   @@index([sessionId])
   @@index([guildId])
   @@index([merit]) // For merit-based sorting
   @@index([status])
-  @@unique([sessionId, teamName]) // One queue entry per team per session
   @@map("discord_registration_queue")
 }
 
 model DiscordTeamMerit {
-  id           String   @id @default(cuid())
+  id           String       @id @default(cuid())
   guildId      String
   teamName     String
-  currentMerit Int      @default(100)
-  totalEarned  Int      @default(0)
-  totalLost    Int      @default(0)
+  currentMerit Int          @default(100)
+  totalEarned  Int          @default(0)
+  totalLost    Int          @default(0)
   lastAction   MeritAction?
-  lastUpdated  DateTime @updatedAt
+  lastUpdated  DateTime     @updatedAt
   updatedBy    String?
   notes        String?
-  
+
   // Relations
-  guild        DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  
+  guild DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, teamName]) // One merit record per team per guild
   // Indexes for performance
   @@index([guildId])
   @@index([currentMerit]) // For merit rankings
-  @@unique([guildId, teamName]) // One merit record per team per guild
   @@map("discord_team_merit")
 }
 
 model DiscordRegistrationDelay {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   guildId      String
-  teamName     String?  // null means server-wide delay
+  teamName     String? // null means server-wide delay
   delayType    DelayType @default(REGISTRATION_COOLDOWN)
   delayMinutes Int
   reason       String
   expiresAt    DateTime
   setBy        String
   setByName    String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
   // Relations
-  guild        DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  
+  guild DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
   // Indexes for performance
   @@index([guildId])
   @@index([expiresAt])
@@ -718,45 +719,171 @@ model DiscordRegistrationDelay {
 }
 
 model DiscordRegistrationToggle {
-  id          String   @id @default(cuid())
-  guildId     String   @unique
-  enabled     Boolean  @default(true)
-  toggledBy   String
+  id            String   @id @default(cuid())
+  guildId       String   @unique
+  enabled       Boolean  @default(true)
+  toggledBy     String
   toggledByName String
-  toggledAt   DateTime @default(now())
-  toggleCount Int      @default(0)
-  reason      String?
-  
+  toggledAt     DateTime @default(now())
+  toggleCount   Int      @default(0)
+  reason        String?
+
   // Relations
-  guild       DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  
+  guild DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
   // Indexes for performance
   @@index([enabled])
   @@map("discord_registration_toggles")
 }
 
 model DiscordTeamBan {
-  id             String   @id @default(cuid())
+  id             String         @id @default(cuid())
   guildId        String
   teamName       String
   punishmentType PunishmentType
   reason         String
   bannedBy       String
   bannedByName   String
-  bannedAt       DateTime @default(now())
+  bannedAt       DateTime       @default(now())
   endTime        DateTime?
-  isActive       Boolean  @default(true)
+  isActive       Boolean        @default(true)
   appealNotes    String?
-  
+
   // Relations
-  guild          DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  
+  guild DiscordGuild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, teamName]) // One active ban per team per guild
   // Indexes for performance
   @@index([guildId])
   @@index([isActive])
   @@index([endTime])
-  @@unique([guildId, teamName]) // One active ban per team per guild
   @@map("discord_team_bans")
+}
+
+model QuickMatch {
+  id             String           @id @default(cuid())
+  matchName      String
+  game           String           @default("BGMI")
+  map            String?
+  status         QuickMatchStatus @default(CREATED)
+  processingStep String?
+  aiProcessingId String?
+  teamsDetected  Int              @default(0)
+  warningsCount  Int              @default(0)
+
+  positionPointsConfig Json?
+  killPointsValue      Int   @default(1)  // Points per kill
+  scoringDescription   String?
+  
+  userId         String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  // Relations (rest stays same)
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slotAssignments QuickSlotAssignment[]
+  screenshots     QuickScreenshot[]
+  results         QuickMatchResult[]
+  pointsTable     QuickPointsTable?
+
+  // Indexes (rest stays same)
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@map("quick_matches")
+}
+
+model QuickSlotAssignment {
+  id                   String     @id @default(cuid())
+  quickMatchId         String
+  slotNumber           Int
+  teamName             String
+  playerNames          Json? // Array of player names
+  status               SlotStatus @default(PENDING)
+  detectedInAttendance Boolean    @default(false)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  // Relations
+  quickMatch QuickMatch @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@unique([quickMatchId, slotNumber])
+  @@index([quickMatchId, status])
+  @@index([quickMatchId, teamName])
+  @@map("quick_slot_assignments")
+}
+
+model QuickScreenshot {
+  id           String              @id @default(cuid())
+  quickMatchId String
+  originalName String
+  fileName     String
+  storageUrl   String
+  type         QuickScreenshotType
+  pageNumber   Int?
+  isProcessed  Boolean             @default(false)
+  uploadedAt   DateTime            @default(now())
+
+  // Relations
+  quickMatch QuickMatch @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([quickMatchId, type])
+  @@index([quickMatchId, isProcessed])
+  @@map("quick_screenshots")
+}
+
+model QuickMatchResult {
+  id               String       @id @default(cuid())
+  quickMatchId     String
+  slotNumber       Int
+  teamName         String
+  detectedTeamName String?
+  position         Int
+  rank             Int
+  totalKills       Int
+  positionPoints   Int
+  killPoints       Int
+  totalPoints      Int
+  playerResults    Json? // Individual player stats
+  status           ResultStatus @default(PENDING)
+  warningType      String?
+  needsReview      Boolean      @default(false)
+  aiConfidence     Float?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  // Relations
+  quickMatch QuickMatch @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@unique([quickMatchId, slotNumber])
+  @@index([quickMatchId, totalPoints(sort: Desc)])
+  @@index([quickMatchId, needsReview])
+  @@index([quickMatchId, position])
+  @@map("quick_match_results")
+}
+
+model QuickPointsTable {
+  id               String    @id @default(cuid())
+  quickMatchId     String    @unique
+  tableImageUrl    String?
+  csvData          Json?
+  pngGeneratedAt   DateTime?
+  generationTimeMs Int?
+  template         String    @default("default")
+  expiresAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  quickMatch QuickMatch @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([quickMatchId])
+  @@index([expiresAt])
+  @@map("quick_points_tables")
 }
 
 enum SubscriptionStatus {
@@ -891,4 +1018,27 @@ enum DelayType {
   REGISTRATION_COOLDOWN
   PUNISHMENT_DELAY
   ADMIN_IMPOSED
+}
+
+enum QuickMatchStatus {
+  CREATED
+  SLOTS_UPLOADED
+  ATTENDANCE_UPLOADED
+  RESULTS_UPLOADED
+  PROCESSING
+  COMPLETED
+  ERROR
+  CANCELLED
+}
+
+enum QuickScreenshotType {
+  ATTENDANCE
+  RESULT
+}
+
+enum SlotStatus {
+  PENDING
+  DETECTED
+  MATCHED
+  NOT_FOUND
 }
