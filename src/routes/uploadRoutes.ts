@@ -26,11 +26,21 @@ uploadRouter.use(authenticateUser);
  *     description: |
  *       Upload multiple screenshot files for a specific match. Screenshots are processed by AI to extract match results and team information.
  *       
+ *       **IMPORTANT:** Add `?type=ATTENDANCE_IMAGE` or `?type=RESULT_IMAGE` to the URL as a query parameter.
+ *       
+ *       **Request Format:**
+ *       - URL: `/api/v1/uploads/matches/{id}/screenshots/upload?type=ATTENDANCE_IMAGE`
+ *       - Body: multipart/form-data with screenshots field
+ *       
  *       **File Requirements:**
  *       - Supported formats: JPEG, PNG, WebP
  *       - Maximum file size: 10MB per file
  *       - Maximum files: 10 screenshots per match
  *       - Files are uploaded to Cloudflare R2 storage
+ *       
+ *       **Screenshot Types:**
+ *       - `ATTENDANCE_IMAGE`: Player attendance/participation list
+ *       - `RESULT_IMAGE`: Match results/kill feed/leaderboard
  *       
  *       **AI Processing:**
  *       - Screenshots are automatically processed by AI
@@ -54,6 +64,14 @@ uploadRouter.use(authenticateUser);
  *           pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
  *         description: "Match UUID identifier"
  *         example: "456e7890-e12c-34f5-b678-789012345678"
+ *       - in: query
+ *         name: type
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [ATTENDANCE_IMAGE, RESULT_IMAGE]
+ *         description: Type of screenshot (ATTENDANCE_IMAGE for player list, RESULT_IMAGE for match results)
+ *         example: "ATTENDANCE_IMAGE"
  *     requestBody:
  *       required: true
  *       content:
