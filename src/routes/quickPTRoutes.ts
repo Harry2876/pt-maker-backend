@@ -36,16 +36,7 @@ import {
 const quickPTRouter = express.Router();
 
 // Apply authentication to all Quick-PT routes
-quickPTRouter.use((req, res, next) => {
-    req.user = {
-        id: 'cmhdq0fhr0003lo0ia7kks5zm',
-        phoneNumber: '+911234567890',
-        username: 'john_doe123',
-        fullName: 'John Doe',
-        fromCache: false
-    };
-    next();
-});
+quickPTRouter.use(authenticateUser);
 
 // ========================================
 // QUICK MATCH ROUTES
