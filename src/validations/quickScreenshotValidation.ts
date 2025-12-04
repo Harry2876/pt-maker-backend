@@ -4,7 +4,7 @@ import { z } from 'zod';
 export const uploadQuickScreenshotSchema = z.object({
     type: z.enum(['ATTENDANCE', 'RESULT'] as const, {
         message: 'Screenshot type must be either ATTENDANCE or RESULT'
-    }),
+    }).optional(), // Make it optional since middleware handles it
     
     pageNumber: z.number()
         .int('Page number must be an integer')
@@ -16,8 +16,8 @@ export const uploadQuickScreenshotSchema = z.object({
 
 // Screenshot params
 export const quickScreenshotParamsSchema = z.object({
-    quickMatchId: z.string().cuid('Invalid quick match ID'),
-    screenshotId: z.string().cuid('Invalid screenshot ID').optional()
+    quickMatchId: z.string().uuid('Invalid quick match ID'),
+    screenshotId: z.string().uuid('Invalid screenshot ID').optional()
 });
 
 // Query params for listing screenshots

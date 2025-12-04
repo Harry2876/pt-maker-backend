@@ -48,7 +48,7 @@ export class QuickMatchService extends BaseService {
             await redis.sadd(`user:${userId}:quickMatches`, quickMatchId);
 
             // 5. Queue database sync
-            await QueueService.syncImmediately('QUICK_MATCH', quickMatchId, quickMatch, userId);
+            await QueueService.syncQuickPtImmediately('QUICK_MATCH', 'CREATE', quickMatchId, quickMatch, userId);
 
             this.logger.info(`Quick Match ${quickMatchId} created by user ${userId}`);
             return quickMatch;
@@ -224,7 +224,7 @@ export class QuickMatchService extends BaseService {
             await redis.hsetObject(`quickMatch:${quickMatchId}`, updated);
 
             // 4. Queue database sync
-            await QueueService.syncImmediately('QUICK_MATCH', quickMatchId, updated, userId);
+            await QueueService.syncQuickPtImmediately('QUICK_MATCH', 'UPDATE', quickMatchId, updated, userId);
 
             this.logger.info(`Quick Match ${quickMatchId} updated by user ${userId}`);
             return updated;

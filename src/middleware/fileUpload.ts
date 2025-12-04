@@ -87,22 +87,23 @@ export const trackUploadProgress = (uploadType: 'screenshot' | 'template') => {
                 if (!screenshotType) {
                     res.status(400).json({
                         success: false,
-                        message: 'Screenshot type is required. Use ?type=ATTENDANCE_IMAGE or ?type=RESULT_IMAGE'
+                        message: 'Screenshot type is required. Use ?type=ATTENDANCE or ?type=RESULT'
                     });
                     return;
                 }
 
-                if (screenshotType !== 'ATTENDANCE_IMAGE' && screenshotType !== 'RESULT_IMAGE') {
+                const validTypes = ['ATTENDANCE', 'RESULT', 'ATTENDANCE_IMAGE', 'RESULT_IMAGE'];
+
+                if (!validTypes.includes(screenshotType)) {
                     res.status(400).json({
                         success: false,
-                        message: 'Invalid screenshot type. Must be ATTENDANCE_IMAGE or RESULT_IMAGE'
+                        message: 'Invalid screenshot type. Must be ATTENDANCE, RESULT, ATTENDANCE_IMAGE, or RESULT_IMAGE'
                     });
                     return;
                 }
 
-                req.screenshotType = screenshotType as 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
+                req.screenshotType = screenshotType as 'ATTENDANCE' | 'RESULT' | 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
             }
-
             //check for concurrent uploads
             const activeUpload = await redis.get(`upload:active:${userId}`);
 
@@ -214,11 +215,15 @@ const handleUploadComplete = async (req: Request, res: Response, next: NextFunct
         const uploadedFiles = [];
         for (const file of files) {
             try {
+                const screenshotTypeR2 = req.screenshotType === 'ATTENDANCE' ? 'ATTENDANCE_IMAGE'
+                    : req.screenshotType === 'RESULT' ? 'RESULT_IMAGE'
+                        : req.screenshotType!; // Already in R2 format for Tournament system
+
                 const r2Result = await r2Service.uploadFile(
                     file.buffer,
                     file.originalname,
                     file.mimetype,
-                    req.screenshotType!,
+                    screenshotTypeR2 as 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE',
                     req.params.id //matchId
                 );
 
@@ -344,7 +349,7 @@ declare global {
         interface Request {
             uploadId?: string;
             uploadType?: 'screenshot' | 'template';
-            screenshotType?: 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
+            screenshotType?: 'ATTENDANCE' | 'RESULT' | 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
             uploadInfo?: {
                 uploadId: string;
                 files: Array<{

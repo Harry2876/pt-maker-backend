@@ -7,6 +7,7 @@ import { ScalableAdvancedEngineWorker } from './scalableAdvancedEngineWorker';
 import { DiscordSyncWorker } from './discordSyncWorker';
 import { BatchProcessingWorker } from './batchProcessingWorker';
 import { LeaderboardBatchWorker } from './leaderboardBatchWorker';
+import { QuickPTWorker } from './quickPTWorker';
 // import { ScreenshotWorker } from './screenshotWorker'; // TODO: Create later
 // import { EmailWorker } from './emailWorker'; // TODO: Create later
 
@@ -29,6 +30,7 @@ export class WorkersManager {
             await this.startWorker('Scalable Advanced Engine', () => new ScalableAdvancedEngineWorker());
             await this.startWorker('Batch Processing', () => new BatchProcessingWorker());
             await this.startWorker('Leaderboard Batch', () => new LeaderboardBatchWorker());
+            await this.startWorker('Quick-PT Sync', () => new QuickPTWorker());
 
             // TODO: Add other workers when ready
             // await this.startWorker('Screenshot', () => new ScreenshotWorker());

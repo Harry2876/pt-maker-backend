@@ -41,6 +41,7 @@ export const Queues = {
     CACHE_CLEANUP: 'cache-cleanup',
     ADVANCED_ENGINE: 'advanced-engine',
     DISCORD_SYNC: 'discord-sync',
+    QUICK_PT_SYNC: 'quick-pt-sync',
 } as const;
 
 export const screenshotQueue = new Queue(Queues.SCREENSHOT_PROCESSING, defaultQueueOptions);
@@ -104,5 +105,24 @@ export const discordSyncQueue = new Queue(Queues.DISCORD_SYNC, {
         removeOnComplete: 50,
         removeOnFail: 10,
         attempts: 3,
+    }
+});
+
+export const quickPtSyncQueue = new Queue(Queues.QUICK_PT_SYNC, {
+    ...defaultQueueOptions,
+    defaultJobOptions: {
+        priority: 3,  // Medium-high priority (same as database sync)
+        delay: 2000,   // 2 second delay for batching
+        attempts: 5,
+        backoff: {
+            type: 'exponential',
+            delay: 2000,
+        },
+        removeOnComplete: {
+            count: 100,  // Keep last 100 completed jobs
+        },
+        removeOnFail: {
+            count: 50,   // Keep last 50 failed jobs
+        }
     }
 });

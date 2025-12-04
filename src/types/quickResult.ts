@@ -90,8 +90,13 @@ export interface PythonAIResultResponse {
     data: {
         results: Array<{
             rank: number;
-            team_name: string;
+            team_name?: string;
+            player_names: string[];
             total_kills: number;
+            individual_kills?: Array<{
+                player_name: string;
+                kills: number;
+            }>;
         }>;
     };
     metadata?: {

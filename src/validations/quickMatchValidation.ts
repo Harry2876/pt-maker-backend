@@ -84,7 +84,7 @@ export const updateQuickMatchSchema = z.object({
 // Quick Match Params (for routes like /api/v1/quick-pt/:id)
 export const quickMatchParamsSchema = z.object({
     id: z.string()
-        .cuid('Invalid quick match ID format')
+        .uuid('Invalid quick match ID format')
 });
 
 // Query params for listing matches

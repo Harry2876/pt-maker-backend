@@ -60,6 +60,6 @@ export const updateQuickSlotSchema = z.object({
 
 // Slot params
 export const quickSlotParamsSchema = z.object({
-    quickMatchId: z.string().cuid('Invalid quick match ID'),
-    slotId: z.string().cuid('Invalid slot ID').optional()
+    quickMatchId: z.string().uuid('Invalid quick match ID'),
+    slotId: z.string().uuid('Invalid slot ID').optional()
 });

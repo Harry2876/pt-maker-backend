@@ -65,7 +65,7 @@ export class QuickSlotService extends BaseService {
             await redis.sadd(`quickMatch:${quickMatchId}:slots`, slotId);
 
             // 7. Queue database sync
-            await QueueService.syncImmediately('QUICK_SLOT', slotId, slot, userId);
+            await QueueService.syncQuickPtImmediately('QUICK_SLOT', 'CREATE', slotId, slot, userId);
 
             // 8. Update match status to SLOTS_UPLOADED if this is the first slot
             const slotIds = await redis.smembers(`quickMatch:${quickMatchId}:slots`);
@@ -289,21 +289,21 @@ export class QuickSlotService extends BaseService {
      */
     async updateSlot(
         slotId: string,
-        quickMatchId: string,
         userId: string,
         data: UpdateQuickSlotData
     ): Promise<QuickSlotCache> {
         try {
-            // 1. Verify Quick Match ownership
-            const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-            if (!quickMatch) {
-                throw new Error('Quick Match not found or access denied');
-            }
-
-            // 2. Get existing slot
+            // 1. Get existing slot
             const existing = await redis.hgetObject<QuickSlotCache>(`quickSlot:${slotId}`);
             if (!existing) {
                 throw new Error('Slot not found');
+            }
+
+            // 2. Verify Quick Match ownership
+            const quickMatchId = existing.quickMatchId;
+            const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+            if (!quickMatch) {
+                throw new Error('Quick Match not found or access denied');
             }
 
             // 3. Update slot object
@@ -319,7 +319,7 @@ export class QuickSlotService extends BaseService {
             await redis.hsetObject(`quickMatch:${quickMatchId}:slot:${existing.slotNumber}`, updated);
 
             // 5. Queue database sync
-            await QueueService.syncImmediately('QUICK_SLOT', slotId, updated, userId);
+            await QueueService.syncQuickPtImmediately('QUICK_SLOT', 'UPDATE', slotId, updated, userId);
 
             this.logger.info(`Slot ${slotId} updated for Quick Match ${quickMatchId}`);
             return updated;
@@ -421,7 +421,7 @@ export class QuickSlotService extends BaseService {
             for (const slotNumber of slotNumbers) {
                 const slot = await this.getSlotByNumber(quickMatchId, slotNumber);
                 if (slot) {
-                    await this.updateSlot(slot.id, quickMatchId, userId, {
+                    await this.updateSlot(slot.id, userId, {
                         detectedInAttendance: true,
                         status: 'DETECTED'
                     });

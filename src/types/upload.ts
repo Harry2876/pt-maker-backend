@@ -26,7 +26,7 @@ export interface UploadFile {
     path: string;
     uploadedAt: string;
     r2Key?: string;
-    screenshotType?: 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
+    screenshotType?: 'ATTENDANCE' | 'RESULT' | 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
 }
 
 export interface ScreenshotUploadData {

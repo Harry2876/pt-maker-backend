@@ -18,6 +18,7 @@ import teamAdvancementRouter from './routes/teamAdvancementRoutes';
 import advancedEngineRouter from './routes/advancedEngineRoutes';
 import slotManagementRouter from './routes/slotManagementRoutes';
 import leaderboardRouter from './routes/leaderboardRoutes';
+import quickPTRouter from './routes/quickPTRoutes';
 import discordRouter from './routes/discordRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
@@ -179,6 +180,7 @@ app.use('/api/v1/advanced-engine', advancedEngineRouter);
 app.use('/api/v1/slot-management', slotManagementRouter);
 app.use('/api/v1/leaderboards', leaderboardRouter);
 app.use('/api/v1/teams', teamEnrollmentRouter);
+app.use('/api/v1/quick-pt', quickPTRouter);
 
 
 // app.use('/api/v1/admin', adminRouter);
