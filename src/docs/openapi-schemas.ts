@@ -107,6 +107,190 @@ export const openApiSchemas = {
     }
   },
 
+  // ===== UNIFIED SCREENSHOT SERVICE SCHEMAS =====
+  ScreenshotUploadData: {
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        format: 'uuid',
+        example: '789e0123-e45f-67g8-h901-234567890123',
+        description: 'Unique screenshot identifier'
+      },
+      originalName: {
+        type: 'string',
+        example: 'match_result_screenshot.png',
+        description: 'Original filename uploaded by user'
+      },
+      fileName: {
+        type: 'string',
+        example: 'match_456e7890_screenshot_1_20240115.png',
+        description: 'System-generated filename with timestamp'
+      },
+      fileSize: {
+        type: 'integer',
+        example: 2048576,
+        description: 'File size in bytes'
+      },
+      mimeType: {
+        type: 'string',
+        example: 'image/png',
+        enum: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
+        description: 'File MIME type'
+      },
+      type: {
+        type: 'string',
+        enum: ['ATTENDANCE_IMAGE', 'RESULT_IMAGE', 'ATTENDANCE', 'RESULT'],
+        example: 'RESULT_IMAGE',
+        description: 'Screenshot type for AI processing'
+      },
+      storageUrl: {
+        type: 'string',
+        format: 'uri',
+        example: 'https://storage.example.com/screenshots/match_456e7890_screenshot_1.png',
+        description: 'Public URL for screenshot access'
+      },
+      r2Key: {
+        type: 'string',
+        example: 'tournaments/match_456e7890/screenshots/result_1733312400.png',
+        description: 'Cloudflare R2 storage key path'
+      },
+      r2Url: {
+        type: 'string',
+        format: 'uri',
+        example: 'https://cdn.example.com/screenshots/...',
+        description: 'Cloudflare R2 CDN URL'
+      },
+      isProcessed: {
+        type: 'boolean',
+        example: false,
+        description: 'AI processing status'
+      },
+      processingError: {
+        type: 'string',
+        nullable: true,
+        example: null,
+        description: 'Processing error message if any'
+      },
+      pageNumber: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 20,
+        nullable: true,
+        example: 1,
+        description: 'Page number for multi-page results'
+      },
+      uploadedAt: {
+        type: 'string',
+        format: 'date-time',
+        example: '2024-01-15T10:30:00.000Z',
+        description: 'Upload timestamp'
+      },
+      matchId: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        example: '456e7890-e12c-34f5-b678-789012345678',
+        description: 'Tournament match ID (for tournament context)'
+      },
+      quickMatchId: {
+        type: 'string',
+        nullable: true,
+        example: 'clx123abc456',
+        description: 'Quick Match ID (for quick-pt context)'
+      }
+    },
+    required: ['id', 'originalName', 'fileName', 'fileSize', 'mimeType', 'type', 'isProcessed', 'uploadedAt']
+  },
+
+  TournamentScreenshotUploadResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string', example: 'Screenshots uploaded successfully' },
+      data: {
+        type: 'object',
+        properties: {
+          screenshots: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ScreenshotUploadData' }
+          },
+          uploadId: {
+            type: 'string',
+            format: 'uuid',
+            example: 'abc12345-d6e7-8f90-g123-456789012345',
+            description: 'Unique upload session identifier'
+          },
+          count: {
+            type: 'integer',
+            example: 3,
+            description: 'Number of screenshots uploaded'
+          }
+        },
+        required: ['screenshots', 'uploadId', 'count']
+      },
+      meta: {
+        type: 'object',
+        properties: {
+          timestamp: {
+            type: 'string',
+            format: 'date-time',
+            example: '2024-01-15T10:30:00.000Z'
+          },
+          version: {
+            type: 'string',
+            example: '1.0'
+          }
+        }
+      }
+    },
+    required: ['success', 'message', 'data']
+  },
+
+  QuickPTScreenshotUploadResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string', example: 'Screenshots uploaded successfully' },
+      data: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ScreenshotUploadData' }
+      }
+    },
+    required: ['success', 'message', 'data']
+  },
+
+  TournamentScreenshotListResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string', example: 'Screenshots retrieved successfully' },
+      data: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ScreenshotUploadData' }
+      },
+      count: {
+        type: 'integer',
+        example: 5,
+        description: 'Total number of screenshots'
+      }
+    },
+    required: ['success', 'message', 'data']
+  },
+
+  QuickPTScreenshotListResponse: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string', example: 'Screenshots retrieved successfully' },
+      data: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ScreenshotUploadData' }
+      }
+    },
+    required: ['success', 'message', 'data']
+  },
+
   // ===== AUTH SCHEMAS =====
   SendOtpRequest: {
     type: 'object',

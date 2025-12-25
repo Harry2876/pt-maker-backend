@@ -3,9 +3,9 @@ import { asyncHandler } from '../middleware/commonMiddleware';
 import { ResponseHelper } from '../utils/responseHelper';
 import { quickMatchService } from '../services/quickMatchService';
 import { quickSlotService } from '../services/quickSlotService';
-import { quickScreenshotService } from '../services/quickScreenshotService';
 import { quickProcessingService } from '../services/quickProcessingService';
 import { quickExportService } from '../services/quickExportService';
+import { unifiedScreenshotService } from '../services/unifiedScreenshotService';
 import { quickPointsTableService } from '../services/quickPointsTableService';
 
 export class QuickPTController {
@@ -227,32 +227,37 @@ export class QuickPTController {
     static uploadScreenshots = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
-        const uploadInfo = req.uploadInfo!;
-        const type = req.screenshotType || req.body.type; // Use middleware value first
-        const { pageNumber } = req.body;
 
-        // Note: Files are already uploaded to R2 by middleware
-        // We just need to save the metadata to database
+        // CRITICAL: Validate middleware state before proceeding
+        if (!req.uploadInfo || !req.uploadInfo.files || req.uploadInfo.files.length === 0) {
+            return res.status(400).json(ResponseHelper.error(
+                'Upload state invalid. Files not processed by middleware.',
+                'MIDDLEWARE_STATE_ERROR'
+            ));
+        }
+
+        if (!req.screenshotType) {
+            return res.status(400).json(ResponseHelper.error(
+                'Screenshot type not determined by middleware.',
+                'MISSING_SCREENSHOT_TYPE'
+            ));
+        }
+
+        const uploadInfo = req.uploadInfo;
+        const type = req.screenshotType;
         const results = [];
         const errors = [];
 
-        for (const file of uploadInfo.files) {
-            try {
-                const screenshot = await quickScreenshotService.createScreenshotFromR2(
-                    quickMatchId,
-                    userId,
-                    {
-                        originalName: file.originalName,
-                        fileName: file.fileName,
-                        storageUrl: file.path,
-                        type: type as 'ATTENDANCE' | 'RESULT',
-                        pageNumber: pageNumber ? parseInt(pageNumber) : undefined
-                    }
-                );
-                results.push(screenshot);
-            } catch (error: any) {
-                errors.push(`${file.originalName}: ${error.message}`);
-            }
+        try {
+            const screenshots = await unifiedScreenshotService.processScreenshotUpload(
+                'quick-pt',
+                quickMatchId,
+                userId,
+                { files: uploadInfo.files, uploadId: uploadInfo.uploadId }
+            );
+            results.push(...screenshots);
+        } catch (error: any) {
+            errors.push(`Upload failed: ${error.message}`);
         }
 
         return res.status(201).json(
@@ -273,7 +278,8 @@ export class QuickPTController {
         const userId = req.user!.id;
         const { type, isProcessed } = req.query;
 
-        const screenshots = await quickScreenshotService.listQuickMatchScreenshots(
+        const screenshots = await unifiedScreenshotService.listScreenshots(
+            'quick-pt',
             quickMatchId,
             userId,
             {
@@ -290,6 +296,7 @@ export class QuickPTController {
         );
     });
 
+
     /**
      * DELETE /api/quick-pt/screenshots/:screenshotId
      * Delete screenshot
@@ -299,7 +306,7 @@ export class QuickPTController {
         const { quickMatchId } = req.body;
         const userId = req.user!.id;
 
-        await quickScreenshotService.deleteScreenshot(screenshotId, quickMatchId, userId);
+        await unifiedScreenshotService.deleteScreenshot('quick-pt', screenshotId, quickMatchId, userId);
 
         return res.json(
             ResponseHelper.success('Screenshot deleted successfully')

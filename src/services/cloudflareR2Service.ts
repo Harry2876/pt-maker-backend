@@ -28,11 +28,15 @@ export class CloudflareR2Service extends BaseService {
         originalName: string,
         mimeType: string,
         screenshotType: 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE',
-        matchId: string
+        matchId: string,
+        context: 'tournament' | 'quick-pt' = 'tournament'
     ): Promise<{ url: string; key: string }> {
         try {
             const fileExtension = originalName.split('.').pop();
-            const uniqueKey = `${screenshotType}/match-${matchId}/${Date.now()}-${crypto.randomUUID()}.${fileExtension}`;
+            const directory = context === 'quick-pt' 
+    ? 'quick-pt'
+    : 'tournaments';
+const uniqueKey = `${directory}/${screenshotType}/match-${matchId}/${Date.now()}-${crypto.randomUUID()}.${fileExtension}`;
 
             const command = new PutObjectCommand({
                 Bucket: this.bucketName,

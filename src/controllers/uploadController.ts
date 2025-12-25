@@ -1,26 +1,33 @@
-import {Request, Response} from 'express';
-import { screenshotService} from '../services/screenshotService';
-import {asyncHandler} from '../middleware/commonMiddleware';
+import { Request, Response } from 'express';
+import { asyncHandler } from '../middleware/commonMiddleware';
 import { ResponseHelper } from '../utils/responseHelper';
+import { unifiedScreenshotService } from '../services/unifiedScreenshotService';
 
 export class UploadController {
     //upload screenshots  for match
     static uploadScreenshots = asyncHandler(async (req: Request, res: Response) => {
-        const {id: matchId} = req.params;
+        const { id: matchId } = req.params;
         const userId = req.user!.id;
-        const uploadInfo = req.uploadInfo!;
 
-                const result = await screenshotService.saveScreenshots(matchId, userId, {
-            matchId,
-            files:uploadInfo.files.map(file => ({
-                ...file,
-                uploadedAt: new Date().toISOString(),
-                screenshotType: req.screenshotType
-            })),
-            uploadId: uploadInfo.uploadId,
-        });
+        // CRITICAL: Validate middleware state
+        if (!req.uploadInfo || !req.uploadInfo.files || req.uploadInfo.files.length === 0) {
+            return res.status(500).json(ResponseHelper.serverError(
+                'Upload state invalid. Files not processed by middleware.'
+            ));
+        }
+        if (!req.screenshotType) {
+            return res.status(500).json(ResponseHelper.serverError(
+                'Screenshot type not determined by middleware.'
+            ));
+        }
 
-        if(!result){
+        const uploadInfo = req.uploadInfo;
+
+        const result = await unifiedScreenshotService.processScreenshotUpload(
+            'tournament', matchId, userId, { files: uploadInfo.files, uploadId: uploadInfo.uploadId }
+        );
+
+        if (!result) {
             return res.status(500).json(ResponseHelper.serverError('Failed to upload screenshots'));
         }
 
@@ -30,12 +37,12 @@ export class UploadController {
         }));
     });
 
-        // Get match screenshots
+    // Get match screenshots
     static getMatchScreenshots = asyncHandler(async (req: Request, res: Response) => {
         const { id: matchId } = req.params;
         const userId = req.user!.id;
 
-        const screenshots = await screenshotService.getMatchScreenshots(matchId, userId);
+        const screenshots = await unifiedScreenshotService.listScreenshots('tournament', matchId, userId);
 
         if (!screenshots) {
             return res.status(404).json(ResponseHelper.notFound('No screenshots found for this match'));
@@ -52,7 +59,7 @@ export class UploadController {
         const { id: screenshotId } = req.params;
         const userId = req.user!.id;
 
-        const result = await screenshotService.deleteScreenshot(screenshotId, userId);
+        const result = await unifiedScreenshotService.deleteScreenshot('tournament', screenshotId, '', userId);
 
         if (!result) {
             return res.status(500).json(ResponseHelper.serverError('Failed to delete screenshot'));

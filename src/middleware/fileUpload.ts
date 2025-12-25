@@ -219,12 +219,15 @@ const handleUploadComplete = async (req: Request, res: Response, next: NextFunct
                     : req.screenshotType === 'RESULT' ? 'RESULT_IMAGE'
                         : req.screenshotType!; // Already in R2 format for Tournament system
 
+                const context = req.path.includes('/quick-pt/') ? 'quick-pt' : 'tournament';
+
                 const r2Result = await r2Service.uploadFile(
                     file.buffer,
                     file.originalname,
                     file.mimetype,
                     screenshotTypeR2 as 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE',
-                    req.params.id //matchId
+                    req.params.id, //matchId
+                    context
                 );
 
                 uploadedFiles.push({

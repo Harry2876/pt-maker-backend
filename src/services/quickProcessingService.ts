@@ -4,7 +4,6 @@ import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { quickSlotService } from './quickSlotService';
-import { quickScreenshotService } from './quickScreenshotService';
 import { pythonAIService } from './pythonAIService';
 import { PointsCalculator, ScoringConfig } from '../utils/pointsCalculator';
 import {
@@ -92,7 +91,9 @@ export class QuickProcessingService extends BaseService {
             }
 
             // 3. Get attendance screenshots
-            const screenshots = await quickScreenshotService.listQuickMatchScreenshots(
+            const { unifiedScreenshotService } = await import('./unifiedScreenshotService');
+            const screenshots = await unifiedScreenshotService.listScreenshots(
+                'quick-pt',
                 quickMatchId,
                 userId,
                 { type: 'ATTENDANCE', isProcessed: false }
@@ -162,7 +163,8 @@ export class QuickProcessingService extends BaseService {
             }
 
             // 7. Mark attendance screenshots as processed
-            await quickScreenshotService.markAllScreenshotsProcessed(quickMatchId, 'ATTENDANCE');
+            const { unifiedScreenshotService: unifiedService1 } = await import('./unifiedScreenshotService');
+            await unifiedService1.markScreenshotsProcessed(quickMatchId, 'ATTENDANCE', userId);
 
             // 8. Update match status
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
@@ -235,7 +237,9 @@ export class QuickProcessingService extends BaseService {
             }
 
             // 3. Get result screenshots
-            const screenshots = await quickScreenshotService.listQuickMatchScreenshots(
+            const { unifiedScreenshotService: unifiedService2 } = await import('./unifiedScreenshotService');
+            const screenshots = await unifiedService2.listScreenshots(
+                'quick-pt',
                 quickMatchId,
                 userId,
                 { type: 'RESULT', isProcessed: false }
@@ -397,7 +401,8 @@ export class QuickProcessingService extends BaseService {
             }
 
             // 7. Mark result screenshots as processed
-            await quickScreenshotService.markAllScreenshotsProcessed(quickMatchId, 'RESULT');
+            const { unifiedScreenshotService: unifiedService3 } = await import('./unifiedScreenshotService');
+            await unifiedService3.markScreenshotsProcessed(quickMatchId, 'RESULT', userId);
 
             // 8. Update match status
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
