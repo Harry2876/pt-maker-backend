@@ -6,13 +6,10 @@ import { quickSlotService } from '../services/quickSlotService';
 import { quickProcessingService } from '../services/quickProcessingService';
 import { quickExportService } from '../services/quickExportService';
 import { unifiedScreenshotService } from '../services/unifiedScreenshotService';
+import { pythonAIService } from '../services/pythonAIService';
 import { quickPointsTableService } from '../services/quickPointsTableService';
 
 export class QuickPTController {
-
-    // ========================================
-    // QUICK MATCH ENDPOINTS
-    // ========================================
 
     /**
      * POST /api/quick-pt/matches
@@ -450,6 +447,41 @@ export class QuickPTController {
 
         return res.json(
             ResponseHelper.success('Points table deleted successfully')
+        );
+    });
+    /**
+     * GET /api/quick-pt/engines
+     * Get available OCR engines
+     */
+    static getEngines = asyncHandler(async (req: Request, res: Response) => {
+        const engines = await pythonAIService.getAvailableEngines();
+        
+        return res.json(
+            ResponseHelper.success('Available engines retrieved successfully', engines)
+        );
+    });
+
+    /**
+     * GET /api/quick-pt/engines/status
+     * Get engine status and health
+     */
+    static getEngineStatus = asyncHandler(async (req: Request, res: Response) => {
+    const status = await pythonAIService.getEngineStatus();
+    
+    return res.json(
+        ResponseHelper.success('Engine status retrieved successfully', status)
+    );
+});
+
+    /**
+     * GET /api/quick-pt/health
+     * Get Python AI API health status
+     */
+    static getHealthStatus = asyncHandler(async (req: Request, res: Response) => {
+        const health = await pythonAIService.getHealthStatus();
+        
+        return res.json(
+            ResponseHelper.success('Health status retrieved successfully', health)
         );
     });
 }

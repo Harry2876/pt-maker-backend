@@ -2,15 +2,72 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
-import { 
-    QuickMatchCache, 
-    CreateQuickMatchData, 
+import {
+    QuickMatchCache,
+    CreateQuickMatchData,
     UpdateQuickMatchData,
-    QuickMatchStatus 
+    QuickMatchStatus
 } from '../types/quickMatch';
+import { quickMatchStateMachine } from './quickMatchStateMachine';
+import { QuickMatchStateContext, StateTransitionResult } from '../types/stateMachine';
 
 export class QuickMatchService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
+
+    /**
+ * Helper method to build state context for validation
+ * This method gets counts from database for accuracy
+ */
+    private async buildStateContextForMatch(quickMatchId: string, userId: string): Promise<QuickMatchStateContext | null> {
+        try {
+            // Get the current match
+            const quickMatch = await this.getQuickMatchById(quickMatchId, userId);
+            if (!quickMatch) {
+                return null;
+            }
+
+            // Get counts from database for accuracy
+            const dbMatch = await this.db.quickMatch.findUnique({
+                where: { id: quickMatchId },
+                include: {
+                    _count: {
+                        select: {
+                            slotAssignments: true,
+                            screenshots: {
+                                where: { type: 'ATTENDANCE' }
+                            },
+                            results: true
+                        }
+                    }
+                }
+            });
+
+            if (!dbMatch) {
+                return null;
+            }
+
+            // Get result screenshots count separately
+            const resultScreenshotsCount = await this.db.quickScreenshot.count({
+                where: {
+                    quickMatchId,
+                    type: 'RESULT'
+                }
+            });
+
+            return {
+                id: quickMatch.id,
+                currentStatus: quickMatch.status,
+                slotsCount: dbMatch._count.slotAssignments,
+                attendanceScreenshotsCount: dbMatch._count.screenshots,
+                resultScreenshotsCount,
+                processingStep: quickMatch.processingStep,
+                teamsDetected: quickMatch.teamsDetected
+            };
+        } catch (error) {
+            this.logger.error(`Error building state context for match ${quickMatchId}:`, error);
+            return null;
+        }
+    }
 
     /**
      * Create a new Quick Match with optional scoring configuration
@@ -66,7 +123,7 @@ export class QuickMatchService extends BaseService {
         try {
             // 1. Check Redis cache first
             const cached = await redis.hgetObject<QuickMatchCache>(`quickMatch:${quickMatchId}`);
-            
+
             if (cached) {
                 // Verify ownership
                 if (cached.userId !== userId) {
@@ -104,8 +161,8 @@ export class QuickMatchService extends BaseService {
                 aiProcessingId: dbQuickMatch.aiProcessingId || undefined,
                 teamsDetected: dbQuickMatch.teamsDetected,
                 warningsCount: dbQuickMatch.warningsCount,
-                positionPointsConfig: dbQuickMatch.positionPointsConfig 
-                    ? JSON.parse(JSON.stringify(dbQuickMatch.positionPointsConfig)) 
+                positionPointsConfig: dbQuickMatch.positionPointsConfig
+                    ? JSON.parse(JSON.stringify(dbQuickMatch.positionPointsConfig))
                     : undefined,
                 killPointsValue: dbQuickMatch.killPointsValue,
                 scoringDescription: dbQuickMatch.scoringDescription || undefined,
@@ -178,8 +235,8 @@ export class QuickMatchService extends BaseService {
                 aiProcessingId: dbMatch.aiProcessingId || undefined,
                 teamsDetected: dbMatch.teamsDetected,
                 warningsCount: dbMatch.warningsCount,
-                positionPointsConfig: dbMatch.positionPointsConfig 
-                    ? JSON.parse(JSON.stringify(dbMatch.positionPointsConfig)) 
+                positionPointsConfig: dbMatch.positionPointsConfig
+                    ? JSON.parse(JSON.stringify(dbMatch.positionPointsConfig))
                     : undefined,
                 killPointsValue: dbMatch.killPointsValue,
                 scoringDescription: dbMatch.scoringDescription || undefined,
@@ -269,7 +326,7 @@ export class QuickMatchService extends BaseService {
     }
 
     /**
-     * Update Quick Match status
+     * Update Quick Match status with state machine validation
      */
     async updateStatus(
         quickMatchId: string,
@@ -278,12 +335,57 @@ export class QuickMatchService extends BaseService {
         processingStep?: string
     ): Promise<QuickMatchCache> {
         try {
-            return await this.updateQuickMatch(quickMatchId, userId, {
+            // 1. Get current match and build state context
+            const currentMatch = await this.getQuickMatchById(quickMatchId, userId);
+            if (!currentMatch) {
+                throw new Error('Quick Match not found or access denied');
+            }
+
+            // 2. Skip state validation if status is not changing
+            if (currentMatch.status === status) {
+                this.logger.info(`Status unchanged for match ${quickMatchId}: ${status}`);
+                return await this.updateQuickMatch(quickMatchId, userId, {
+                    processingStep
+                });
+            }
+
+            // 3. Build state context for validation
+            const stateContext = await this.buildStateContextForMatch(quickMatchId, userId);
+            if (!stateContext) {
+                throw new Error('Failed to build state context for validation');
+            }
+
+            // 4. Validate state transition
+            const transitionResult = await quickMatchStateMachine.executeTransition(
+                quickMatchId,
+                status,
+                stateContext
+            );
+
+            if (!transitionResult.isValid) {
+                this.logger.error(`State transition rejected: ${currentMatch.status} → ${status}`, {
+                    matchId: quickMatchId,
+                    error: transitionResult.errorMessage,
+                    errorCode: transitionResult.errorCode
+                });
+                throw new Error(`Invalid state transition: ${transitionResult.errorMessage}`);
+            }
+
+            // 5. Execute the status update after successful validation
+            const updatedMatch = await this.updateQuickMatch(quickMatchId, userId, {
                 status,
                 processingStep
             });
+
+            this.logger.info(`State transition successful: ${transitionResult.previousState} → ${transitionResult.newState}`, {
+                matchId: quickMatchId,
+                processingStep
+            });
+
+            return updatedMatch;
+
         } catch (error) {
-            this.handleError(error, 'Update Quick Match Status');
+            this.handleError(error, 'Update Quick Match Status with State Machine');
             throw error; // Re-throw after logging
         }
     }

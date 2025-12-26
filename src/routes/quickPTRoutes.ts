@@ -1744,4 +1744,113 @@ quickPTRouter.delete(
     QuickPTController.deletePointsTable
 );
 
+/**
+ * @swagger
+ * /api/v1/quick-pt/engines:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get available OCR engines
+ *     description: Retrieve list of available OCR engines for processing
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Available engines retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Available engines retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     engines:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["paddleocr", "easyocr", "tesseract"]
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.get('/engines', QuickPTController.getEngines);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/engines/status:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get OCR engines status
+ *     description: Get current status and health of OCR engines
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Engine status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Engine status retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       example: "healthy"
+ *                     engines:
+ *                       type: object
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.get('/engines/status', QuickPTController.getEngineStatus);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/health:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get Python AI API health status
+ *     description: Get overall health status of the Python AI processing API
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Health status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Health status retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       example: "healthy"
+ *                     message:
+ *                       type: string
+ *                       example: "All systems operational"
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.get('/health', QuickPTController.getHealthStatus);
+
 export default quickPTRouter;

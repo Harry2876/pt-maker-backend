@@ -5,7 +5,8 @@ import {
     PythonAIAttendanceResponse,
     PythonAIResultResponse,
     PythonAIExportResponse,
-    PythonAIEngineResponse
+    PythonAIEngineResponse,
+    PythonAIHealthResponse
 } from '../types/quickResult';
 
 export interface AttendanceDetectionRequest {
@@ -313,30 +314,30 @@ export class PythonAIService extends BaseService {
         }
     }
 
-/**
- * Health check for Python AI API - UPDATED for new endpoint
- */
-async healthCheck(): Promise<{ healthy: boolean; message: string }> {
-    try {
-        const response = await this.axiosInstance.get('/api/v1/health', {
-            timeout: 5000 // Short timeout for health check
-        });
+    /**
+     * Health check for Python AI API - UPDATED for new endpoint
+     */
+    async healthCheck(): Promise<{ healthy: boolean; message: string }> {
+        try {
+            const response = await this.axiosInstance.get('/api/v1/health', {
+                timeout: 5000 // Short timeout for health check
+            });
 
-        // NEW: Check for new response structure
-        const isHealthy = response.status === 200 && response.data.status === 'healthy';
+            // NEW: Check for new response structure
+            const isHealthy = response.status === 200 && response.data.status === 'healthy';
 
-        return {
-            healthy: isHealthy,
-            message: isHealthy ? 'Python AI API is healthy' : 'Python AI API health check failed'
-        };
-    } catch (error) {
-        this.logger.warn('Python AI API health check failed:', error);
-        return {
-            healthy: false,
-            message: error instanceof Error ? error.message : 'Health check failed'
-        };
+            return {
+                healthy: isHealthy,
+                message: isHealthy ? 'Python AI API is healthy' : 'Python AI API health check failed'
+            };
+        } catch (error) {
+            this.logger.warn('Python AI API health check failed:', error);
+            return {
+                healthy: false,
+                message: error instanceof Error ? error.message : 'Health check failed'
+            };
+        }
     }
-}
 
     /**
      * Format error for better debugging
@@ -379,6 +380,28 @@ async healthCheck(): Promise<{ healthy: boolean; message: string }> {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+
+    /**
+     * Get overall API health status
+     * NEW: Health monitoring
+     */
+    async getHealthStatus(): Promise<PythonAIHealthResponse> {
+        try {
+            this.logger.info('Checking Python AI API health status');
+
+            const response = await this.axiosInstance.get('/api/v1/health', {
+                timeout: this.timeout
+            });
+
+            this.logger.info(`Health status: ${response.data.status} - ${response.data.message}`);
+            return response.data;
+
+        } catch (error: any) {
+            this.logger.error('Failed to fetch health status:', error.message);
+            this.handleError(error, 'Get Health Status');
+            throw error;
+        }
+    }
     /**
      * Validate Python AI API is available
      */

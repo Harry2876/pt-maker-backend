@@ -33,10 +33,10 @@ export class CloudflareR2Service extends BaseService {
     ): Promise<{ url: string; key: string }> {
         try {
             const fileExtension = originalName.split('.').pop();
-            const directory = context === 'quick-pt' 
-    ? 'quick-pt'
-    : 'tournaments';
-const uniqueKey = `${directory}/${screenshotType}/match-${matchId}/${Date.now()}-${crypto.randomUUID()}.${fileExtension}`;
+            const directory = context === 'quick-pt'
+                ? 'quick-pt'
+                : 'tournaments';
+            const uniqueKey = `${directory}/${screenshotType}/match-${matchId}/${Date.now()}-${crypto.randomUUID()}.${fileExtension}`;
 
             const command = new PutObjectCommand({
                 Bucket: this.bucketName,

@@ -20,6 +20,8 @@ import {
     PythonAIAttendanceResponse,
     PythonAIResultResponse
 } from '../types/quickResult';
+import { quickMatchStateMachine } from './quickMatchStateMachine';
+import { QuickMatchStateContext, StateTransitionResult } from '../types/stateMachine';
 
 // Response interfaces
 export interface AttendanceProcessingResult {
@@ -64,6 +66,31 @@ export interface CompleteProcessingResult {
 export class QuickProcessingService extends BaseService {
 
     /**
+ * Helper method to build state context for validation
+ */
+    private async buildStateContext(quickMatch: QuickMatchCache, userId: string): Promise<QuickMatchStateContext> {
+        // Get counts for validation
+        const slots = await quickSlotService.listQuickMatchSlots(quickMatch.id, userId);
+        const slotsCount = slots.length;
+        const attendanceScreenshots = await unifiedScreenshotService.listScreenshots(
+            'quick-pt', quickMatch.id, userId, { type: 'ATTENDANCE' }
+        );
+        const resultScreenshots = await unifiedScreenshotService.listScreenshots(
+            'quick-pt', quickMatch.id, userId, { type: 'RESULT' }
+        );
+
+        return {
+            id: quickMatch.id,
+            currentStatus: quickMatch.status,
+            slotsCount,
+            attendanceScreenshotsCount: attendanceScreenshots.length,
+            resultScreenshotsCount: resultScreenshots.length,
+            processingStep: quickMatch.processingStep,
+            teamsDetected: quickMatch.teamsDetected
+        };
+    }
+
+    /**
      * Process attendance screenshots - extracts team slots from screenshots
      * STEP 1: Attendance Processing
      */
@@ -83,8 +110,16 @@ export class QuickProcessingService extends BaseService {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            if (!['CREATED', 'SLOTS_UPLOADED', 'ATTENDANCE_UPLOADED'].includes(quickMatch.status)) {
-                throw new Error(`Cannot process attendance. Current status: ${quickMatch.status}`);
+            // Validate state transition first
+            const initialStateContext = await this.buildStateContext(quickMatch, userId);
+            const validationResult = quickMatchStateMachine.validateTransition(
+                quickMatch.status,
+                'PROCESSING',
+                initialStateContext
+            );
+
+            if (!validationResult.isValid) {
+                throw new Error(`Cannot process attendance: ${validationResult.errorMessage}`);
             }
 
             // 2. Get attendance screenshots
@@ -101,11 +136,25 @@ export class QuickProcessingService extends BaseService {
 
             this.logger.info(`Processing ${screenshots.length} attendance screenshots`);
 
-            // 3. Update match status to processing
+            // 3. Validate state transition and update status
+            const processingStateContext = await this.buildStateContext(quickMatch, userId);
+            const transitionResult = await quickMatchStateMachine.executeTransition(
+                quickMatchId,
+                'PROCESSING',
+                processingStateContext
+            );
+
+            if (!transitionResult.isValid) {
+                throw new Error(`State transition failed: ${transitionResult.errorMessage}`);
+            }
+
+            // Update match status after successful validation
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                 status: 'PROCESSING',
                 processingStep: 'Processing Attendance Screenshots'
             });
+
+            this.logger.info(`State transition successful: ${transitionResult.previousState} → ${transitionResult.newState}`);
 
             // 4. Process each screenshot individually with new single-image API
             const allDetectedSlots: Array<{
@@ -250,13 +299,34 @@ export class QuickProcessingService extends BaseService {
             // 7. Mark attendance screenshots as processed
             await unifiedScreenshotService.markScreenshotsProcessed(quickMatchId, 'ATTENDANCE', userId);
 
-            // 8. Update match status and metadata
-            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'ATTENDANCE_UPLOADED',
-                processingStep: 'Attendance Processing Complete',
-                teamsDetected: finalSlots.length,
-                warningsCount: (quickMatch.warningsCount || 0) + warnings.length
-            });
+            // 8. Validate transition to ATTENDANCE_UPLOADED
+            const finalStateContext = await this.buildStateContext(quickMatch, userId);
+            finalStateContext.slotsCount = finalSlots.length; // Update with detected slots
+            finalStateContext.attendanceScreenshotsCount = screenshots.length;
+
+            const finalTransition = await quickMatchStateMachine.executeTransition(
+                quickMatchId,
+                'ATTENDANCE_UPLOADED',
+                finalStateContext
+            );
+
+            if (finalTransition.isValid) {
+                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                    status: 'ATTENDANCE_UPLOADED',
+                    processingStep: 'Attendance Processing Complete',
+                    teamsDetected: finalSlots.length,
+                    warningsCount: (quickMatch.warningsCount || 0) + warnings.length
+                });
+                this.logger.info(`Final state transition: ${finalTransition.previousState} → ${finalTransition.newState}`);
+            } else {
+                this.logger.error(`Final state transition failed: ${finalTransition.errorMessage}`);
+                // Keep status as PROCESSING but log completion
+                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                    processingStep: 'Attendance Processing Complete (State Transition Warning)',
+                    teamsDetected: finalSlots.length,
+                    warningsCount: (quickMatch.warningsCount || 0) + warnings.length
+                });
+            }
 
             const processingTimeMs = Date.now() - startTime;
 
@@ -282,11 +352,38 @@ export class QuickProcessingService extends BaseService {
         } catch (error) {
             this.logger.error(`Attendance processing failed for Quick Match ${quickMatchId}:`, error);
 
-            // Update match status to error
-            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'ERROR',
-                processingStep: `Error: ${(error as Error).message}`
-            }).catch(() => { }); // Don't throw if status update fails
+            // Update match status to error using state machine
+            try {
+                const currentQuickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+                if (currentQuickMatch) {
+                    const errorStateContext = await this.buildStateContext(currentQuickMatch, userId);
+                    const errorTransition = await quickMatchStateMachine.executeTransition(
+                        quickMatchId,
+                        'ERROR',
+                        errorStateContext
+                    );
+
+                    if (errorTransition.isValid) {
+                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                            status: 'ERROR',
+                            processingStep: `Error: ${(error as Error).message}`
+                        });
+                        this.logger.info(`Error state transition: ${errorTransition.previousState} → ERROR`);
+                    } else {
+                        // Fallback - direct update if state machine fails
+                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                            status: 'ERROR',
+                            processingStep: `Error: ${(error as Error).message}`
+                        });
+                    }
+                }
+            } catch (stateError) {
+                // Fallback - direct update if state machine fails
+                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                    status: 'ERROR',
+                    processingStep: `Error: ${(error as Error).message}`
+                }).catch(() => { });
+            }
 
             throw error;
         }
@@ -520,11 +617,39 @@ export class QuickProcessingService extends BaseService {
         } catch (error) {
             this.logger.error(`Result processing failed for Quick Match ${quickMatchId}:`, error);
 
-            // Update match status to error
-            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'ERROR',
-                processingStep: `Error: ${(error as Error).message}`
-            }).catch(() => { }); // Don't throw if status update fails
+
+            // Update match status to error using state machine
+            try {
+                const currentQuickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+                if (currentQuickMatch) {
+                    const errorStateContext = await this.buildStateContext(currentQuickMatch, userId);
+                    const errorTransition = await quickMatchStateMachine.executeTransition(
+                        quickMatchId,
+                        'ERROR',
+                        errorStateContext
+                    );
+
+                    if (errorTransition.isValid) {
+                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                            status: 'ERROR',
+                            processingStep: `Error: ${(error as Error).message}`
+                        });
+                        this.logger.info(`Error state transition: ${errorTransition.previousState} → ERROR`);
+                    } else {
+                        // Fallback - direct update if state machine fails
+                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                            status: 'ERROR',
+                            processingStep: `Error: ${(error as Error).message}`
+                        });
+                    }
+                }
+            } catch (stateError) {
+                // Fallback - direct update if state machine fails
+                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                    status: 'ERROR',
+                    processingStep: `Error: ${(error as Error).message}`
+                }).catch(() => { });
+            }
 
             throw error;
         }
@@ -648,7 +773,7 @@ export class QuickProcessingService extends BaseService {
                 positionPoints: dbResult.positionPoints,
                 killPoints: dbResult.killPoints,
                 totalPoints: dbResult.totalPoints,
-                playerResults: dbResult.playerResults 
+                playerResults: dbResult.playerResults
                     ? JSON.parse(JSON.stringify(dbResult.playerResults)) as PlayerResult[]
                     : undefined,
                 status: dbResult.status as any,
