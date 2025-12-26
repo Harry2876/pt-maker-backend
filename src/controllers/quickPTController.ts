@@ -313,10 +313,6 @@ export class QuickPTController {
         );
     });
 
-    // ========================================
-    // PROCESSING ENDPOINTS
-    // ========================================
-
     /**
      * POST /api/quick-pt/matches/:id/process/attendance
      * Process attendance screenshots
@@ -354,12 +350,10 @@ export class QuickPTController {
     static processComplete = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
-        const { skipAttendance } = req.body;
 
         const result = await quickProcessingService.processComplete(
             quickMatchId,
             userId,
-            skipAttendance || false
         );
 
         return res.json(

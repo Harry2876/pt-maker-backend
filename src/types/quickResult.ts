@@ -72,36 +72,51 @@ export interface QuickPointsTableCache {
 
 // Python AI Response Types
 export interface PythonAIAttendanceResponse {
-    success: boolean;
+    status: 'success' | 'error';
+    request_id: string;
     data: {
-        detected_teams: Array<{
-            slot_position: number;
-            player_names: string[];
+        cards: Array<{
+            source: string;              // Image filename  
+            slot_number: number;         // Renamed from slot_position
+            players: string[];           // Renamed from player_names
+            finishes: string[];          // NEW: finish positions ["1", "5", "DNF"]
         }>;
+        processing_stats: {
+            total_cards: number;
+            successful_cards: number;
+            failed_cards: number;
+        };
     };
-    metadata?: {
+    metadata: {
+        engine_used: string;            // NEW: OCR engine used
         processing_time_ms: number;
-        confidence: number;
+        image_dimensions: string;       // NEW: "2712x1220"
+        timestamp: string;              // NEW: ISO timestamp
     };
 }
 
 export interface PythonAIResultResponse {
-    success: boolean;
+    status: 'success' | 'error';
+    request_id: string;
     data: {
-        results: Array<{
+        cards: Array<{
             rank: number;
-            team_name?: string;
-            player_names: string[];
-            total_kills: number;
-            individual_kills?: Array<{
-                player_name: string;
-                kills: number;
+            players: Array<{
+                name: string;           // Individual player tracking
+                finish: number;         // Individual finish position
             }>;
         }>;
+        processing_stats: {
+            total_cards: number;
+            successful_cards: number;
+            failed_cards: number;
+        };
     };
-    metadata?: {
+    metadata: {
+        engine_used: string;
         processing_time_ms: number;
-        confidence: number;
+        image_dimensions: string;
+        timestamp: string;
     };
 }
 
@@ -113,6 +128,40 @@ export interface PythonAIExportResponse {
     };
     metadata?: {
         generation_time_ms: number;
+    };
+}
+
+// NEW: Engine status interfaces
+export interface PythonAIEngineResponse {
+    status: 'success' | 'error';
+    data: {
+        engines: Array<{
+            id: string;
+            name: string;
+            description: string;
+            optimized_for: string[];
+            status: 'healthy' | 'unhealthy';
+        }>;
+        default_engine: string;
+        total_engines: number;
+    };
+}
+
+export interface PythonAIHealthResponse {
+    status: 'healthy' | 'unhealthy';
+    version: string;
+    timestamp: number;
+    services: {
+        ocr_engines: string;
+        image_processing: string;
+        file_cleanup: string;
+    };
+    system: {
+        memory_usage: string;
+        cpu_usage: string;
+        disk_usage: string;
+        temp_files: number;
+        gpu_available: boolean;
     };
 }
 

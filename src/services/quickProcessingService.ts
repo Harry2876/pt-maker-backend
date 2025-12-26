@@ -6,6 +6,7 @@ import { quickMatchService } from './quickMatchService';
 import { quickSlotService } from './quickSlotService';
 import { pythonAIService } from './pythonAIService';
 import { PointsCalculator, ScoringConfig } from '../utils/pointsCalculator';
+import { unifiedScreenshotService } from './unifiedScreenshotService';
 import {
     QuickMatchCache,
     QuickMatchStatus
@@ -15,6 +16,7 @@ import {
     QuickMatchResultCache,
     CreateQuickMatchResultData,
     WarningType,
+    PlayerResult,
     PythonAIAttendanceResponse,
     PythonAIResultResponse
 } from '../types/quickResult';
@@ -22,47 +24,47 @@ import {
 // Response interfaces
 export interface AttendanceProcessingResult {
     success: boolean;
-    teamsDetected: number;
-    slotsMatched: number;
-    slotsNotFound: number;
+    slotsDetected: number;
+    slotsCreated: number;
     warnings: Array<{
         type: WarningType;
         message: string;
-        slotNumber?: number;
+        details?: any;
     }>;
     processingTimeMs: number;
+    confidence?: {
+        overall: number;
+        slotExtraction: number;
+    };
 }
 
 export interface ResultProcessingResult {
     success: boolean;
+    resultsCreated: number;
     resultsProcessed: number;
     warnings: Array<{
         type: WarningType;
         message: string;
-        teamName?: string;
-        slotNumber?: number;
+        details?: any;
     }>;
     processingTimeMs: number;
+    confidence?: {
+        overall: number;
+        resultExtraction: number;
+    };
 }
 
 export interface CompleteProcessingResult {
     success: boolean;
-    matchId: string;
     attendanceResult?: AttendanceProcessingResult;
-    resultProcessingResult: ResultProcessingResult;
+    resultProcessingResult?: ResultProcessingResult;
     totalProcessingTimeMs: number;
-    finalStatus: QuickMatchStatus;
 }
 
 export class QuickProcessingService extends BaseService {
-    private readonly LOW_CONFIDENCE_THRESHOLD = 0.7; // 70% AI confidence
-
-    constructor() {
-        super();
-    }
 
     /**
-     * Process attendance screenshots - detects which teams are present
+     * Process attendance screenshots - extracts team slots from screenshots
      * STEP 1: Attendance Processing
      */
     async processAttendance(
@@ -70,28 +72,22 @@ export class QuickProcessingService extends BaseService {
         userId: string
     ): Promise<AttendanceProcessingResult> {
         const startTime = Date.now();
+        const warnings: Array<{ type: WarningType; message: string; details?: any }> = [];
 
         try {
             this.logger.info(`Starting attendance processing for Quick Match ${quickMatchId}`);
 
-            // 1. Verify match exists and status
+            // 1. Verify Quick Match ownership and status
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
             if (!quickMatch) {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            if (quickMatch.status !== 'ATTENDANCE_UPLOADED') {
+            if (!['CREATED', 'SLOTS_UPLOADED', 'ATTENDANCE_UPLOADED'].includes(quickMatch.status)) {
                 throw new Error(`Cannot process attendance. Current status: ${quickMatch.status}`);
             }
 
-            // 2. Get all slots
-            const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId);
-            if (slots.length === 0) {
-                throw new Error('No slots found. Please upload slot assignments first.');
-            }
-
-            // 3. Get attendance screenshots
-            const { unifiedScreenshotService } = await import('./unifiedScreenshotService');
+            // 2. Get attendance screenshots
             const screenshots = await unifiedScreenshotService.listScreenshots(
                 'quick-pt',
                 quickMatchId,
@@ -103,102 +99,194 @@ export class QuickProcessingService extends BaseService {
                 throw new Error('No attendance screenshots found');
             }
 
-            // 4. Prepare slot mappings for Python AI
-            const slotMappings = slots.map(slot => ({
-                slot_number: slot.slotNumber,
-                team_name: slot.teamName
-            }));
+            this.logger.info(`Processing ${screenshots.length} attendance screenshots`);
 
-            // 5. Call Python AI for attendance detection
-            this.logger.info(`Calling Python AI with ${screenshots.length} screenshots and ${slots.length} slots`);
-
-            const aiResponse = await pythonAIService.detectAttendanceWithRetry(
-                screenshots.map(s => s.storageUrl),
-                slotMappings
-            );
-
-            // 6. Map detected teams to slots (simple by slot number)
-            const warnings: Array<{ type: WarningType; message: string; slotNumber?: number }> = [];
-            let slotsMatched = 0;
-            let slotsNotFound = 0;
-
-            // Create a map of detected teams with their player names
-            const detectedTeamsMap = new Map<number, string[]>();
-            aiResponse.data.detected_teams.forEach(team => {
-                detectedTeamsMap.set(team.slot_position, team.player_names);
+            // 3. Update match status to processing
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                status: 'PROCESSING',
+                processingStep: 'Processing Attendance Screenshots'
             });
 
-            // Update each slot based on detection
-            for (const slot of slots) {
-                const detectedPlayers = detectedTeamsMap.get(slot.slotNumber);
+            // 4. Process each screenshot individually with new single-image API
+            const allDetectedSlots: Array<{
+                slotNumber: number;
+                teamName: string;
+                players: string[];
+                source: string;
+            }> = [];
 
-                if (detectedPlayers) {
-                    await quickSlotService.updateSlot(
-                        slot.id,
-                        userId,
-                        {
-                            status: 'DETECTED',
-                            detectedInAttendance: true,
-                            playerNames: detectedPlayers
-                        }
+            let successfulScreenshots = 0;
+
+            for (const screenshot of screenshots) {
+                try {
+                    this.logger.info(`Processing attendance screenshot: ${screenshot.id}`);
+
+                    // Call Python AI with single image
+                    const pythonResponse: PythonAIAttendanceResponse = await pythonAIService.detectAttendance(
+                        screenshot.storageUrl
                     );
-                    slotsMatched++;
+
+                    if (pythonResponse.status === 'success' && pythonResponse.data?.cards) {
+                        // Process detected cards
+                        for (const card of pythonResponse.data.cards) {
+                            if (card.slot_number && card.players.length > 0) {
+                                // Use first player as team name or construct from players
+                                const teamName = card.players[0] || `Team ${card.slot_number}`;
+
+                                allDetectedSlots.push({
+                                    slotNumber: card.slot_number,
+                                    teamName: teamName.trim(),
+                                    players: card.players,
+                                    source: screenshot.id
+                                });
+                            }
+                        }
+
+                        successfulScreenshots++;
+
+                        this.logger.info(`Detected ${pythonResponse.data.cards.length} cards from screenshot ${screenshot.id}`);
+                    } else {
+                        warnings.push({
+                            type: 'LOW_AI_CONFIDENCE',
+                            message: `Failed to process screenshot ${screenshot.originalName}`,
+                            details: { screenshotId: screenshot.id, status: pythonResponse.status }
+                        });
+                    }
+                } catch (error) {
+                    this.logger.error(`Error processing screenshot ${screenshot.id}:`, error);
+                    warnings.push({
+                        type: 'LOW_AI_CONFIDENCE',
+                        message: `Error processing screenshot ${screenshot.originalName}`,
+                        details: { screenshotId: screenshot.id, error: (error as Error).message }
+                    });
+                }
+            }
+
+            // 5. Merge and deduplicate slots (prefer most recent/highest confidence)
+            const slotMap = new Map<number, {
+                slotNumber: number;
+                teamName: string;
+                players: string[];
+                sources: string[];
+            }>();
+
+            for (const detectedSlot of allDetectedSlots) {
+                const existing = slotMap.get(detectedSlot.slotNumber);
+
+                if (!existing) {
+                    slotMap.set(detectedSlot.slotNumber, {
+                        slotNumber: detectedSlot.slotNumber,
+                        teamName: detectedSlot.teamName,
+                        players: detectedSlot.players,
+                        sources: [detectedSlot.source]
+                    });
+                } else if (existing.teamName !== detectedSlot.teamName) {
+                    // Conflicting team names for same slot
+                    warnings.push({
+                        type: 'TEAM_NAME_MISMATCH',
+                        message: `Slot ${detectedSlot.slotNumber} has conflicting team names`,
+                        details: {
+                            existing: existing.teamName,
+                            detected: detectedSlot.teamName,
+                            slotNumber: detectedSlot.slotNumber
+                        }
+                    });
                 } else {
-                    // Team NOT detected at this slot
-                    await quickSlotService.updateSlot(
-                        slot.id,
-                        userId,
-                        {
-                            status: 'NOT_FOUND',
-                            detectedInAttendance: false
+                    // Same team name, just add source
+                    existing.sources.push(detectedSlot.source);
+                }
+            }
+
+            const finalSlots = Array.from(slotMap.values());
+
+            this.logger.info(`Merged into ${finalSlots.length} unique slots after deduplication`);
+
+            // 6. Create slots in database
+            let slotsCreated = 0;
+            for (const slot of finalSlots) {
+                try {
+                    const existingSlot = await quickSlotService.getSlotByNumber(quickMatchId, slot.slotNumber);
+
+                    if (!existingSlot) {
+                        // Create new slot with correct status
+                        await quickSlotService.createSlot(quickMatchId, userId, {
+                            slotNumber: slot.slotNumber,
+                            teamName: slot.teamName,
+                            playerNames: slot.players
+                        });
+                        slotsCreated++;
+                    } else if (!existingSlot.detectedInAttendance) {
+                        // Update existing slot with attendance data
+                        await quickSlotService.updateSlot(existingSlot.id, userId, {
+                            teamName: slot.teamName,
+                            detectedInAttendance: true,
+                            playerNames: slot.players,
+                            status: 'DETECTED'
+                        });
+                    } else {
+                        // Slot already detected - check for conflicts
+                        if (existingSlot.teamName !== slot.teamName) {
+                            warnings.push({
+                                type: 'TEAM_NAME_MISMATCH',
+                                message: `Slot ${slot.slotNumber} already exists with different team name`,
+                                details: {
+                                    existing: existingSlot.teamName,
+                                    detected: slot.teamName,
+                                    slotNumber: slot.slotNumber
+                                }
+                            });
                         }
-                    );
-                    slotsNotFound++; 
+                    }
+                } catch (error) {
+                    this.logger.error(`Error creating slot ${slot.slotNumber}:`, error);
                     warnings.push({
                         type: 'SLOT_NOT_FOUND',
-                        message: `Slot ${slot.slotNumber}: Team "${slot.teamName}" not detected in attendance`,
-                        slotNumber: slot.slotNumber
+                        message: `Failed to create slot ${slot.slotNumber}`,
+                        details: { slotNumber: slot.slotNumber, error: (error as Error).message }
                     });
                 }
             }
 
             // 7. Mark attendance screenshots as processed
-            const { unifiedScreenshotService: unifiedService1 } = await import('./unifiedScreenshotService');
-            await unifiedService1.markScreenshotsProcessed(quickMatchId, 'ATTENDANCE', userId);
+            await unifiedScreenshotService.markScreenshotsProcessed(quickMatchId, 'ATTENDANCE', userId);
 
-            // 8. Update match status
+            // 8. Update match status and metadata
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'PROCESSING',
-                teamsDetected: slotsMatched,
-                warningsCount: warnings.length,
-                processingStep: 'Attendance Detection Complete'
+                status: 'ATTENDANCE_UPLOADED',
+                processingStep: 'Attendance Processing Complete',
+                teamsDetected: finalSlots.length,
+                warningsCount: (quickMatch.warningsCount || 0) + warnings.length
             });
 
             const processingTimeMs = Date.now() - startTime;
 
-            this.logger.info(`Attendance processing complete: ${slotsMatched} matched, ${slotsNotFound} not found, ${warnings.length} warnings`);
+            this.logger.info(`Attendance processing completed for Quick Match ${quickMatchId}`, {
+                slotsDetected: finalSlots.length,
+                slotsCreated,
+                warnings: warnings.length,
+                processingTimeMs
+            });
 
             return {
                 success: true,
-                teamsDetected: aiResponse.data.detected_teams.length,
-                slotsMatched,
-                slotsNotFound,
+                slotsDetected: finalSlots.length,
+                slotsCreated,
                 warnings,
-                processingTimeMs
+                processingTimeMs,
+                confidence: {
+                    overall: successfulScreenshots > 0 ? successfulScreenshots / screenshots.length : 0,
+                    slotExtraction: successfulScreenshots > 0 ? successfulScreenshots / screenshots.length : 0
+                }
             };
 
         } catch (error) {
-            this.handleError(error, 'Process Attendance');
+            this.logger.error(`Attendance processing failed for Quick Match ${quickMatchId}:`, error);
 
-            // Update match status to ERROR
-            try {
-                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                    status: 'ERROR',
-                    processingStep: 'Attendance Detection Failed'
-                });
-            } catch (updateError) {
-                this.logger.error('Failed to update match status after error:', updateError);
-            }
+            // Update match status to error
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                status: 'ERROR',
+                processingStep: `Error: ${(error as Error).message}`
+            }).catch(() => { }); // Don't throw if status update fails
 
             throw error;
         }
@@ -213,32 +301,29 @@ export class QuickProcessingService extends BaseService {
         userId: string
     ): Promise<ResultProcessingResult> {
         const startTime = Date.now();
+        const warnings: Array<{ type: WarningType; message: string; details?: any }> = [];
 
         try {
             this.logger.info(`Starting result processing for Quick Match ${quickMatchId}`);
 
-            // 1. Verify match exists and status
+            // 1. Verify Quick Match ownership and status
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
             if (!quickMatch) {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            if (quickMatch.status !== 'RESULTS_UPLOADED') {
-                throw new Error(`Cannot process results. Current status: ${quickMatch.status}`);
+            if (!['ATTENDANCE_UPLOADED', 'RESULTS_UPLOADED'].includes(quickMatch.status)) {
+                throw new Error(`Cannot process results. Current status: ${quickMatch.status}. Please process attendance first.`);
             }
 
-            // 2. Get all slots (only process detected ones)
-            const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId, {
-                detectedInAttendance: true
-            });
-
+            // 2. Get existing slots to match against
+            const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId);
             if (slots.length === 0) {
                 throw new Error('No teams detected in attendance. Please process attendance first.');
             }
 
             // 3. Get result screenshots
-            const { unifiedScreenshotService: unifiedService2 } = await import('./unifiedScreenshotService');
-            const screenshots = await unifiedService2.listScreenshots(
+            const screenshots = await unifiedScreenshotService.listScreenshots(
                 'quick-pt',
                 quickMatchId,
                 userId,
@@ -249,162 +334,162 @@ export class QuickProcessingService extends BaseService {
                 throw new Error('No result screenshots found');
             }
 
-            // 4. Call Python AI for result extraction
-            this.logger.info(`Calling Python AI with ${screenshots.length} result screenshots`);
+            this.logger.info(`Processing ${screenshots.length} result screenshots`);
 
-            const aiResponse = await pythonAIService.extractResultsWithRetry(
-                screenshots.map(s => s.storageUrl)
-            );
-
-            // 5. Get scoring config from match
-            const scoringConfig: ScoringConfig = {
-                positionPointsConfig: quickMatch.positionPointsConfig || PointsCalculator.getDefaultBGMIConfig().positionPointsConfig,
-                killPointsValue: quickMatch.killPointsValue
-            };
-
-            // 6. Process each result and create match result records
-            const warnings: Array<{ type: WarningType; message: string; teamName?: string; slotNumber?: number }> = [];
-            const createdResults: QuickMatchResultCache[] = [];
-
-            // Create a map of slots by player names for matching
-            const slotsByPlayerSet = new Map<string, QuickSlotCache>();
-            slots.forEach(slot => {
-                if (slot.playerNames && slot.playerNames.length > 0) {
-                    // Create a key from all player names (sorted, lowercase)
-                    const playerKey = slot.playerNames
-                        .map(p => p.toLowerCase().trim())
-                        .sort()
-                        .join('|');
-                    slotsByPlayerSet.set(playerKey, slot);
-                }
+            // 4. Update match status to processing
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                status: 'PROCESSING',
+                processingStep: 'Processing Result Screenshots'
             });
 
-            for (const aiResult of aiResponse.data.results) {
-                // Try to match by player names first
-                let matchingSlot: QuickSlotCache | undefined;
+            // 5. Process each screenshot individually with new single-image API
+            const allDetectedResults: Array<{
+                rank: number;
+                players: Array<{ name: string; finish: number }>;
+                source: string;
+            }> = [];
 
-                if (aiResult.player_names && aiResult.player_names.length > 0) {
-                    // Match by player names
-                    const resultPlayerKey = aiResult.player_names
-                        .map(p => p.toLowerCase().trim())
-                        .sort()
-                        .join('|');
-                    matchingSlot = slotsByPlayerSet.get(resultPlayerKey);
+            let successfulScreenshots = 0;
 
-                    // If no exact match, try partial match (at least 50% players match)
-                    if (!matchingSlot) {
-                        const resultPlayersSet = new Set(
-                            aiResult.player_names.map(p => p.toLowerCase().trim())
-                        );
+            for (const screenshot of screenshots) {
+                try {
+                    this.logger.info(`Processing result screenshot: ${screenshot.id}`);
 
-                        for (const slot of slots) {
-                            if (!slot.playerNames || slot.playerNames.length === 0) continue;
-
-                            const slotPlayersSet = new Set(
-                                slot.playerNames.map(p => p.toLowerCase().trim())
-                            );
-
-                            // Count matching players
-                            let matchCount = 0;
-                            for (const player of resultPlayersSet) {
-                                if (slotPlayersSet.has(player)) matchCount++;
-                            }
-
-                            // If 50% or more players match, consider it a match
-                            const matchPercentage = matchCount / Math.max(resultPlayersSet.size, slotPlayersSet.size);
-                            if (matchPercentage >= 0.5) {
-                                matchingSlot = slot;
-
-                                // Add warning for partial match
-                                if (matchPercentage < 1.0) {
-                                    warnings.push({
-                                        type: 'TEAM_NAME_MISMATCH',
-                                        message: `Slot ${slot.slotNumber}: Partial player match (${(matchPercentage * 100).toFixed(0)}% - ${matchCount}/${Math.max(resultPlayersSet.size, slotPlayersSet.size)} players)`,
-                                        slotNumber: slot.slotNumber,
-                                        teamName: slot.teamName
-                                    });
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // Fallback: Try matching by team name if player matching failed
-                if (!matchingSlot && aiResult.team_name) {
-                    matchingSlot = slots.find(
-                        slot => slot.teamName.toLowerCase().trim() === aiResult.team_name!.toLowerCase().trim()
+                    // Call Python AI with single image
+                    const pythonResponse: PythonAIResultResponse = await pythonAIService.extractResults(
+                        screenshot.storageUrl
                     );
 
-                    if (matchingSlot) {
+                    if (pythonResponse.status === 'success' && pythonResponse.data?.cards) {
+                        // Process detected results
+                        for (const card of pythonResponse.data.cards) {
+                            if (card.rank && card.players.length > 0) {
+                                allDetectedResults.push({
+                                    rank: card.rank,
+                                    players: card.players,
+                                    source: screenshot.id
+                                });
+                            }
+                        }
+
+                        successfulScreenshots++;
+
+                        this.logger.info(`Detected ${pythonResponse.data.cards.length} results from screenshot ${screenshot.id}`);
+                    } else {
                         warnings.push({
-                            type: 'TEAM_NAME_MISMATCH',
-                            message: `Slot ${matchingSlot.slotNumber}: Matched by team name (player names didn't match)`,
-                            slotNumber: matchingSlot.slotNumber,
-                            teamName: matchingSlot.teamName
+                            type: 'LOW_AI_CONFIDENCE',
+                            message: `Failed to process screenshot ${screenshot.originalName}`,
+                            details: { screenshotId: screenshot.id, status: pythonResponse.status }
                         });
                     }
-                }
-
-                if (!matchingSlot) {
-                    // Team in results but no slot found
-                    warnings.push({
-                        type: 'SLOT_NOT_FOUND',
-                        message: `Result (Rank ${aiResult.rank}) could not be matched to any slot`,
-                        teamName: aiResult.team_name
-                    });
-                    continue;
-                }
-
-                // Calculate points using dynamic scoring config
-                const pointsBreakdown = PointsCalculator.calculatePoints(
-                    aiResult.rank,
-                    aiResult.total_kills,
-                    scoringConfig
-                );
-
-                // Create match result with player data
-                const resultData: CreateQuickMatchResultData = {
-                    slotNumber: matchingSlot.slotNumber,
-                    teamName: matchingSlot.teamName,
-                    detectedTeamName: aiResult.team_name,
-                    position: aiResult.rank,
-                    rank: aiResult.rank,
-                    totalKills: aiResult.total_kills,
-                    positionPoints: pointsBreakdown.positionPoints,
-                    killPoints: pointsBreakdown.killPoints,
-                    totalPoints: pointsBreakdown.totalPoints,
-                    playerResults: aiResult.individual_kills?.map(ik => ({
-                        playerName: ik.player_name,
-                        kills: ik.kills
-                    })),
-                    needsReview: false,
-                    aiConfidence: aiResponse.metadata?.confidence
-                };
-
-                // Check for low AI confidence
-                if (aiResponse.metadata?.confidence && aiResponse.metadata.confidence < this.LOW_CONFIDENCE_THRESHOLD) {
-                    resultData.needsReview = true;
-                    resultData.warningType = 'LOW_AI_CONFIDENCE';
-
+                } catch (error) {
+                    this.logger.error(`Error processing screenshot ${screenshot.id}:`, error);
                     warnings.push({
                         type: 'LOW_AI_CONFIDENCE',
-                        message: `Slot ${matchingSlot.slotNumber}: Low AI confidence (${(aiResponse.metadata.confidence * 100).toFixed(0)}%)`,
-                        slotNumber: matchingSlot.slotNumber,
-                        teamName: matchingSlot.teamName
+                        message: `Error processing screenshot ${screenshot.originalName}`,
+                        details: { screenshotId: screenshot.id, error: (error as Error).message }
                     });
                 }
-
-                // Create result record
-                const result = await this.createMatchResult(quickMatchId, userId, resultData);
-                createdResults.push(result);
             }
 
-            // 7. Mark result screenshots as processed
-            const { unifiedScreenshotService: unifiedService3 } = await import('./unifiedScreenshotService');
-            await unifiedService3.markScreenshotsProcessed(quickMatchId, 'RESULT', userId);
+            // 6. Merge and deduplicate results (prefer most recent)
+            const rankMap = new Map<number, {
+                rank: number;
+                players: Array<{ name: string; finish: number }>;
+                sources: string[];
+            }>();
 
-            // 8. Update match status
+            for (const detectedResult of allDetectedResults) {
+                const existing = rankMap.get(detectedResult.rank);
+
+                if (!existing) {
+                    rankMap.set(detectedResult.rank, {
+                        rank: detectedResult.rank,
+                        players: detectedResult.players,
+                        sources: [detectedResult.source]
+                    });
+                } else {
+                    // Same rank detected multiple times, add source
+                    existing.sources.push(detectedResult.source);
+                }
+            }
+
+            const finalResults = Array.from(rankMap.values()).sort((a, b) => a.rank - b.rank);
+
+            this.logger.info(`Merged into ${finalResults.length} unique results after deduplication`);
+
+            // 7. Match results with existing slots and calculate points
+            const scoring: ScoringConfig = {
+                positionPointsConfig: quickMatch.positionPointsConfig || [20, 15, 12, 10, 8, 6, 4, 2, 1, 0],
+                killPointsValue: quickMatch.killPointsValue || 1
+            };
+
+            let resultsCreated = 0;
+            const createdResults: QuickMatchResultCache[] = [];
+
+            for (const result of finalResults) {
+                try {
+                    // Extract team name from first player
+                    const teamName = result.players[0]?.name || `Rank ${result.rank}`;
+                    const totalKills = result.players.reduce((sum, player) => sum + (player.finish || 0), 0);
+
+                    // Find matching slot by team name
+                    const matchingSlot = this.findMatchingSlot(slots, teamName);
+
+                    if (!matchingSlot) {
+                        warnings.push({
+                            type: 'SLOT_NOT_FOUND',
+                            message: `Team "${teamName}" in results not found in attendance`,
+                            details: { teamName: teamName, rank: result.rank }
+                        });
+                        continue;
+                    }
+
+                    // Calculate points using the points calculator
+                    const points = PointsCalculator.calculatePoints(
+                        result.rank,
+                        totalKills,
+                        scoring
+                    );
+
+                    // Create result data with all required fields
+                    const resultData: CreateQuickMatchResultData = {
+                        slotNumber: matchingSlot.slotNumber,
+                        teamName: teamName,
+                        detectedTeamName: teamName,
+                        position: result.rank,
+                        rank: result.rank,
+                        totalKills: totalKills,
+                        positionPoints: points.positionPoints,
+                        killPoints: points.killPoints,
+                        totalPoints: points.totalPoints,
+                        playerResults: result.players.map(p => ({
+                            playerName: p.name,
+                            kills: p.finish || 0
+                        })),
+                        needsReview: false,
+                        aiConfidence: 0.8  // Default confidence
+                    };
+
+                    // Create match result
+                    const createdResult = await this.createMatchResult(quickMatchId, userId, resultData);
+                    createdResults.push(createdResult);
+                    resultsCreated++;
+
+                } catch (error) {
+                    this.logger.error(`Error creating result for rank ${result.rank}:`, error);
+                    warnings.push({
+                        type: 'INVALID_POSITION',
+                        message: `Failed to create result for rank ${result.rank}`,
+                        details: { rank: result.rank, error: (error as Error).message }
+                    });
+                }
+            }
+
+            // 8. Mark result screenshots as processed
+            await unifiedScreenshotService.markScreenshotsProcessed(quickMatchId, 'RESULT', userId);
+
+            // 9. Update match status to completed
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                 status: 'COMPLETED',
                 processingStep: 'Result Processing Complete',
@@ -413,72 +498,72 @@ export class QuickProcessingService extends BaseService {
 
             const processingTimeMs = Date.now() - startTime;
 
-            this.logger.info(`Result processing complete: ${createdResults.length} results processed, ${warnings.length} warnings`);
+            this.logger.info(`Result processing completed for Quick Match ${quickMatchId}`, {
+                resultsProcessed: finalResults.length,
+                resultsCreated,
+                warnings: warnings.length,
+                processingTimeMs
+            });
 
             return {
                 success: true,
-                resultsProcessed: createdResults.length,
+                resultsCreated,
+                resultsProcessed: finalResults.length,
                 warnings,
-                processingTimeMs
+                processingTimeMs,
+                confidence: {
+                    overall: successfulScreenshots > 0 ? successfulScreenshots / screenshots.length : 0,
+                    resultExtraction: successfulScreenshots > 0 ? successfulScreenshots / screenshots.length : 0
+                }
             };
 
         } catch (error) {
-            this.handleError(error, 'Process Results');
+            this.logger.error(`Result processing failed for Quick Match ${quickMatchId}:`, error);
 
-            // Update match status to ERROR
-            try {
-                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                    status: 'ERROR',
-                    processingStep: 'Result Processing Failed'
-                });
-            } catch (updateError) {
-                this.logger.error('Failed to update match status after error:', updateError);
-            }
+            // Update match status to error
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                status: 'ERROR',
+                processingStep: `Error: ${(error as Error).message}`
+            }).catch(() => { }); // Don't throw if status update fails
 
             throw error;
         }
     }
 
     /**
-     * Complete processing flow - runs both attendance and results
-     * FULL WORKFLOW
+     * Process both attendance and results in sequence
+     * STEP 3: Complete Processing
      */
     async processComplete(
         quickMatchId: string,
-        userId: string,
-        skipAttendance: boolean = false
+        userId: string
     ): Promise<CompleteProcessingResult> {
         const startTime = Date.now();
 
         try {
             this.logger.info(`Starting complete processing for Quick Match ${quickMatchId}`);
 
-            let attendanceResult: AttendanceProcessingResult | undefined;
+            // Process attendance first
+            const attendanceResult = await this.processAttendance(quickMatchId, userId);
 
-            // Step 1: Process attendance (if not skipped)
-            if (!skipAttendance) {
-                attendanceResult = await this.processAttendance(quickMatchId, userId);
-                this.logger.info(`Attendance processing complete, proceeding to results...`);
-            }
-
-            // Step 2: Process results
+            // Then process results
             const resultProcessingResult = await this.processResults(quickMatchId, userId);
 
             const totalProcessingTimeMs = Date.now() - startTime;
 
-            this.logger.info(`Complete processing finished in ${totalProcessingTimeMs}ms`);
+            this.logger.info(`Complete processing finished for Quick Match ${quickMatchId}`, {
+                totalProcessingTimeMs
+            });
 
             return {
                 success: true,
-                matchId: quickMatchId,
                 attendanceResult,
                 resultProcessingResult,
-                totalProcessingTimeMs,
-                finalStatus: 'COMPLETED'
+                totalProcessingTimeMs
             };
 
         } catch (error) {
-            this.handleError(error, 'Process Complete');
+            this.logger.error(`Complete processing failed for Quick Match ${quickMatchId}:`, error);
             throw error;
         }
     }
@@ -492,48 +577,39 @@ export class QuickProcessingService extends BaseService {
         userId: string,
         data: CreateQuickMatchResultData
     ): Promise<QuickMatchResultCache> {
-        try {
-            // Generate result ID
-            const resultId = randomUUID();
+        const resultId = randomUUID();
 
-            // Create result object
-            const result: QuickMatchResultCache = {
-                id: resultId,
-                quickMatchId,
-                slotNumber: data.slotNumber,
-                teamName: data.teamName,
-                detectedTeamName: data.detectedTeamName,
-                position: data.position,
-                rank: data.rank,
-                totalKills: data.totalKills,
-                positionPoints: data.positionPoints,
-                killPoints: data.killPoints,
-                totalPoints: data.totalPoints,
-                playerResults: data.playerResults,
-                status: 'PROCESSED',
-                warningType: data.warningType,
-                needsReview: data.needsReview || false,
-                aiConfidence: data.aiConfidence,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
-            };
+        const result: QuickMatchResultCache = {
+            id: resultId,
+            quickMatchId,
+            slotNumber: data.slotNumber,
+            teamName: data.teamName,
+            detectedTeamName: data.detectedTeamName,
+            position: data.position,
+            rank: data.rank,
+            totalKills: data.totalKills,
+            positionPoints: data.positionPoints,
+            killPoints: data.killPoints,
+            totalPoints: data.totalPoints,
+            playerResults: data.playerResults,
+            status: 'PENDING',
+            warningType: data.warningType,
+            needsReview: data.needsReview || false,
+            aiConfidence: data.aiConfidence,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            dbStatus: 'PENDING_SYNC'
+        };
 
-            // Store in Redis
-            await redis.hsetObject(`quickResult:${resultId}`, result);
-            await redis.sadd(`quickMatch:${quickMatchId}:results`, resultId);
+        // Store in Redis
+        await redis.hsetObject(`quickResult:${resultId}`, result);
+        await redis.sadd(`quickMatch:${quickMatchId}:results`, resultId);
 
-            // Queue database sync
-            await QueueService.syncQuickPtImmediately('QUICK_RESULT', 'CREATE', resultId, result, userId);
+        // Queue database sync with correct entity type
+        await QueueService.syncQuickPtImmediately('QUICK_RESULT', 'CREATE', resultId, result, userId);
 
-            this.logger.info(`Match result created: Slot ${data.slotNumber} - ${data.teamName} - ${data.totalPoints}pts`);
-
-            return result;
-
-        } catch (error) {
-            this.handleError(error, 'Create Match Result');
-            throw error;
-        }
+        this.logger.info(`Created match result for slot ${data.slotNumber} (${data.teamName})`);
+        return result;
     }
 
     /**
@@ -572,11 +648,13 @@ export class QuickProcessingService extends BaseService {
                 positionPoints: dbResult.positionPoints,
                 killPoints: dbResult.killPoints,
                 totalPoints: dbResult.totalPoints,
-                playerResults: dbResult.playerResults ? JSON.parse(JSON.stringify(dbResult.playerResults)) : undefined,
-                status: dbResult.status as 'PENDING' | 'PROCESSED' | 'VERIFIED' | 'MANUAL_ENTRY',
-                warningType: dbResult.warningType as WarningType | undefined,
+                playerResults: dbResult.playerResults 
+                    ? JSON.parse(JSON.stringify(dbResult.playerResults)) as PlayerResult[]
+                    : undefined,
+                status: dbResult.status as any,
+                warningType: dbResult.warningType || undefined,
                 needsReview: dbResult.needsReview,
-                aiConfidence: dbResult.aiConfidence || undefined,
+                aiConfidence: dbResult.aiConfidence ?? undefined,
                 createdAt: dbResult.createdAt.toISOString(),
                 updatedAt: dbResult.updatedAt.toISOString(),
                 dbStatus: 'SYNCED'
@@ -588,6 +666,40 @@ export class QuickProcessingService extends BaseService {
             this.handleError(error, 'Get Match Results');
             throw error;
         }
+    }
+
+    /**
+     * Find matching slot for a team name using fuzzy matching
+     * @private
+     */
+    private findMatchingSlot(slots: QuickSlotCache[], teamName: string): QuickSlotCache | null {
+        const normalizedTeamName = teamName.toLowerCase().trim();
+
+        // 1. Exact match
+        let exactMatch = slots.find(slot =>
+            slot.teamName?.toLowerCase().trim() === normalizedTeamName
+        );
+        if (exactMatch) return exactMatch;
+
+        // 2. Fuzzy matching - check if team name contains slot name or vice versa
+        const fuzzyMatch = slots.find(slot => {
+            if (!slot.teamName) return false;
+
+            const slotTeamName = slot.teamName.toLowerCase().trim();
+
+            // Check if one contains the other (with minimum length requirement)
+            const minLength = Math.min(normalizedTeamName.length, slotTeamName.length);
+            if (minLength < 3) return false; // Skip very short names
+
+            return normalizedTeamName.includes(slotTeamName) ||
+                slotTeamName.includes(normalizedTeamName);
+        });
+
+        if (fuzzyMatch) {
+            this.logger.info(`Fuzzy matched team "${teamName}" with slot "${fuzzyMatch.teamName}"`);
+        }
+
+        return fuzzyMatch || null;
     }
 }
 
