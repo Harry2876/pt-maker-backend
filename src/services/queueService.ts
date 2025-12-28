@@ -185,7 +185,7 @@ export class QueueService {
         }
     }
     static async syncQuickPtImmediately(
-    entityType: 'QUICK_MATCH' | 'QUICK_SLOT' | 'QUICK_SCREENSHOT' | 'QUICK_RESULT' | 'QUICK_POINTS_TABLE',
+    entityType: 'QUICK_MATCH' | 'QUICK_SLOT' | 'QUICK_SCREENSHOT' | 'QUICK_RESULT' | 'QUICK_POINTS_TABLE' | 'QUICK_SERIES' | 'QUICK_SERIES_MATCH' | 'QUICK_SERIES_LEADERBOARD',
     operation: 'CREATE' | 'UPDATE',
     entityId: string,
     data: any,

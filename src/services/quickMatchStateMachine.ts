@@ -1,13 +1,14 @@
 import { QuickMatchStatus } from '@prisma/client';
 import { BaseService } from './baseService';
-import { 
-    StateTransition, 
-    StateValidationResult, 
-    StateTransitionResult, 
+import {
+    StateTransition,
+    StateValidationResult,
+    StateTransitionResult,
     ValidTransition,
     QuickMatchStateContext,
     StateTransitionCondition
 } from '../types/stateMachine';
+import { quickSeriesService } from './quickSeriesService';
 
 export class QuickMatchStateMachine extends BaseService {
     private static instance: QuickMatchStateMachine;
@@ -72,6 +73,12 @@ export class QuickMatchStateMachine extends BaseService {
                     operator: 'greaterThan',
                     value: 0,
                     errorMessage: 'Cannot complete: No teams were detected in processing'
+                },
+                {
+                    field: 'seriesProgressionValid',
+                    operator: 'equals',
+                    value: true,
+                    errorMessage: 'Cannot complete: Series progression validation failed'
                 }
             ]
         },
@@ -108,14 +115,14 @@ export class QuickMatchStateMachine extends BaseService {
      * Validate if a state transition is allowed
      */
     public validateTransition(
-        from: QuickMatchStatus, 
-        to: QuickMatchStatus, 
+        from: QuickMatchStatus,
+        to: QuickMatchStatus,
         context?: QuickMatchStateContext
     ): StateValidationResult {
         try {
             // Find matching transition rule
             const transition = this.transitions.find(t => t.from === from && t.to === to);
-            
+
             if (!transition) {
                 return {
                     isValid: false,
@@ -136,11 +143,11 @@ export class QuickMatchStateMachine extends BaseService {
 
             // Check required data
             if (transition.requiredData && context) {
-                const missingData = transition.requiredData.filter(field => 
+                const missingData = transition.requiredData.filter(field =>
                     context[field as keyof QuickMatchStateContext] === undefined ||
                     context[field as keyof QuickMatchStateContext] === null
                 );
-                
+
                 if (missingData.length > 0) {
                     return {
                         isValid: false,
@@ -172,10 +179,10 @@ export class QuickMatchStateMachine extends BaseService {
     ): Promise<StateTransitionResult> {
         try {
             const from = context.currentStatus;
-            
+
             // Validate the transition
             const validationResult = this.validateTransition(from, to, context);
-            
+
             if (!validationResult.isValid) {
                 return {
                     ...validationResult,
@@ -224,7 +231,7 @@ export class QuickMatchStateMachine extends BaseService {
 
     private validateCondition(condition: StateTransitionCondition, context: QuickMatchStateContext): StateValidationResult {
         const value = context[condition.field as keyof QuickMatchStateContext];
-        
+
         switch (condition.operator) {
             case 'exists':
                 if (value === undefined || value === null) {
@@ -235,7 +242,7 @@ export class QuickMatchStateMachine extends BaseService {
                     };
                 }
                 break;
-                
+
             case 'equals':
                 if (value !== condition.value) {
                     return {
@@ -245,7 +252,7 @@ export class QuickMatchStateMachine extends BaseService {
                     };
                 }
                 break;
-                
+
             case 'greaterThan':
                 if (typeof value !== 'number' || value <= condition.value) {
                     return {
@@ -255,7 +262,7 @@ export class QuickMatchStateMachine extends BaseService {
                     };
                 }
                 break;
-                
+
             case 'lessThan':
                 if (typeof value !== 'number' || value >= condition.value) {
                     return {
@@ -269,6 +276,32 @@ export class QuickMatchStateMachine extends BaseService {
 
         return { isValid: true };
     }
+
+    private async validateSeriesProgression(context: QuickMatchStateContext): Promise<boolean> {
+    if (!context.seriesId) {
+        return true; // Not part of series, always valid
+    }
+
+    try {
+        const series = await quickSeriesService.getTournamentSeriesById(context.seriesId, context.userId!);
+        
+        if (!series) {
+            this.logger.warn(`Series ${context.seriesId} not found during state validation`);
+            return false;
+        }
+
+        // Validate series is still active and accepting completions
+        if (series.status === 'COMPLETED' || series.status === 'CANCELLED') {
+            this.logger.warn(`Cannot complete match: Series ${context.seriesId} is ${series.status}`);
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        this.logger.error(`Series validation failed: ${(error as Error).message}`);
+        return false;
+    }
+}
 }
 
 // Export singleton instance following your pattern

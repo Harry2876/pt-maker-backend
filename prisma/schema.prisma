@@ -8,34 +8,35 @@ datasource db {
 }
 
 model User {
-  id                   String                   @id @default(cuid())
-  username             String                   @unique
-  subscriptionId       String?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  phoneNumber          String                   @unique
-  credits              Int                      @default(0)
-  otp                  String?
-  otpExpiresAt         DateTime?
-  passwordHash         String?
-  subscriptionEndDate  DateTime?
-  subscriptionStatus   SubscriptionStatus       @default(INACTIVE)
-  fullName             String
-  organization         String?
-  accounts             Account[]
-  activityLogs         ActivityLog[]
-  discordUser          DiscordUser?             @relation("UserDiscordLink")
-  verifiedResults      MatchResult[]
-  payments             Payment[]
-  sessions             Session[]
-  slotAssignments      SlotAssignment[]
-  teams                Team[]
-  templates            Template[]
-  invitedCollaborators TournamentCollaborator[] @relation("InvitedCollaborators")
-  collaborations       TournamentCollaborator[]
-  tournaments          Tournament[]
-  quickMatches         QuickMatch[]
-  subscription         Subscription?            @relation(fields: [subscriptionId], references: [id])
+  id                    String                   @id @default(cuid())
+  username              String                   @unique
+  subscriptionId        String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  phoneNumber           String                   @unique
+  credits               Int                      @default(0)
+  otp                   String?
+  otpExpiresAt          DateTime?
+  passwordHash          String?
+  subscriptionEndDate   DateTime?
+  subscriptionStatus    SubscriptionStatus       @default(INACTIVE)
+  fullName              String
+  organization          String?
+  accounts              Account[]
+  activityLogs          ActivityLog[]
+  discordUser           DiscordUser?             @relation("UserDiscordLink")
+  verifiedResults       MatchResult[]
+  payments              Payment[]
+  sessions              Session[]
+  slotAssignments       SlotAssignment[]
+  teams                 Team[]
+  templates             Template[]
+  invitedCollaborators  TournamentCollaborator[] @relation("InvitedCollaborators")
+  collaborations        TournamentCollaborator[]
+  tournaments           Tournament[]
+  quickMatches          QuickMatch[]
+  subscription          Subscription?            @relation(fields: [subscriptionId], references: [id])
+  quickTournamentSeries QuickTournamentSeries[]
 
   @@map("users")
 }
@@ -760,6 +761,84 @@ model DiscordTeamBan {
   @@map("discord_team_bans")
 }
 
+model QuickTournamentSeries {
+  id               String            @id @default(cuid())
+  seriesName       String
+  game             String            @default("BGMI")
+  totalMatches     Int               @default(3)
+  matchesCompleted Int               @default(0)
+  status           QuickSeriesStatus @default(CREATED)
+
+  // Aggregated scoring config (inherited by matches)
+  positionPointsConfig Json?
+  killPointsValue      Int     @default(1)
+  scoringDescription   String?
+
+  // Series progression
+  currentMatchNumber Int     @default(1)
+  isFinished         Boolean @default(false)
+  winnerTeamName     String?
+  finalStandings     Json? // Array of team standings
+
+  // Metadata
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seriesMatches QuickSeriesMatch[]
+  leaderboard   QuickSeriesLeaderboard?
+
+  // Indexes
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@map("quick_tournament_series")
+}
+
+model QuickSeriesMatch {
+  id           String    @id @default(cuid())
+  seriesId     String
+  quickMatchId String    @unique
+  matchOrder   Int // 1st match, 2nd match, etc.
+  isCompleted  Boolean   @default(false)
+  completedAt  DateTime?
+
+  // Match-specific overrides (optional)
+  matchWeight Float @default(1.0) // For weighted scoring
+  bonusPoints Int   @default(0) // Bonus points for this match
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  series     QuickTournamentSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  quickMatch QuickMatch            @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@unique([seriesId, matchOrder])
+  @@index([seriesId, matchOrder])
+  @@index([quickMatchId])
+  @@map("quick_series_matches")
+}
+
+model QuickSeriesLeaderboard {
+  id               String   @id @default(cuid())
+  seriesId         String   @unique
+  leaderboardData  Json // Array of team standings with aggregated scores
+  lastUpdatedMatch Int      @default(0)
+  generatedAt      DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  series QuickTournamentSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([seriesId])
+  @@map("quick_series_leaderboards")
+}
+
 model QuickMatch {
   id             String           @id @default(cuid())
   matchName      String
@@ -772,12 +851,12 @@ model QuickMatch {
   warningsCount  Int              @default(0)
 
   positionPointsConfig Json?
-  killPointsValue      Int   @default(1)  // Points per kill
+  killPointsValue      Int     @default(1) // Points per kill
   scoringDescription   String?
-  
-  userId         String
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations (rest stays same)
   user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -785,6 +864,7 @@ model QuickMatch {
   screenshots     QuickScreenshot[]
   results         QuickMatchResult[]
   pointsTable     QuickPointsTable?
+  seriesMatch     QuickSeriesMatch?
 
   // Indexes (rest stays same)
   @@index([userId, createdAt(sort: Desc)])
@@ -884,6 +964,13 @@ model QuickPointsTable {
   @@index([quickMatchId])
   @@index([expiresAt])
   @@map("quick_points_tables")
+}
+
+enum QuickSeriesStatus {
+  CREATED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
 }
 
 enum SubscriptionStatus {

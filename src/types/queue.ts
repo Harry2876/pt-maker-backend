@@ -96,7 +96,11 @@ export interface DatabaseSyncJob {
     | 'QUICK_RESULT_DELETE'
     | 'QUICK_POINTS_TABLE_CREATE'
     | 'QUICK_POINTS_TABLE_UPDATE'
-    | 'QUICK_POINTS_TABLE_DELETE';
+    | 'QUICK_POINTS_TABLE_DELETE'
+| 'QUICK_SERIES_CREATE'
+| 'QUICK_SERIES_UPDATE'
+| 'QUICK_SERIES_MATCH_CREATE'
+| 'QUICK_SERIES_LEADERBOARD_UPDATE';
     entityId: string;
     data: any;
     userId: string;

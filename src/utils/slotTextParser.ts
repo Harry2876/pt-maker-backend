@@ -164,7 +164,7 @@ export class SlotTextParser {
         const slotNumbers = slots.map(s => s.slotNumber);
         const duplicates = slotNumbers.filter((num, index) => slotNumbers.indexOf(num) !== index);
         if (duplicates.length > 0) {
-            errors.push(`Duplicate slot numbers found: ${[...new Set(duplicates)].join(', ')}`);
+            errors.push(`Duplicate slot numbers found: ${Array.from(new Set(duplicates)).join(', ')}`);
         }
 
         // Check for invalid team names

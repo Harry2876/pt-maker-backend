@@ -28,7 +28,7 @@ export interface StateTransitionResult extends StateValidationResult {
 }
 
 // Define all valid transitions
-export type ValidTransition = 
+export type ValidTransition =
     | { from: 'CREATED', to: 'SLOTS_UPLOADED' }
     | { from: 'SLOTS_UPLOADED', to: 'ATTENDANCE_UPLOADED' }
     | { from: 'ATTENDANCE_UPLOADED', to: 'RESULTS_UPLOADED' }
@@ -41,9 +41,14 @@ export type ValidTransition =
 export interface QuickMatchStateContext {
     id: string;
     currentStatus: QuickMatchStatus;
+    userId?: string;
     slotsCount?: number;
     attendanceScreenshotsCount?: number;
     resultScreenshotsCount?: number;
     processingStep?: string;
     teamsDetected?: number;
+    seriesId?: string;
+    isPartOfSeries?: boolean;
+    seriesCompletionRequirement?: number; // total matches needed
+    seriesMatchesCompleted?: number;
 }

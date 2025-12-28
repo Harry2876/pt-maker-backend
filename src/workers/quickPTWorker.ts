@@ -56,6 +56,15 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
                 case 'QUICK_POINTS_TABLE_DELETE':
                     return await this.syncQuickPointsTableDelete(entityId);
 
+                case 'QUICK_SERIES_CREATE':
+                    return await this.syncQuickSeriesCreate(data);
+                case 'QUICK_SERIES_UPDATE':
+                    return await this.syncQuickSeriesUpdate(entityId, data);
+                case 'QUICK_SERIES_MATCH_CREATE':
+                    return await this.syncQuickSeriesMatchCreate(data);
+                case 'QUICK_SERIES_LEADERBOARD_UPDATE':
+                    return await this.syncQuickSeriesLeaderboardUpdate(entityId, data);
+
                 default:
                     // Not a Quick-PT job, ignore
                     return;
@@ -119,7 +128,7 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
         try {
             // Extract only updatable fields (exclude id, userId, createdAt, dbStatus, dbSyncedAt)
             const { id, userId, createdAt, dbStatus, dbSyncedAt, ...updatableFields } = updateData;
-            
+
             await db.quickMatch.update({
                 where: { id: matchId },
                 data: {
@@ -193,7 +202,7 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
         try {
             // Extract only updatable fields (exclude id, quickMatchId, createdAt, dbStatus, dbSyncedAt)
             const { id, quickMatchId, createdAt, dbStatus, dbSyncedAt, ...updatableFields } = updateData;
-            
+
             await db.quickSlotAssignment.update({
                 where: { id: slotId },
                 data: {
@@ -314,25 +323,25 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async syncQuickResultUpdate(resultId: string, updateData: any): Promise<void> {
-    try {
-        // Extract only updatable fields (exclude id, quickMatchId, createdAt, dbStatus, dbSyncedAt)
-        const { id, quickMatchId, createdAt, dbStatus, dbSyncedAt, ...updatableFields } = updateData;
-        
-        await db.quickMatchResult.update({
-            where: { id: resultId },
-            data: {
-                ...updatableFields,
-                updatedAt: new Date()
-            }
-        });
+        try {
+            // Extract only updatable fields (exclude id, quickMatchId, createdAt, dbStatus, dbSyncedAt)
+            const { id, quickMatchId, createdAt, dbStatus, dbSyncedAt, ...updatableFields } = updateData;
 
-        await redis.hset(`quickResult:${resultId}`, 'dbStatus', 'SYNCED');
-        logger.info(`Quick Result ${resultId} updated in database`);
-    } catch (error) {
-        logger.error(`Error updating Quick Result ${resultId}:`, error);
-        throw error;
+            await db.quickMatchResult.update({
+                where: { id: resultId },
+                data: {
+                    ...updatableFields,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`quickResult:${resultId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Quick Result ${resultId} updated in database`);
+        } catch (error) {
+            logger.error(`Error updating Quick Result ${resultId}:`, error);
+            throw error;
+        }
     }
-}
 
     private async syncQuickResultDelete(resultId: string): Promise<void> {
         try {
@@ -347,10 +356,6 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
             throw error;
         }
     }
-
-    // ========================================
-    // QUICK POINTS TABLE SYNC METHODS
-    // ========================================
 
     private async syncQuickPointsTableCreate(tableData: any): Promise<void> {
         try {
@@ -386,7 +391,7 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
         try {
             // Extract only updatable fields (exclude id, quickMatchId, userId, createdAt, dbStatus, dbSyncedAt)
             const { id, quickMatchId, userId, createdAt, dbStatus, dbSyncedAt, ...updatableFields } = updateData;
-            
+
             await db.quickPointsTable.update({
                 where: { id: tableId },
                 data: {
@@ -413,6 +418,126 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
             logger.info(`Quick Points Table ${tableId} deleted from database`);
         } catch (error) {
             logger.error(`Error deleting Quick Points Table ${tableId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncQuickSeriesCreate(seriesData: any): Promise<void> {
+        try {
+            const series = await db.quickTournamentSeries.create({
+                data: {
+                    id: seriesData.id,
+                    seriesName: seriesData.seriesName,
+                    game: seriesData.game || 'BGMI',
+                    totalMatches: seriesData.totalMatches,
+                    matchesCompleted: seriesData.matchesCompleted || 0,
+                    status: seriesData.status,
+                    positionPointsConfig: seriesData.positionPointsConfig || null,
+                    killPointsValue: seriesData.killPointsValue || 1,
+                    scoringDescription: seriesData.scoringDescription,
+                    currentMatchNumber: seriesData.currentMatchNumber || 1,
+                    isFinished: seriesData.isFinished || false,
+                    winnerTeamName: seriesData.winnerTeamName,
+                    finalStandings: seriesData.finalStandings || null,
+                    userId: seriesData.userId,
+                    createdAt: new Date(seriesData.createdAt),
+                    updatedAt: new Date(seriesData.updatedAt || seriesData.createdAt)
+                }
+            });
+
+            await redis.hset(`quick_series:${series.id}`, 'dbStatus', 'SYNCED');
+            await redis.hset(`quick_series:${series.id}`, 'dbSyncedAt', new Date().toISOString());
+
+            logger.info(`Quick Series ${series.id} created and synced to database`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.warn(`Quick Series ${seriesData.id} already exists in database`);
+                await redis.hset(`quick_series:${seriesData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating Quick Series ${seriesData.id}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncQuickSeriesUpdate(seriesId: string, updateData: any): Promise<void> {
+        try {
+            const { id, userId, createdAt, dbStatus, dbSyncedAt, ...updatableFields } = updateData;
+
+            await db.quickTournamentSeries.update({
+                where: { id: seriesId },
+                data: {
+                    ...updatableFields,
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`quick_series:${seriesId}`, 'dbStatus', 'SYNCED');
+            logger.info(`Quick Series ${seriesId} updated in database`);
+        } catch (error) {
+            logger.error(`Error updating Quick Series ${seriesId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncQuickSeriesMatchCreate(matchData: any): Promise<void> {
+        try {
+            const seriesMatch = await db.quickSeriesMatch.create({
+                data: {
+                    id: matchData.id,
+                    seriesId: matchData.seriesId,
+                    quickMatchId: matchData.quickMatchId,
+                    matchOrder: matchData.matchOrder,
+                    isCompleted: matchData.isCompleted || false,
+                    completedAt: matchData.completedAt ? new Date(matchData.completedAt) : null,
+                    matchWeight: matchData.matchWeight || 1.0,
+                    bonusPoints: matchData.bonusPoints || 0,
+                    createdAt: new Date(matchData.createdAt),
+                    updatedAt: new Date(matchData.updatedAt || matchData.createdAt)
+                }
+            });
+
+            await redis.hset(`quick_series_match:${seriesMatch.id}`, 'dbStatus', 'SYNCED');
+            await redis.hset(`quick_series_match:${seriesMatch.id}`, 'dbSyncedAt', new Date().toISOString());
+
+            logger.info(`Quick Series Match ${seriesMatch.id} created and synced to database`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.warn(`Quick Series Match ${matchData.id} already exists in database`);
+                await redis.hset(`quick_series_match:${matchData.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating Quick Series Match ${matchData.id}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncQuickSeriesLeaderboardUpdate(seriesId: string, leaderboardData: any): Promise<void> {
+        try {
+            const leaderboard = await db.quickSeriesLeaderboard.upsert({
+                where: { seriesId: seriesId },
+                update: {
+                    leaderboardData: leaderboardData.leaderboardData,
+                    lastUpdatedMatch: leaderboardData.lastUpdatedMatch,
+                    generatedAt: new Date(leaderboardData.generatedAt),
+                    updatedAt: new Date()
+                },
+                create: {
+                    id: leaderboardData.id,
+                    seriesId: seriesId,
+                    leaderboardData: leaderboardData.leaderboardData,
+                    lastUpdatedMatch: leaderboardData.lastUpdatedMatch,
+                    generatedAt: new Date(leaderboardData.generatedAt),
+                    updatedAt: new Date(leaderboardData.updatedAt || leaderboardData.generatedAt)
+                }
+            });
+
+            await redis.hset(`quick_series_leaderboard:${seriesId}`, 'dbStatus', 'SYNCED');
+            await redis.hset(`quick_series_leaderboard:${seriesId}`, 'dbSyncedAt', new Date().toISOString());
+
+            logger.info(`Quick Series Leaderboard for series ${seriesId} updated in database`);
+        } catch (error) {
+            logger.error(`Error updating Quick Series Leaderboard for series ${seriesId}:`, error);
             throw error;
         }
     }

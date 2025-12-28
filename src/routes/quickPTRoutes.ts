@@ -26,6 +26,15 @@ import {
     exportPointsTableSchema
 } from '../validations/quickResultValidation';
 
+import { QuickSeriesController } from '../controllers/quickSeriesController';
+import {
+    createQuickSeriesSchema,
+    addMatchToSeriesSchema,
+    quickSeriesParamsSchema,
+    updateQuickSeriesSchema,
+    listQuickSeriesQuerySchema
+} from '../validations/quickSeriesValidation';
+
 /**
  * @swagger
  * tags:
@@ -1853,4 +1862,318 @@ quickPTRouter.get('/engines/status', QuickPTController.getEngineStatus);
  */
 quickPTRouter.get('/health', QuickPTController.getHealthStatus);
 
+/**
+ * @swagger
+ * /api/v1/quick-pt/series:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Create Tournament Series
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateQuickSeries'
+ *     responses:
+ *       201:
+ *         description: Tournament Series created successfully
+ */
+quickPTRouter.post('/series',
+    validateRequest(createQuickSeriesSchema, 'body'),
+    QuickSeriesController.createTournamentSeries
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/matches:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Add Match to Series
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AddMatchToSeries'
+ *     responses:
+ *       201:
+ *         description: Match added to series successfully
+ */
+quickPTRouter.post('/series/:id/matches',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    validateRequest(addMatchToSeriesSchema, 'body'),
+    QuickSeriesController.addMatchToSeries
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/matches:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get matches in Tournament Series
+ *     description: List all matches that belong to this tournament series
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Series matches retrieved successfully
+ *       404:
+ *         description: Tournament Series not found
+ */
+quickPTRouter.get('/series/:id/matches',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    QuickSeriesController.getSeriesMatches
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get Tournament Series by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Tournament Series retrieved successfully
+ *       404:
+ *         description: Tournament Series not found
+ */
+quickPTRouter.get('/series/:id',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    QuickSeriesController.getTournamentSeries
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: List all Tournament Series for user
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+ *         description: Filter by series status
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           maximum: 100
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Tournament Series list retrieved successfully
+ */
+quickPTRouter.get('/series',
+    validateRequest(listQuickSeriesQuerySchema, 'query'),
+    QuickSeriesController.listUserSeries
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}:
+ *   put:
+ *     tags: [Quick-PT]
+ *     summary: Update Tournament Series
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdateQuickSeries'
+ *     responses:
+ *       200:
+ *         description: Tournament Series updated successfully
+ *       404:
+ *         description: Tournament Series not found
+ */
+quickPTRouter.put('/series/:id',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    validateRequest(updateQuickSeriesSchema, 'body'),
+    QuickSeriesController.updateTournamentSeries
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}:
+ *   delete:
+ *     tags: [Quick-PT]
+ *     summary: Delete Tournament Series
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Tournament Series deleted successfully
+ *       404:
+ *         description: Tournament Series not found
+ */
+quickPTRouter.delete('/series/:id',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    QuickSeriesController.deleteTournamentSeries
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/leaderboard:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get Tournament Series Leaderboard
+ *     description: Retrieve current leaderboard with team standings and aggregated scores across all completed matches
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Tournament Series ID
+ *         example: "clx123abc456"
+ *     responses:
+ *       200:
+ *         description: Tournament Series leaderboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Series leaderboard retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     seriesId:
+ *                       type: string
+ *                     leaderboardData:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           teamName:
+ *                             type: string
+ *                             example: "Team Alpha"
+ *                           totalPoints:
+ *                             type: number
+ *                             example: 85
+ *                           matchesPlayed:
+ *                             type: integer
+ *                             example: 3
+ *                           bestPosition:
+ *                             type: integer
+ *                             example: 1
+ *                           worstPosition:
+ *                             type: integer
+ *                             example: 5
+ *                           totalKills:
+ *                             type: integer
+ *                             example: 45
+ *                           averagePosition:
+ *                             type: number
+ *                             example: 2.3
+ *                           matchResults:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *                               properties:
+ *                                 matchOrder:
+ *                                   type: integer
+ *                                 quickMatchId:
+ *                                   type: string
+ *                                 position:
+ *                                   type: integer
+ *                                 kills:
+ *                                   type: integer
+ *                                 points:
+ *                                   type: integer
+ *                                 bonusPoints:
+ *                                   type: integer
+ *                     lastUpdatedMatch:
+ *                       type: integer
+ *                       example: 3
+ *                     generatedAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *       404:
+ *         description: Tournament Series leaderboard not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Series leaderboard not found"
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.get('/series/:id/leaderboard',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    QuickSeriesController.getSeriesLeaderboard
+);
 export default quickPTRouter;
