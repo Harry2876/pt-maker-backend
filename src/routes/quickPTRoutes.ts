@@ -1830,8 +1830,16 @@ quickPTRouter.get('/engines/status', QuickPTController.getEngineStatus);
  * /api/v1/quick-pt/health:
  *   get:
  *     tags: [Quick-PT]
- *     summary: Get Python AI API health status
- *     description: Get overall health status of the Python AI processing API
+ *     summary: Quick PT System Health Check
+ *     description: |
+ *       Comprehensive health check for Quick PT system including AI processing, database, and storage services.
+ *       
+ *       **Health Checks:**
+ *       - Python AI processing API availability
+ *       - Database connectivity and performance  
+ *       - File storage service (R2) status
+ *       - Background job queue health
+ *       - System resource utilization
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -1853,10 +1861,133 @@ quickPTRouter.get('/engines/status', QuickPTController.getEngineStatus);
  *                   properties:
  *                     status:
  *                       type: string
+ *                       enum: [healthy, degraded, unhealthy]
  *                       example: "healthy"
  *                     message:
  *                       type: string
  *                       example: "All systems operational"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-04T14:30:00.000Z"
+ *                     services:
+ *                       type: object
+ *                       properties:
+ *                         aiProcessing:
+ *                           type: object
+ *                           properties:
+ *                             status:
+ *                               type: string
+ *                               enum: [up, down, limited]
+ *                               example: "up"
+ *                             responseTime:
+ *                               type: number
+ *                               description: Response time in milliseconds
+ *                               example: 250.5
+ *                             queueLength:
+ *                               type: integer
+ *                               description: Pending processing jobs
+ *                               example: 2
+ *                             lastHealthCheck:
+ *                               type: string
+ *                               format: date-time
+ *                         database:
+ *                           type: object
+ *                           properties:
+ *                             status:
+ *                               type: string
+ *                               enum: [up, down]
+ *                               example: "up"
+ *                             responseTime:
+ *                               type: number
+ *                               example: 45.2
+ *                             connectionPool:
+ *                               type: object
+ *                               properties:
+ *                                 active:
+ *                                   type: integer
+ *                                   example: 5
+ *                                 idle:
+ *                                   type: integer
+ *                                   example: 10
+ *                         storage:
+ *                           type: object
+ *                           properties:
+ *                             status:
+ *                               type: string
+ *                               enum: [up, down]
+ *                               example: "up"
+ *                             responseTime:
+ *                               type: number
+ *                               example: 120.8
+ *                             uploadsToday:
+ *                               type: integer
+ *                               example: 48
+ *                         backgroundJobs:
+ *                           type: object
+ *                           properties:
+ *                             status:
+ *                               type: string
+ *                               enum: [up, down]
+ *                               example: "up"
+ *                             activeWorkers:
+ *                               type: integer
+ *                               example: 3
+ *                             pendingJobs:
+ *                               type: integer
+ *                               example: 1
+ *                             failedJobs:
+ *                               type: integer
+ *                               example: 0
+ *                     systemMetrics:
+ *                       type: object
+ *                       properties:
+ *                         uptime:
+ *                           type: number
+ *                           description: System uptime in seconds
+ *                           example: 86400
+ *                         memoryUsage:
+ *                           type: object
+ *                           properties:
+ *                             used:
+ *                               type: number
+ *                               description: Used memory in MB
+ *                               example: 512.5
+ *                             total:
+ *                               type: number
+ *                               description: Total memory in MB
+ *                               example: 2048
+ *                             percentage:
+ *                               type: number
+ *                               example: 25.02
+ *                         cpuUsage:
+ *                           type: number
+ *                           description: CPU usage percentage
+ *                           example: 15.6
+ *       503:
+ *         description: Service unavailable - system unhealthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "System is unhealthy"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       example: "unhealthy"
+ *                     errors:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["AI service unavailable", "High response latency"]
  *       401:
  *         description: Unauthorized
  */
@@ -1868,6 +1999,13 @@ quickPTRouter.get('/health', QuickPTController.getHealthStatus);
  *   post:
  *     tags: [Quick-PT]
  *     summary: Create Tournament Series
+ *     description: |
+ *       Create a new tournament series to group multiple matches and track overall standings.
+ *       
+ *       **Use Cases:**
+ *       - Multi-match tournaments (BGMI leagues, scrims series)
+ *       - Overall championship tracking
+ *       - Aggregated leaderboards across matches
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -1875,10 +2013,126 @@ quickPTRouter.get('/health', QuickPTController.getHealthStatus);
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/CreateQuickSeries'
+ *             type: object
+ *             required:
+ *               - seriesName
+ *               - totalMatches
+ *             properties:
+ *               seriesName:
+ *                 type: string
+ *                 minLength: 3
+ *                 maxLength: 100
+ *                 pattern: '^[a-zA-Z0-9\s\-_]+$'
+ *                 example: "BGMI Championship Series"
+ *               game:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 50
+ *                 default: "BGMI"
+ *                 example: "BGMI"
+ *               totalMatches:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 20
+ *                 example: 5
+ *               positionPointsConfig:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                   minimum: 0
+ *                   maximum: 100
+ *                 minItems: 10
+ *                 maxItems: 10
+ *                 example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
+ *               killPointsValue:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 10
+ *                 default: 1
+ *                 example: 1
+ *               scoringDescription:
+ *                 type: string
+ *                 maxLength: 200
+ *                 example: "Standard BGMI tournament scoring"
  *     responses:
  *       201:
  *         description: Tournament Series created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament Series created successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "series_clx123abc456"
+ *                     seriesName:
+ *                       type: string
+ *                       example: "BGMI Championship Series"
+ *                     game:
+ *                       type: string
+ *                       example: "BGMI"
+ *                     totalMatches:
+ *                       type: integer
+ *                       example: 5
+ *                     matchesCompleted:
+ *                       type: integer
+ *                       example: 0
+ *                     status:
+ *                       type: string
+ *                       enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+ *                       example: "CREATED"
+ *                     positionPointsConfig:
+ *                       type: array
+ *                       items:
+ *                         type: integer
+ *                       example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
+ *                     killPointsValue:
+ *                       type: integer
+ *                       example: 1
+ *                     scoringDescription:
+ *                       type: string
+ *                       example: "Standard BGMI tournament scoring"
+ *                     currentMatchNumber:
+ *                       type: integer
+ *                       example: 1
+ *                     isFinished:
+ *                       type: boolean
+ *                       example: false
+ *                     userId:
+ *                       type: string
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-04T10:30:00.000Z"
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-04T10:30:00.000Z"
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Validation failed"
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.post('/series',
     validateRequest(createQuickSeriesSchema, 'body'),
@@ -1891,6 +2145,7 @@ quickPTRouter.post('/series',
  *   post:
  *     tags: [Quick-PT]
  *     summary: Add Match to Series
+ *     description: Add a completed Quick Match to tournament series for leaderboard calculation
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1900,15 +2155,75 @@ quickPTRouter.post('/series',
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: Tournament Series ID
+ *         example: "series_clx123abc456"
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/AddMatchToSeries'
+ *             type: object
+ *             required:
+ *               - quickMatchId
+ *             properties:
+ *               quickMatchId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: ID of completed Quick Match to add
+ *                 example: "clx123abc456"
  *     responses:
  *       201:
  *         description: Match added to series successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Match added to series successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     seriesId:
+ *                       type: string
+ *                       format: uuid
+ *                     quickMatchId:
+ *                       type: string
+ *                       format: uuid
+ *                     matchOrder:
+ *                       type: integer
+ *                       example: 1
+ *                     isCompleted:
+ *                       type: boolean
+ *                       example: true
+ *                     completedAt:
+ *                       type: string
+ *                       format: date-time
+ *                     matchWeight:
+ *                       type: number
+ *                       example: 1.0
+ *                     bonusPoints:
+ *                       type: number
+ *                       example: 0
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Match already in series or not completed
+ *       404:
+ *         description: Series or match not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.post('/series/:id/matches',
     validateRequest(quickSeriesParamsSchema, 'params'),
@@ -1922,7 +2237,7 @@ quickPTRouter.post('/series/:id/matches',
  *   get:
  *     tags: [Quick-PT]
  *     summary: Get matches in Tournament Series
- *     description: List all matches that belong to this tournament series
+ *     description: List all matches that belong to this tournament series with completion status
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1932,11 +2247,84 @@ quickPTRouter.post('/series/:id/matches',
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: Tournament Series ID
+ *         example: "series_clx123abc456"
  *     responses:
  *       200:
  *         description: Series matches retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Series matches retrieved successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       seriesId:
+ *                         type: string
+ *                         format: uuid
+ *                       quickMatchId:
+ *                         type: string
+ *                         format: uuid
+ *                       matchOrder:
+ *                         type: integer
+ *                         example: 1
+ *                       isCompleted:
+ *                         type: boolean
+ *                         example: true
+ *                       completedAt:
+ *                         type: string
+ *                         format: date-time
+ *                       matchWeight:
+ *                         type: number
+ *                         example: 1.0
+ *                       bonusPoints:
+ *                         type: number
+ *                         example: 0
+ *                       quickMatch:
+ *                         type: object
+ *                         properties:
+ *                           matchName:
+ *                             type: string
+ *                             example: "BGMI Scrims Match 1"
+ *                           status:
+ *                             type: string
+ *                             example: "COMPLETED"
+ *                           teamsDetected:
+ *                             type: integer
+ *                             example: 16
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                       updatedAt:
+ *                         type: string
+ *                         format: date-time
  *       404:
  *         description: Tournament Series not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament series not found"
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.get('/series/:id/matches',
     validateRequest(quickSeriesParamsSchema, 'params'),
@@ -1949,6 +2337,7 @@ quickPTRouter.get('/series/:id/matches',
  *   get:
  *     tags: [Quick-PT]
  *     summary: Get Tournament Series by ID
+ *     description: Retrieve detailed information about a tournament series including progress and statistics
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1958,11 +2347,109 @@ quickPTRouter.get('/series/:id/matches',
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: Tournament Series ID
+ *         example: "series_clx123abc456"
  *     responses:
  *       200:
  *         description: Tournament Series retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament series retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "series_clx123abc456"
+ *                     seriesName:
+ *                       type: string
+ *                       example: "BGMI Championship Series"
+ *                     game:
+ *                       type: string
+ *                       example: "BGMI"
+ *                     totalMatches:
+ *                       type: integer
+ *                       example: 5
+ *                     matchesCompleted:
+ *                       type: integer
+ *                       example: 3
+ *                     status:
+ *                       type: string
+ *                       enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+ *                       example: "IN_PROGRESS"
+ *                     positionPointsConfig:
+ *                       type: array
+ *                       items:
+ *                         type: integer
+ *                       example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
+ *                     killPointsValue:
+ *                       type: integer
+ *                       example: 1
+ *                     scoringDescription:
+ *                       type: string
+ *                       example: "Standard BGMI tournament scoring"
+ *                     currentMatchNumber:
+ *                       type: integer
+ *                       example: 4
+ *                     isFinished:
+ *                       type: boolean
+ *                       example: false
+ *                     winnerTeamName:
+ *                       type: string
+ *                       example: "Team Alpha"
+ *                     finalStandings:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           teamName:
+ *                             type: string
+ *                           totalPoints:
+ *                             type: number
+ *                           matchesPlayed:
+ *                             type: integer
+ *                           bestPosition:
+ *                             type: integer
+ *                           worstPosition:
+ *                             type: integer
+ *                           totalKills:
+ *                             type: integer
+ *                           averagePosition:
+ *                             type: number
+ *                     userId:
+ *                       type: string
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-04T10:30:00.000Z"
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-04T12:15:00.000Z"
  *       404:
  *         description: Tournament Series not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament series not found"
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.get('/series/:id',
     validateRequest(quickSeriesParamsSchema, 'params'),
@@ -1975,6 +2462,7 @@ quickPTRouter.get('/series/:id',
  *   get:
  *     tags: [Quick-PT]
  *     summary: List all Tournament Series for user
+ *     description: Get paginated list of user's tournament series with optional status filter
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1984,12 +2472,14 @@ quickPTRouter.get('/series/:id',
  *           type: string
  *           enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
  *         description: Filter by series status
+ *         example: "IN_PROGRESS"
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           default: 1
  *         description: Page number for pagination
+ *         example: 1
  *       - in: query
  *         name: limit
  *         schema:
@@ -1997,9 +2487,71 @@ quickPTRouter.get('/series/:id',
  *           default: 10
  *           maximum: 100
  *         description: Number of items per page
+ *         example: 10
  *     responses:
  *       200:
  *         description: Tournament Series list retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament Series retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     series:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           seriesName:
+ *                             type: string
+ *                             example: "BGMI Championship Series"
+ *                           game:
+ *                             type: string
+ *                             example: "BGMI"
+ *                           totalMatches:
+ *                             type: integer
+ *                             example: 5
+ *                           matchesCompleted:
+ *                             type: integer
+ *                             example: 3
+ *                           status:
+ *                             type: string
+ *                             enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+ *                             example: "IN_PROGRESS"
+ *                           currentMatchNumber:
+ *                             type: integer
+ *                             example: 4
+ *                           isFinished:
+ *                             type: boolean
+ *                             example: false
+ *                           winnerTeamName:
+ *                             type: string
+ *                             example: "Team Alpha"
+ *                           createdAt:
+ *                             type: string
+ *                             format: date-time
+ *                     total:
+ *                       type: integer
+ *                       example: 25
+ *                     page:
+ *                       type: integer
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       example: 10
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.get('/series',
     validateRequest(listQuickSeriesQuerySchema, 'query'),
@@ -2012,6 +2564,7 @@ quickPTRouter.get('/series',
  *   put:
  *     tags: [Quick-PT]
  *     summary: Update Tournament Series
+ *     description: Update tournament series details like name, scoring configuration, or status
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -2021,17 +2574,106 @@ quickPTRouter.get('/series',
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: Tournament Series ID
+ *         example: "series_clx123abc456"
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/UpdateQuickSeries'
+ *             type: object
+ *             minProperties: 1
+ *             properties:
+ *               seriesName:
+ *                 type: string
+ *                 minLength: 3
+ *                 maxLength: 100
+ *                 pattern: '^[a-zA-Z0-9\s\-_]+$'
+ *                 example: "BGMI Championship Series - Updated"
+ *               game:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 50
+ *                 example: "BGMI"
+ *               totalMatches:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 20
+ *                 example: 7
+ *               status:
+ *                 type: string
+ *                 enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+ *                 example: "IN_PROGRESS"
+ *               positionPointsConfig:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                   minimum: 0
+ *                   maximum: 100
+ *                 minItems: 10
+ *                 maxItems: 10
+ *                 example: [20, 15, 12, 10, 8, 6, 4, 2, 1, 0]
+ *               killPointsValue:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 10
+ *                 example: 2
+ *               scoringDescription:
+ *                 type: string
+ *                 maxLength: 200
+ *                 example: "Updated tournament scoring rules"
  *     responses:
  *       200:
  *         description: Tournament Series updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament Series updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     seriesName:
+ *                       type: string
+ *                       example: "BGMI Championship Series - Updated"
+ *                     game:
+ *                       type: string
+ *                       example: "BGMI"
+ *                     totalMatches:
+ *                       type: integer
+ *                       example: 7
+ *                     status:
+ *                       type: string
+ *                       example: "IN_PROGRESS"
+ *                     positionPointsConfig:
+ *                       type: array
+ *                       items:
+ *                         type: integer
+ *                       example: [20, 15, 12, 10, 8, 6, 4, 2, 1, 0]
+ *                     killPointsValue:
+ *                       type: integer
+ *                       example: 2
+ *                     scoringDescription:
+ *                       type: string
+ *                       example: "Updated tournament scoring rules"
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Validation error
  *       404:
  *         description: Tournament Series not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.put('/series/:id',
     validateRequest(quickSeriesParamsSchema, 'params'),
@@ -2045,6 +2687,7 @@ quickPTRouter.put('/series/:id',
  *   delete:
  *     tags: [Quick-PT]
  *     summary: Delete Tournament Series
+ *     description: Permanently delete tournament series and all associated data (matches, leaderboards)
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -2054,11 +2697,37 @@ quickPTRouter.put('/series/:id',
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: Tournament Series ID
+ *         example: "series_clx123abc456"
  *     responses:
  *       200:
  *         description: Tournament Series deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament Series deleted successfully"
  *       404:
  *         description: Tournament Series not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Tournament series not found"
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.delete('/series/:id',
     validateRequest(quickSeriesParamsSchema, 'params'),
