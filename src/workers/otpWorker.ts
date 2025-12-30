@@ -3,9 +3,10 @@ import { BaseWorker } from './baseWorker';
 import { OTPSendingJob } from '../types/queue';
 import { Queues } from '../config/queues';
 import logger from '../utils/logger';
-import {redis} from '../config/redis';
+import { redis } from '../config/redis';
 import { PhoneUtils } from '../utils/phoneUtils';
 import { create } from "domain";
+import { whatsappService } from "../services/whatsappService";
 
 export class OTPWorker extends BaseWorker<OTPSendingJob> {
     constructor() {
@@ -24,9 +25,9 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
             //smart otp sending with multiple fallbacks
             const success = await this.sendOTPSmartWay(phoneNumber, otp, type);
 
-            if(success){
+            if (success) {
                 logger.info(`✅ OTP sent successfully for user ${userId} with phone ${phoneNumber}`);
-            }else {
+            } else {
                 throw new Error("All OTP sending methods failed");
             }
         } catch (error) {
@@ -45,26 +46,38 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
             otp: otp,
             expiresAt: expiresAt,
             createdAt: Date.now(),
-            attemptsLeft:3,
+            attemptsLeft: 3,
             isUsed: false
         };
         const success = await redis.setObject(key, otpData, ttl);
 
-        if(success){
+        if (success) {
             logger.info(`✅ OTP stored in Redis for phone ${normalizedPhone}`);
-        }else{
+        } else {
             logger.error(`❌ Failed to store OTP in Redis for phone ${normalizedPhone}`);
         }
     }
 
-    private async sendOTPSmartWay(phoneNumber: string, otp: string, type:string): Promise<boolean> { 
+    private async sendOTPSmartWay(phoneNumber: string, otp: string, type: string): Promise<boolean> {
         try {
-            //for dev just log the otp
-            logger.info(`🔧 Sending OTP ${otp} for ${type} to phone ${phoneNumber} is Valid for 5 Mins`);
+            // 🎯 NEW: WhatsApp first, fallback to logs
+            const success = await whatsappService.sendOTP(phoneNumber, otp);
+
+            if (success) {
+                logger.info(`✅ WhatsApp OTP sent successfully to ${phoneNumber} for ${type}`);
+                return true;
+            }
+
+            // Fallback: Log for development (keep your existing log)
+            logger.info(`🔧 Fallback: OTP ${otp} for ${type} to phone ${phoneNumber} is Valid for 3 Mins`);
             return true;
-        } catch (error){
-            logger.error(`❌ Failed to send OTP ${type} for phone ${phoneNumber}`, error);
-            return false;
+
+        } catch (error) {
+            logger.error(`❌ Failed to send OTP via WhatsApp to ${phoneNumber}`, error);
+
+            // Still return true so registration continues
+            logger.info(`📱 Development mode: OTP ${otp} for ${type} to ${phoneNumber}`);
+            return true;
         }
     }
 

@@ -63,6 +63,11 @@ const envSchema = z.object({
   PRODUCTION_ORIGINS: z.string().optional(),
   ENABLE_CSRF_PROTECTION: z.string().optional().default('true'),
   SESSION_SECURE_COOKIES: z.string().optional().default('false'),
+  // WhatsApp Business API Configuration
+  WHATSAPP_ACCESS_TOKEN: z.string().min(50, 'WHATSAPP_ACCESS_TOKEN must be a valid Meta access token'),
+  WHATSAPP_BUSINESS_PHONE_NUMBER_ID: z.string().min(10, 'WHATSAPP_BUSINESS_PHONE_NUMBER_ID is required'),
+  WHATSAPP_API_VERSION: z.string().optional().default('v22.0'),
+  WHATSAPP_API_BASE_URL: z.string().url('Invalid WHATSAPP_API_BASE_URL').optional().default('https://graph.facebook.com'),
 });
 
 export function validateEnvironment() {
