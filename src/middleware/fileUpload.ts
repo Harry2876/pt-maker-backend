@@ -104,16 +104,36 @@ export const trackUploadProgress = (uploadType: 'screenshot' | 'template') => {
 
                 req.screenshotType = screenshotType as 'ATTENDANCE' | 'RESULT' | 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE';
             }
-            //check for concurrent uploads
             const activeUpload = await redis.get(`upload:active:${userId}`);
 
             if (activeUpload) {
-                res.status(429).json({
-                    success: false,
-                    message: 'upload already in progress. Please wait for current one to finish',
-                    activeUploadId: activeUpload
-                });
-                return;
+                // ✅ NEW: Check if upload is actually stuck (older than 5 minutes)
+                const progressData = await redis.getObject<UploadProgress>(`upload:progress:${activeUpload}`);
+
+                if (progressData) {
+                    const uploadAge = Date.now() - new Date(progressData.startTime).getTime();
+                    const FIVE_MINUTES = 5 * 60 * 1000;
+
+                    if (uploadAge > FIVE_MINUTES && progressData.status !== 'COMPLETED') {
+                        // Upload is stuck, clean it up and allow new upload
+                        logger.warn(`Cleaning up stuck upload ${activeUpload} for user ${userId} (age: ${uploadAge}ms)`);
+                        await redis.delete(`upload:active:${userId}`);
+                        await redis.delete(`upload:progress:${activeUpload}`);
+                    } else {
+                        // Upload is active and recent, block the request
+                        res.status(429).json({
+                            success: false,
+                            message: 'upload already in progress. Please wait for current one to finish',
+                            activeUploadId: activeUpload,
+                            timeRemaining: Math.max(0, FIVE_MINUTES - uploadAge)
+                        });
+                        return;
+                    }
+                } else {
+                    // Progress data missing, clean up the lock
+                    logger.warn(`Cleaning up orphaned upload lock for user ${userId}`);
+                    await redis.delete(`upload:active:${userId}`);
+                }
             }
 
             //initialize upload tracking
@@ -170,8 +190,62 @@ export const createUploadMiddleware = (uploadType: 'screenshot' | 'template') =>
     return [
         trackUploadProgress(uploadType),
         multerMiddleware,
+        handleMulterError,
         handleUploadComplete
     ];
+};
+
+//multer error handling middleware
+const handleMulterError = (err: any, req: Request, res: Response, next: NextFunction) => {
+    if (err) {
+        // Multer error occurred, cleanup upload lock
+        if (req.uploadId && req.user) {
+            cleanupFailedUpload(req.uploadId, req.user.id, err).catch(cleanupError => {
+                logger.error('Failed to cleanup after Multer error:', cleanupError);
+            });
+        }
+
+        // Handle specific Multer errors
+        if (err.code === 'UNEXPECTED_FIELD') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid file field name. Expected field name: "screenshots"',
+                error: {
+                    code: 'INVALID_FIELD_NAME',
+                    details: 'Make sure your form field is named "screenshots" (plural)',
+                    expectedField: 'screenshots'
+                }
+            });
+        } else if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+                success: false,
+                message: 'File too large. Maximum size is 10MB per file',
+                error: {
+                    code: 'FILE_TOO_LARGE',
+                    maxSize: '10MB'
+                }
+            });
+        } else if (err.code === 'LIMIT_FILE_COUNT') {
+            return res.status(400).json({
+                success: false,
+                message: 'Too many files. Maximum is 10 files per upload',
+                error: {
+                    code: 'TOO_MANY_FILES',
+                    maxFiles: 10
+                }
+            });
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'File upload error',
+                error: {
+                    code: 'UPLOAD_ERROR',
+                    details: err.message
+                }
+            });
+        }
+    }
+    next();
 };
 
 //post upload processing
@@ -219,7 +293,7 @@ const handleUploadComplete = async (req: Request, res: Response, next: NextFunct
                     : req.screenshotType === 'RESULT' ? 'RESULT_IMAGE'
                         : req.screenshotType!; // Already in R2 format for Tournament system
 
-                const context = req.path.includes('/quick-pt/') ? 'quick-pt' : 'tournament';
+                const context = (req.originalUrl.includes('/quick-pt/') || req.baseUrl.includes('/quick-pt')) ? 'quick-pt' : 'tournament';
 
                 const r2Result = await r2Service.uploadFile(
                     file.buffer,

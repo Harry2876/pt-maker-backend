@@ -400,12 +400,29 @@ uploadRouter.use(authenticateUser);
  *                       type: string
  *                       example: "1.0"
  */
-// Screenshot upload routes
-uploadRouter.post('/matches/:id/screenshots/upload',
-    validateRequest(matchParamsSchema, 'params'),
-    ...screenshotUpload, // This spreads the middleware array
-    UploadController.uploadScreenshots
-);
+// uploadRouter.post('/matches/:id/screenshots/upload',
+//     validateRequest(matchParamsSchema, 'params'),
+//     ...screenshotUpload, // This spreads the middleware array
+//     UploadController.uploadScreenshots
+// );
+
+// Temporary endpoint to inform users about the maintenance
+uploadRouter.post('/matches/:id/screenshots/upload', (req, res) => {
+    res.status(503).json({
+        success: false,
+        message: 'Tournament screenshot upload temporarily disabled for maintenance.',
+        error: {
+            code: 'FEATURE_DISABLED',
+            details: 'Please use Quick PT system for screenshot uploads or contact support.',
+            maintenance: true,
+            alternativeEndpoint: '/api/v1/quick-pt/matches/{id}/screenshots'
+        },
+        meta: {
+            timestamp: new Date().toISOString(),
+            version: "1.0"
+        }
+    });
+});
 
 /**
  * @swagger

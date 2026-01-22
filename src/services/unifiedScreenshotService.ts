@@ -25,36 +25,38 @@ export class UnifiedScreenshotService extends BaseService {
             uploadId: string;
         }
     ) {
-            // Track files for cleanup
-            const uploadedFiles = uploadData.files;
-            let databaseSuccess = false;
+        // Track files for cleanup
+        const uploadedFiles = uploadData.files;
+        let databaseSuccess = false;
 
-            try {
-                const result = await this.db.$transaction(async (tx) => {
-                    if (context === 'tournament') {
-                        return await this.processTournamentScreenshots(matchId, userId, uploadData);
-                    } else {
-                        return await this.processQuickPtScreenshots(matchId, userId, uploadData);
-                    }
-                }, {
-                    timeout: 30000,
-                    maxWait: 10000
-                });
-
-                databaseSuccess = true;
-                return result;
-
-            } catch (error) {
-                this.logger.error(`❌ Database transaction failed for ${context} upload:`, error);
-
-                // CRITICAL: Only cleanup R2 if database failed
-                if (!databaseSuccess) {
-                    await this.cleanupR2Files(uploadedFiles);
-                    this.logger.info(`🧹 Cleaned up ${uploadedFiles.length} R2 files after DB failure`);
+        try {
+            const result = await this.db.$transaction(async (tx) => {
+                if (context === 'tournament') {
+                    return await this.processTournamentScreenshots(matchId, userId, uploadData);
+                } else {
+                    return await this.processQuickPtScreenshots(matchId, userId, uploadData);
                 }
+            }, {
+                timeout: 30000,
+                maxWait: 10000
+            });
 
-                throw error;
+            databaseSuccess = true;
+            return result;
+
+        } catch (error) {
+            this.logger.error(`❌ Database transaction failed for ${context} upload:`, error);
+
+            // CRITICAL: Only cleanup R2 if database failed
+            if (!databaseSuccess) {
+                await this.cleanupR2Files(uploadedFiles);
+                this.logger.info(`🧹 Cleaned up ${uploadedFiles.length} R2 files after DB failure`);
             }
+
+            throw error;
+        } finally {
+            await this.cleanupUploadLock(uploadData.uploadId, userId);
+        }
     }
 
     private async processTournamentScreenshots(matchId: string, userId: string, uploadData: {
@@ -219,6 +221,8 @@ export class UnifiedScreenshotService extends BaseService {
 
             return screenshots;
         } catch (error) {
+            // Update upload progress with error
+            await this.updateUploadProgress(uploadData.uploadId, 'FAILED', 0, (error as any).message);
             this.logger.error(`❌ Failed to save Quick PT screenshots for match ${quickMatchId} by user ${userId}`, {
                 error: (error as any).message,
                 uploadId: uploadData.uploadId
@@ -271,9 +275,22 @@ export class UnifiedScreenshotService extends BaseService {
             }
         }
     }
-        /**
-     * List screenshots for a match (context-aware)
-     */
+
+    /**
+    * Clean up upload lock from Redis
+    * CRITICAL: Must be called after every upload (success or failure)
+    */
+    private async cleanupUploadLock(uploadId: string, userId: string) {
+        try {
+            await redis.delete(`upload:active:${userId}`);;
+            this.logger.info(`🧹 Cleaned up upload lock for uploadId: ${uploadId}, userId: ${userId}`);
+        } catch (error) {
+            this.logger.warn(`⚠️ Failed to clean up upload lock for uploadId: ${uploadId}, userId: ${userId}:`, error);
+        }
+    }
+    /**
+ * List screenshots for a match (context-aware)
+ */
     async listScreenshots(
         context: 'tournament' | 'quick-pt',
         matchId: string,
@@ -289,7 +306,7 @@ export class UnifiedScreenshotService extends BaseService {
             } else {
                 return await this.listQuickPtScreenshots(matchId, userId, filters);
             }
-          } catch (error) {
+        } catch (error) {
             this.handleError(error, 'List Screenshots');
             return []; // Return empty array instead of throwing
         }
@@ -386,9 +403,9 @@ export class UnifiedScreenshotService extends BaseService {
 
         return screenshots;
     }
-        /**
-     * Delete screenshot (context-aware)
-     */
+    /**
+ * Delete screenshot (context-aware)
+ */
     async deleteScreenshot(
         context: 'tournament' | 'quick-pt',
         screenshotId: string,
@@ -487,9 +504,9 @@ export class UnifiedScreenshotService extends BaseService {
 
         return { success: true, message: 'Quick PT screenshot deleted successfully' };
     }
-        /**
-     * Mark screenshots as processed (Quick PT only)
-     */
+    /**
+ * Mark screenshots as processed (Quick PT only)
+ */
     async markScreenshotsProcessed(
         quickMatchId: string,
         type: any,
@@ -524,7 +541,7 @@ export class UnifiedScreenshotService extends BaseService {
             throw error;
         }
     }
-        private async populateTournamentScreenshotCache(matchId: string, screenshots: any[]) {
+    private async populateTournamentScreenshotCache(matchId: string, screenshots: any[]) {
         try {
             const promises = screenshots.map(async (screenshot) => {
                 await redis.hsetObject(`screenshot:${screenshot.id}`, {
@@ -547,7 +564,7 @@ export class UnifiedScreenshotService extends BaseService {
     private async getQuickScreenshotById(screenshotId: string) {
         // Check Redis cache first
         const cached = await redis.hgetObject<any>(`quickScreenshot:${screenshotId}`);
-        
+
         if (cached) {
             return cached;
         }

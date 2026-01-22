@@ -973,7 +973,6 @@ quickPTRouter.post(
     '/matches/:id/screenshots',
     validateRequest(quickMatchParamsSchema, 'params'),
     screenshotUpload, // File upload middleware (validates query type)
-    validateRequest(uploadQuickScreenshotSchema), // Validate body (pageNumber)
     QuickPTController.uploadScreenshots
 );
 

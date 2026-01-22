@@ -6,12 +6,12 @@ export const uploadQuickScreenshotSchema = z.object({
         message: 'Screenshot type must be either ATTENDANCE or RESULT'
     }).optional(), // Make it optional since middleware handles it
     
-    pageNumber: z.number()
-        .int('Page number must be an integer')
-        .positive('Page number must be positive')
-        .min(1, 'Page number must be at least 1')
-        .max(20, 'Page number cannot exceed 20')
-        .optional()
+    pageNumber: z.string()
+    .transform(val => val ? parseInt(val, 10) : undefined)
+    .refine(val => val === undefined || (Number.isInteger(val) && val >= 1 && val <= 20), {
+        message: 'Page number must be an integer between 1 and 20'
+    })
+    .optional()
 });
 
 // Screenshot params
