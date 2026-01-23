@@ -22,19 +22,56 @@ export class UploadController {
         }
 
         const uploadInfo = req.uploadInfo;
+        const type = req.screenshotType;
+        const results = [];
+        const errors = [];
 
-        const result = await unifiedScreenshotService.processScreenshotUpload(
-            'tournament', matchId, userId, { files: uploadInfo.files, uploadId: uploadInfo.uploadId }
-        );
-
-        if (!result) {
-            return res.status(500).json(ResponseHelper.serverError('Failed to upload screenshots'));
+        try {
+            const screenshots = await unifiedScreenshotService.processScreenshotUpload(
+                'tournament', 
+                matchId, 
+                userId, 
+                { 
+                    files: uploadInfo.files, 
+                    uploadId: uploadInfo.uploadId,
+                    screenshotType: type // Pass the screenshot type from middleware
+                }
+            );
+            results.push(...screenshots);
+        } catch (error: any) {
+            errors.push(`Upload failed: ${error.message}`);
         }
 
-        return res.status(201).json(ResponseHelper.success('Screenshots uploaded successfully', {
-            screenshots: result,
-            uploadId: uploadInfo.uploadId
-        }));
+        // Determine success based on whether we have results and no errors
+        const hasSuccessfulUploads = results.length > 0;
+        const hasErrors = errors.length > 0;
+        const success = hasSuccessfulUploads && !hasErrors;
+
+        return res.status(success ? 201 : 400).json(
+            success 
+                ? ResponseHelper.success('Screenshots uploaded successfully', {
+                    uploaded: results,
+                    errors: errors,
+                    uploadId: uploadInfo.uploadId
+                })
+                : {
+                    success: false,
+                    message: 'Screenshot upload failed',
+                    data: {
+                        uploaded: results,
+                        errors: errors,
+                        uploadId: uploadInfo.uploadId
+                    },
+                    error: {
+                        code: 'UPLOAD_ERROR',
+                        timestamp: new Date().toISOString()
+                    },
+                    meta: {
+                        timestamp: new Date().toISOString(),
+                        version: '1.0'
+                    }
+                }
+        );
     });
 
     // Get match screenshots

@@ -23,6 +23,7 @@ export class UnifiedScreenshotService extends BaseService {
                 path: string;
             }>;
             uploadId: string;
+            screenshotType?: string; // Add optional screenshot type
         }
     ) {
         // Track files for cleanup
@@ -68,6 +69,7 @@ export class UnifiedScreenshotService extends BaseService {
             path: string;
         }>;
         uploadId: string;
+        screenshotType?: string; // Add optional screenshot type
     }) {
         try {
             // 1. Verify match ownership
@@ -143,6 +145,7 @@ export class UnifiedScreenshotService extends BaseService {
             path: string;
         }>;
         uploadId: string;
+        screenshotType?: string; // Add optional screenshot type
     }) {
         try {
             // Import the service we need
@@ -160,13 +163,20 @@ export class UnifiedScreenshotService extends BaseService {
             for (const file of uploadData.files) {
                 const screenshotId = randomUUID();
 
+                // Determine screenshot type from upload data or default to RESULT
+                let screenshotType = uploadData.screenshotType || 'RESULT';
+                
+                // Normalize type names for consistency
+                if (screenshotType === 'ATTENDANCE_IMAGE') screenshotType = 'ATTENDANCE';
+                if (screenshotType === 'RESULT_IMAGE') screenshotType = 'RESULT';
+
                 const screenshot = {
                     id: screenshotId,
                     quickMatchId,
                     originalName: file.originalName,
                     fileName: file.fileName,
                     storageUrl: file.path,
-                    type: 'RESULT', // Default type, can be overridden
+                    type: screenshotType, // Use the determined type
                     pageNumber: undefined,
                     isProcessed: false,
                     uploadedAt: new Date().toISOString(),
@@ -505,10 +515,10 @@ export class UnifiedScreenshotService extends BaseService {
         await redis.srem(`quickMatch:${matchId}:screenshots:${screenshot.type}`, screenshotId);
 
         if (screenshot.type === 'ATTENDANCE') {
-    await redis.srem(`quickMatch:${matchId}:attendanceScreenshots`, screenshotId);
-} else if (screenshot.type === 'RESULT') {
-    await redis.srem(`quickMatch:${matchId}:resultScreenshots`, screenshotId);
-}
+            await redis.srem(`quickMatch:${matchId}:attendanceScreenshots`, screenshotId);
+        } else if (screenshot.type === 'RESULT') {
+            await redis.srem(`quickMatch:${matchId}:resultScreenshots`, screenshotId);
+        }
 
         this.logger.info(`Quick PT screenshot ${screenshotId} deleted`);
 

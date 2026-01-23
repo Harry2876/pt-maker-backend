@@ -250,19 +250,46 @@ export class QuickPTController {
                 'quick-pt',
                 quickMatchId,
                 userId,
-                { files: uploadInfo.files, uploadId: uploadInfo.uploadId }
+                { 
+                    files: uploadInfo.files, 
+                    uploadId: uploadInfo.uploadId,
+                    screenshotType: type // Pass the screenshot type from middleware
+                }
             );
             results.push(...screenshots);
         } catch (error: any) {
             errors.push(`Upload failed: ${error.message}`);
         }
 
-        return res.status(201).json(
-            ResponseHelper.success('Screenshots uploaded successfully', {
-                uploaded: results,
-                errors: errors,
-                uploadId: uploadInfo.uploadId
-            })
+        // Determine success based on whether we have results and no errors
+        const hasSuccessfulUploads = results.length > 0;
+        const hasErrors = errors.length > 0;
+        const success = hasSuccessfulUploads && !hasErrors;
+
+        return res.status(success ? 201 : 400).json(
+            success 
+                ? ResponseHelper.success('Screenshots uploaded successfully', {
+                    uploaded: results,
+                    errors: errors,
+                    uploadId: uploadInfo.uploadId
+                })
+                : {
+                    success: false,
+                    message: 'Screenshot upload failed',
+                    data: {
+                        uploaded: results,
+                        errors: errors,
+                        uploadId: uploadInfo.uploadId
+                    },
+                    error: {
+                        code: 'UPLOAD_ERROR',
+                        timestamp: new Date().toISOString()
+                    },
+                    meta: {
+                        timestamp: new Date().toISOString(),
+                        version: '1.0'
+                    }
+                }
         );
     });
 
