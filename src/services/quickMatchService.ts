@@ -26,46 +26,127 @@ export class QuickMatchService extends BaseService {
                 return null;
             }
 
-            // Get counts from database for accuracy
-            const dbMatch = await this.db.quickMatch.findUnique({
-                where: { id: quickMatchId },
-                include: {
-                    _count: {
-                        select: {
-                            slotAssignments: true,
-                            screenshots: {
-                                where: { type: 'ATTENDANCE' }
-                            },
-                            results: true
-                        }
-                    }
-                }
-            });
+            // Hybrid approach: Try Redis first, fallback to database
+            let slotsCount = 0;
+            let attendanceScreenshotsCount = 0;
+            let resultScreenshotsCount = 0;
 
-            if (!dbMatch) {
-                return null;
+            try {
+                // Try Redis first (current application state)
+                slotsCount = await redis.scard(`quickMatch:${quickMatchId}:slots`);
+                attendanceScreenshotsCount = await redis.scard(`quickMatch:${quickMatchId}:attendanceScreenshots`) || 0;
+                resultScreenshotsCount = await redis.scard(`quickMatch:${quickMatchId}:resultScreenshots`) || 0;
+
+                // If Redis has no data (system restart/maintenance), recover from database
+                if (slotsCount === 0) {
+                    const recoveredCounts = await this.recoverStateFromDatabase(quickMatchId);
+                    slotsCount = recoveredCounts.slotsCount;
+                    attendanceScreenshotsCount = recoveredCounts.attendanceScreenshotsCount;
+                    resultScreenshotsCount = recoveredCounts.resultScreenshotsCount;
+                }
+
+            } catch (redisError) {
+                // Redis unavailable, fallback to database completely
+                this.logger.warn(`Redis unavailable for state context, using database fallback:`, redisError);
+                const recoveredCounts = await this.recoverStateFromDatabase(quickMatchId);
+                slotsCount = recoveredCounts.slotsCount;
+                attendanceScreenshotsCount = recoveredCounts.attendanceScreenshotsCount;
+                resultScreenshotsCount = recoveredCounts.resultScreenshotsCount;
             }
-
-            // Get result screenshots count separately
-            const resultScreenshotsCount = await this.db.quickScreenshot.count({
-                where: {
-                    quickMatchId,
-                    type: 'RESULT'
-                }
-            });
 
             return {
                 id: quickMatch.id,
                 currentStatus: quickMatch.status,
-                slotsCount: dbMatch._count.slotAssignments,
-                attendanceScreenshotsCount: dbMatch._count.screenshots,
-                resultScreenshotsCount,
+                slotsCount: slotsCount,
+                attendanceScreenshotsCount: attendanceScreenshotsCount,
+                resultScreenshotsCount: resultScreenshotsCount,
                 processingStep: quickMatch.processingStep,
                 teamsDetected: quickMatch.teamsDetected
             };
         } catch (error) {
             this.logger.error(`Error building state context for match ${quickMatchId}:`, error);
             return null;
+        }
+    }
+
+    /**
+     * Recover state from database and rebuild Redis cache
+     */
+    private async recoverStateFromDatabase(quickMatchId: string): Promise<{
+        slotsCount: number;
+        attendanceScreenshotsCount: number;
+        resultScreenshotsCount: number;
+    }> {
+        try {
+            // Get counts from database
+            const dbMatch = await this.db.quickMatch.findUnique({
+                where: { id: quickMatchId },
+                include: {
+                    slotAssignments: { select: { id: true } },
+                    screenshots: { 
+                        select: { id: true, type: true },
+                        where: { type: { in: ['ATTENDANCE', 'RESULT'] } }
+                    }
+                }
+            });
+
+            if (!dbMatch) {
+                return { slotsCount: 0, attendanceScreenshotsCount: 0, resultScreenshotsCount: 0 };
+            }
+
+            const slotsCount = dbMatch.slotAssignments.length;
+            const attendanceScreenshots = dbMatch.screenshots.filter(s => s.type === 'ATTENDANCE');
+            const resultScreenshots = dbMatch.screenshots.filter(s => s.type === 'RESULT');
+
+            // Rebuild Redis state for future requests (fire and forget)
+            this.rebuildRedisState(quickMatchId, {
+                slotIds: dbMatch.slotAssignments.map(s => s.id),
+                attendanceScreenshotIds: attendanceScreenshots.map(s => s.id),
+                resultScreenshotIds: resultScreenshots.map(s => s.id)
+            }).catch(error => {
+                this.logger.warn(`Failed to rebuild Redis state for match ${quickMatchId}:`, error);
+            });
+
+            this.logger.info(`Recovered state from database for match ${quickMatchId}: ${slotsCount} slots, ${attendanceScreenshots.length} attendance, ${resultScreenshots.length} results`);
+
+            return {
+                slotsCount: slotsCount,
+                attendanceScreenshotsCount: attendanceScreenshots.length,
+                resultScreenshotsCount: resultScreenshots.length
+            };
+
+        } catch (error) {
+            this.logger.error(`Failed to recover state from database for match ${quickMatchId}:`, error);
+            return { slotsCount: 0, attendanceScreenshotsCount: 0, resultScreenshotsCount: 0 };
+        }
+    }
+
+    /**
+     * Rebuild Redis state from database data (async)
+     */
+    private async rebuildRedisState(quickMatchId: string, data: {
+        slotIds: string[];
+        attendanceScreenshotIds: string[];
+        resultScreenshotIds: string[];
+    }): Promise<void> {
+        try {
+            // Rebuild slot state
+            if (data.slotIds.length > 0) {
+                await redis.sadd(`quickMatch:${quickMatchId}:slots`, ...data.slotIds);
+            }
+
+            // Rebuild screenshot state
+            if (data.attendanceScreenshotIds.length > 0) {
+                await redis.sadd(`quickMatch:${quickMatchId}:attendanceScreenshots`, ...data.attendanceScreenshotIds);
+            }
+
+            if (data.resultScreenshotIds.length > 0) {
+                await redis.sadd(`quickMatch:${quickMatchId}:resultScreenshots`, ...data.resultScreenshotIds);
+            }
+
+            this.logger.info(`Redis state rebuilt for match ${quickMatchId}`);
+        } catch (error) {
+            this.logger.error(`Failed to rebuild Redis state for match ${quickMatchId}:`, error);
         }
     }
 

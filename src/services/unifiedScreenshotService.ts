@@ -176,7 +176,11 @@ export class UnifiedScreenshotService extends BaseService {
                 // 3. Store in Redis
                 await redis.hsetObject(`quickScreenshot:${screenshotId}`, screenshot);
                 await redis.sadd(`quickMatch:${quickMatchId}:screenshots`, screenshotId);
-                await redis.sadd(`quickMatch:${quickMatchId}:screenshots:${screenshot.type}`, screenshotId);
+                if (screenshot.type === 'ATTENDANCE') {
+                    await redis.sadd(`quickMatch:${quickMatchId}:attendanceScreenshots`, screenshotId);
+                } else if (screenshot.type === 'RESULT') {
+                    await redis.sadd(`quickMatch:${quickMatchId}:resultScreenshots`, screenshotId);
+                }
 
                 // 4. Queue database sync
                 await QueueService.syncQuickPtImmediately('QUICK_SCREENSHOT', 'CREATE', screenshotId, screenshot, userId);
@@ -282,7 +286,7 @@ export class UnifiedScreenshotService extends BaseService {
     */
     private async cleanupUploadLock(uploadId: string, userId: string) {
         try {
-            await redis.delete(`upload:active:${userId}`);;
+            await redis.delete(`upload:active:${userId}`);
             this.logger.info(`🧹 Cleaned up upload lock for uploadId: ${uploadId}, userId: ${userId}`);
         } catch (error) {
             this.logger.warn(`⚠️ Failed to clean up upload lock for uploadId: ${uploadId}, userId: ${userId}:`, error);
@@ -499,6 +503,12 @@ export class UnifiedScreenshotService extends BaseService {
         await redis.delete(`quickScreenshot:${screenshotId}`);
         await redis.srem(`quickMatch:${matchId}:screenshots`, screenshotId);
         await redis.srem(`quickMatch:${matchId}:screenshots:${screenshot.type}`, screenshotId);
+
+        if (screenshot.type === 'ATTENDANCE') {
+    await redis.srem(`quickMatch:${matchId}:attendanceScreenshots`, screenshotId);
+} else if (screenshot.type === 'RESULT') {
+    await redis.srem(`quickMatch:${matchId}:resultScreenshots`, screenshotId);
+}
 
         this.logger.info(`Quick PT screenshot ${screenshotId} deleted`);
 

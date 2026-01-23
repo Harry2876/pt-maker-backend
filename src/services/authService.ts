@@ -619,7 +619,7 @@ export class AuthService extends BaseService {
                 const cachedUser = await redis.getObject<CachedUser>(`user_cache:${normalizedPhone}`);
                 if (cachedUser) {
                     cachedUser.lastLoginAt = new Date().toISOString();
-                    await redis.hsetObject(`user_cache:${normalizedPhone}`, cachedUser);
+                    await redis.setObject(`user_cache:${normalizedPhone}`, cachedUser, 3600);
                     await redis.expire(`user_cache:${normalizedPhone}`, 3600);
                 }
             } else {

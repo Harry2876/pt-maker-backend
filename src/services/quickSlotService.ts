@@ -2,14 +2,16 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
-import { 
-    QuickSlotCache, 
-    CreateQuickSlotData, 
+import { db } from '../config/database';
+import {
+    QuickSlotCache,
+    CreateQuickSlotData,
     UpdateQuickSlotData,
     BulkSlotUpload,
     SlotStatus,
     ParsedSlot
 } from '../types/quickSlot';
+import { quickPtSyncQueue } from '../config/queues';
 import { SlotTextParser, ParseResult } from '../utils/slotTextParser';
 import { quickMatchService } from './quickMatchService';
 
@@ -64,7 +66,7 @@ export class QuickSlotService extends BaseService {
             await redis.hsetObject(`quickMatch:${quickMatchId}:slot:${data.slotNumber}`, slot);
             await redis.sadd(`quickMatch:${quickMatchId}:slots`, slotId);
 
-            // 7. Queue database sync
+            // 7. Queue database sync (maintain architecture consistency)
             await QueueService.syncQuickPtImmediately('QUICK_SLOT', 'CREATE', slotId, slot, userId);
 
             // 8. Update match status to SLOTS_UPLOADED if this is the first slot
@@ -128,10 +130,10 @@ export class QuickSlotService extends BaseService {
         quickMatchId: string,
         userId: string,
         slotsText: string
-    ): Promise<{ 
-        created: QuickSlotCache[]; 
+    ): Promise<{
+        created: QuickSlotCache[];
         parseResult: ParseResult;
-        errors: string[] 
+        errors: string[]
     }> {
         try {
             // 1. Verify Quick Match ownership
@@ -205,7 +207,7 @@ export class QuickSlotService extends BaseService {
                 quickMatchId: dbSlot.quickMatchId,
                 slotNumber: dbSlot.slotNumber,
                 teamName: dbSlot.teamName,
-                playerNames: dbSlot.playerNames 
+                playerNames: dbSlot.playerNames
                     ? JSON.parse(JSON.stringify(dbSlot.playerNames))
                     : undefined,
                 status: dbSlot.status as SlotStatus,
@@ -266,7 +268,7 @@ export class QuickSlotService extends BaseService {
                 quickMatchId: dbSlot.quickMatchId,
                 slotNumber: dbSlot.slotNumber,
                 teamName: dbSlot.teamName,
-                playerNames: dbSlot.playerNames 
+                playerNames: dbSlot.playerNames
                     ? JSON.parse(JSON.stringify(dbSlot.playerNames))
                     : undefined,
                 status: dbSlot.status as SlotStatus,

@@ -317,6 +317,16 @@ class RedisManager {
         }
     }
 
+    public async scard(key: string): Promise<number> {
+    try {
+        const result = await this.redisClient.scard(key);
+        return result;
+    } catch (error) {
+        logger.error(`Error getting set cardinality for key ${key} in Redis`, error);
+        return 0;
+    }
+}
+
     public async lpush(key: string, ...values: string[]): Promise<number> {
         try {
             const result = await this.redisClient.lpush(key, ...values);

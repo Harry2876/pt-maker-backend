@@ -1,6 +1,7 @@
 import { otpQueue, screenshotQueue, emailQueue, userSyncQueue, databaseSyncQueue, batchSyncQueue, advancedEngineQueue, discordSyncQueue, quickPtSyncQueue } from "../config/queues";
 import { OTPSendingJob, ScreenshotProcessingJob, EmailNotificationJob, DatabaseSyncJob, EntityType, AdvancedEngineJob, DiscordSyncJob } from "../types/queue";
 import logger from "../utils/logger";
+import { Job } from 'bullmq';
 
 export class QueueService {
     //add otp sending job to thew queue
@@ -185,56 +186,56 @@ export class QueueService {
         }
     }
     static async syncQuickPtImmediately(
-    entityType: 'QUICK_MATCH' | 'QUICK_SLOT' | 'QUICK_SCREENSHOT' | 'QUICK_RESULT' | 'QUICK_POINTS_TABLE' | 'QUICK_SERIES' | 'QUICK_SERIES_MATCH' | 'QUICK_SERIES_LEADERBOARD',
-    operation: 'CREATE' | 'UPDATE',
-    entityId: string,
-    data: any,
-    userId: string
-): Promise<void> {
-    try {
-        await quickPtSyncQueue.add('quick-pt-sync-to-db', {
-            type: `${entityType}_${operation}`,
-            entityId,
-            data,
-            userId,
-            priority: 'NORMAL',
-            timestamp: new Date().toISOString()
-        }, {
-            priority: 2, // High priority for immediate sync
-            delay: 0,    // No delay
-        });
+        entityType: 'QUICK_MATCH' | 'QUICK_SLOT' | 'QUICK_SCREENSHOT' | 'QUICK_RESULT' | 'QUICK_POINTS_TABLE' | 'QUICK_SERIES' | 'QUICK_SERIES_MATCH' | 'QUICK_SERIES_LEADERBOARD',
+        operation: 'CREATE' | 'UPDATE',
+        entityId: string,
+        data: any,
+        userId: string
+    ): Promise<void> {
+        try {
+            await quickPtSyncQueue.add('quick-pt-sync-to-db', {
+                type: `${entityType}_${operation}`,
+                entityId,
+                data,
+                userId,
+                priority: 'NORMAL',
+                timestamp: new Date().toISOString()
+            }, {
+                priority: 2, // High priority for immediate sync
+                delay: 0,    // No delay
+            });
 
-        logger.info(`Immediate Quick-PT sync queued for ${entityType} ${entityId}`);
-    } catch (error) {
-        logger.error(`Failed to queue immediate Quick-PT sync for ${entityType} ${entityId}:`, error);
-        throw error;
+            logger.info(`Immediate Quick-PT sync queued for ${entityType} ${entityId}`);
+        } catch (error) {
+            logger.error(`Failed to queue immediate Quick-PT sync for ${entityType} ${entityId}:`, error);
+            throw error;
+        }
     }
-}
     static async syncDiscordImmediately(
-    entityType: 'DISCORD_GUILD' | 'DISCORD_USER' | 'DISCORD_GUILD_MEMBER' | 'BOT_STATE' | 'TEAM_ENROLLMENT' | 'USER_RATE_LIMIT' | 'TEAM_NAME_CHANGE' | 'TEAM_ACTIVITY_LOG' | 'REGISTRATION_SESSION' | 'REGISTRATION_QUEUE' | 'TEAM_MERIT' | 'REGISTRATION_DELAY' | 'REGISTRATION_TOGGLE' | 'TEAM_BAN', 
-    entityId: string, 
-    data: any, 
-    userId: string
-): Promise<void> {
-    try {
-        await discordSyncQueue.add('discord-sync-to-db', {
-            type: `${entityType}_CREATE`,
-            entityId,
-            data,
-            userId,
-            priority: 'NORMAL',
-            timestamp: new Date().toISOString()
-        }, {
-            priority: 2,
-            delay: 0,
-        });
+        entityType: 'DISCORD_GUILD' | 'DISCORD_USER' | 'DISCORD_GUILD_MEMBER' | 'BOT_STATE' | 'TEAM_ENROLLMENT' | 'USER_RATE_LIMIT' | 'TEAM_NAME_CHANGE' | 'TEAM_ACTIVITY_LOG' | 'REGISTRATION_SESSION' | 'REGISTRATION_QUEUE' | 'TEAM_MERIT' | 'REGISTRATION_DELAY' | 'REGISTRATION_TOGGLE' | 'TEAM_BAN',
+        entityId: string,
+        data: any,
+        userId: string
+    ): Promise<void> {
+        try {
+            await discordSyncQueue.add('discord-sync-to-db', {
+                type: `${entityType}_CREATE`,
+                entityId,
+                data,
+                userId,
+                priority: 'NORMAL',
+                timestamp: new Date().toISOString()
+            }, {
+                priority: 2,
+                delay: 0,
+            });
 
-        logger.info(`Immediate Discord sync queued for ${entityType} ${entityId}`);
-    } catch (error) {
-        logger.error(`Failed to queue immediate Discord sync for ${entityType} ${entityId}:`, error);
-        throw error;
+            logger.info(`Immediate Discord sync queued for ${entityType} ${entityId}`);
+        } catch (error) {
+            logger.error(`Failed to queue immediate Discord sync for ${entityType} ${entityId}:`, error);
+            throw error;
+        }
     }
-}
     static async queueDiscordSync(data: DiscordSyncJob): Promise<void> {
         try {
             await discordSyncQueue.add('discord-sync-to-db', data, {
