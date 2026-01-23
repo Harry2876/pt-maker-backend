@@ -27,6 +27,16 @@ export class UploadController {
         const errors = [];
 
         try {
+            // Additional validation for safety
+            if (!matchId || !userId) {
+                throw new Error('Missing required parameters: matchId or userId');
+            }
+
+            // Validate files before processing
+            if (!Array.isArray(uploadInfo.files) || uploadInfo.files.length === 0) {
+                throw new Error('No valid files found for upload');
+            }
+
             const screenshots = await unifiedScreenshotService.processScreenshotUpload(
                 'tournament', 
                 matchId, 
@@ -34,44 +44,63 @@ export class UploadController {
                 { 
                     files: uploadInfo.files, 
                     uploadId: uploadInfo.uploadId,
-                    screenshotType: type // Pass the screenshot type from middleware
+                    screenshotType: type || 'RESULT_IMAGE' // Safe fallback for tournament
                 }
             );
-            results.push(...screenshots);
+            
+            if (Array.isArray(screenshots) && screenshots.length > 0) {
+                results.push(...screenshots);
+            } else {
+                errors.push('No screenshots were processed successfully');
+            }
         } catch (error: any) {
-            errors.push(`Upload failed: ${error.message}`);
+            const errorMessage = error?.message || 'Unknown upload error';
+            errors.push(`Upload failed: ${errorMessage}`);
         }
 
-        // Determine success based on whether we have results and no errors
-        const hasSuccessfulUploads = results.length > 0;
-        const hasErrors = errors.length > 0;
+        // Determine success with comprehensive validation
+        const hasSuccessfulUploads = Array.isArray(results) && results.length > 0;
+        const hasErrors = Array.isArray(errors) && errors.length > 0;
         const success = hasSuccessfulUploads && !hasErrors;
 
-        return res.status(success ? 201 : 400).json(
-            success 
-                ? ResponseHelper.success('Screenshots uploaded successfully', {
-                    uploaded: results,
-                    errors: errors,
-                    uploadId: uploadInfo.uploadId
-                })
-                : {
-                    success: false,
-                    message: 'Screenshot upload failed',
-                    data: {
-                        uploaded: results,
-                        errors: errors,
-                        uploadId: uploadInfo.uploadId
-                    },
-                    error: {
-                        code: 'UPLOAD_ERROR',
-                        timestamp: new Date().toISOString()
-                    },
-                    meta: {
-                        timestamp: new Date().toISOString(),
-                        version: '1.0'
-                    }
+        // Ensure safe response data
+        const responseData = {
+            uploaded: Array.isArray(results) ? results : [],
+            errors: Array.isArray(errors) ? errors : [],
+            uploadId: uploadInfo?.uploadId || 'unknown'
+        };
+
+        try {
+            return res.status(success ? 201 : (hasSuccessfulUploads ? 207 : 400)).json(
+                success 
+                    ? ResponseHelper.success('Screenshots uploaded successfully', responseData)
+                    : hasSuccessfulUploads
+                        ? ResponseHelper.success('Screenshots uploaded with some errors', responseData)
+                        : {
+                            success: false,
+                            message: 'Screenshot upload failed',
+                            data: responseData,
+                            error: {
+                                code: 'UPLOAD_ERROR',
+                                timestamp: new Date().toISOString()
+                            },
+                            meta: {
+                                timestamp: new Date().toISOString(),
+                                version: '1.0'
+                            }
+                        }
+            );
+        } catch (responseError) {
+            // Ultimate fallback response to prevent API crashes
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error during response generation',
+                error: {
+                    code: 'RESPONSE_ERROR',
+                    timestamp: new Date().toISOString()
                 }
-        );
+            });
+        }
     });
 
     // Get match screenshots

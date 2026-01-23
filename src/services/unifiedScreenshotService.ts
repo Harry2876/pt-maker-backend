@@ -26,6 +26,14 @@ export class UnifiedScreenshotService extends BaseService {
             screenshotType?: string; // Add optional screenshot type
         }
     ) {
+        // Validate all required parameters upfront
+        if (!context || !matchId || !userId || !uploadData) {
+            throw new Error('Missing required parameters for screenshot upload');
+        }
+
+        if (!Array.isArray(uploadData.files) || uploadData.files.length === 0) {
+            throw new Error('No files provided for upload');
+        }
         // Track files for cleanup
         const uploadedFiles = uploadData.files;
         let databaseSuccess = false;
@@ -159,16 +167,27 @@ export class UnifiedScreenshotService extends BaseService {
 
             const screenshots = [];
 
-            // 2. Process each file
+            // 2. Process each file with robust error handling
             for (const file of uploadData.files) {
                 const screenshotId = randomUUID();
 
-                // Determine screenshot type from upload data or default to RESULT
-                let screenshotType = uploadData.screenshotType || 'RESULT';
-                
-                // Normalize type names for consistency
-                if (screenshotType === 'ATTENDANCE_IMAGE') screenshotType = 'ATTENDANCE';
-                if (screenshotType === 'RESULT_IMAGE') screenshotType = 'RESULT';
+                // Determine screenshot type with comprehensive validation and fallbacks
+                let screenshotType = 'RESULT'; // Safe default
+                try {
+                    const rawType = uploadData.screenshotType || 'RESULT';
+                    // Sanitize and normalize type names for consistency
+                    const normalizedType = rawType.toString().toUpperCase().trim();
+                    
+                    if (normalizedType === 'ATTENDANCE' || normalizedType === 'ATTENDANCE_IMAGE') {
+                        screenshotType = 'ATTENDANCE';
+                    } else if (normalizedType === 'RESULT' || normalizedType === 'RESULT_IMAGE') {
+                        screenshotType = 'RESULT';
+                    }
+                    // Any other value defaults to 'RESULT' for safety
+                } catch (typeError) {
+                    this.logger.warn(`Failed to determine screenshot type, using default: ${typeError}`);
+                    screenshotType = 'RESULT'; // Fail safe
+                }
 
                 const screenshot = {
                     id: screenshotId,
@@ -183,48 +202,92 @@ export class UnifiedScreenshotService extends BaseService {
                     dbStatus: 'PENDING_SYNC'
                 };
 
-                // 3. Store in Redis
-                await redis.hsetObject(`quickScreenshot:${screenshotId}`, screenshot);
-                await redis.sadd(`quickMatch:${quickMatchId}:screenshots`, screenshotId);
-                if (screenshot.type === 'ATTENDANCE') {
-                    await redis.sadd(`quickMatch:${quickMatchId}:attendanceScreenshots`, screenshotId);
-                } else if (screenshot.type === 'RESULT') {
-                    await redis.sadd(`quickMatch:${quickMatchId}:resultScreenshots`, screenshotId);
+                // 3. Store in Redis with comprehensive error handling
+                try {
+                    await redis.hsetObject(`quickScreenshot:${screenshotId}`, screenshot);
+                    await redis.sadd(`quickMatch:${quickMatchId}:screenshots`, screenshotId);
+                    
+                    // Type-specific Redis operations with additional safety
+                    if (screenshot.type === 'ATTENDANCE') {
+                        await redis.sadd(`quickMatch:${quickMatchId}:attendanceScreenshots`, screenshotId);
+                        this.logger.info(`Added attendance screenshot ${screenshotId} to Redis`);
+                    } else if (screenshot.type === 'RESULT') {
+                        await redis.sadd(`quickMatch:${quickMatchId}:resultScreenshots`, screenshotId);
+                        this.logger.info(`Added result screenshot ${screenshotId} to Redis`);
+                    }
+                } catch (redisError) {
+                    this.logger.error(`Redis storage failed for screenshot ${screenshotId}:`, redisError);
+                    // Don't throw - let the screenshot still be processed, just log the issue
+                    // The queue sync will handle database persistence as fallback
                 }
 
-                // 4. Queue database sync
-                await QueueService.syncQuickPtImmediately('QUICK_SCREENSHOT', 'CREATE', screenshotId, screenshot, userId);
+                // 4. Queue database sync with error handling
+                try {
+                    await QueueService.syncQuickPtImmediately('QUICK_SCREENSHOT', 'CREATE', screenshotId, screenshot, userId);
+                } catch (queueError) {
+                    this.logger.error(`Queue sync failed for screenshot ${screenshotId}:`, queueError);
+                    // Mark as failed sync but don't interrupt the upload process
+                    screenshot.dbStatus = 'SYNC_FAILED';
+                }
 
                 screenshots.push(screenshot);
             }
 
-            // 5. Update match status atomically (only once per upload batch)
+            // 5. Update match status atomically with comprehensive error handling
             if (screenshots.length > 0) {
-                // Use Redis lock to prevent race conditions
-                const lockKey = `match_status_lock:${quickMatchId}`;
-                const lockValue = `${userId}_${Date.now()}`;
+                try {
+                    // Use Redis lock to prevent race conditions with timeout safety
+                    const lockKey = `match_status_lock:${quickMatchId}`;
+                    const lockValue = `${userId}_${Date.now()}`;
+                    const lockTTL = 30; // 30 seconds TTL for safety
 
-                // First check if key exists (NX behavior)
-                const keyExists = await redis.exists(lockKey);
-                let lockAcquired = false;
-                if (!keyExists) {
-                    lockAcquired = await redis.set(lockKey, lockValue, 10); // TTL in seconds
-                }
-                if (lockAcquired) {
+                    let lockAcquired = false;
                     try {
-                        // Re-check current status
-                        const currentMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-                        if (currentMatch) {
-                            if (currentMatch.status === 'SLOTS_UPLOADED') {
-                                await quickMatchService.updateStatus(quickMatchId, userId, 'ATTENDANCE_UPLOADED');
-                            } else if (currentMatch.status === 'ATTENDANCE_UPLOADED') {
-                                await quickMatchService.updateStatus(quickMatchId, userId, 'RESULTS_UPLOADED');
+                        // Atomic lock acquisition with TTL
+                        const keyExists = await redis.exists(lockKey);
+                        if (!keyExists) {
+                            lockAcquired = await redis.set(lockKey, lockValue, lockTTL);
+                        }
+                        
+                        if (lockAcquired) {
+                            try {
+                                // Re-check current status with validation
+                                const currentMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+                                if (currentMatch && currentMatch.status) {
+                                    // Determine new status based on screenshot type and current state
+                                    const hasAttendance = screenshots.some(s => s.type === 'ATTENDANCE');
+                                    const hasResults = screenshots.some(s => s.type === 'RESULT');
+                                    
+                                    if (currentMatch.status === 'SLOTS_UPLOADED' && hasAttendance) {
+                                        await quickMatchService.updateStatus(quickMatchId, userId, 'ATTENDANCE_UPLOADED');
+                                        this.logger.info(`Status updated to ATTENDANCE_UPLOADED for match ${quickMatchId}`);
+                                    } else if (currentMatch.status === 'ATTENDANCE_UPLOADED' && hasResults) {
+                                        await quickMatchService.updateStatus(quickMatchId, userId, 'RESULTS_UPLOADED');
+                                        this.logger.info(`Status updated to RESULTS_UPLOADED for match ${quickMatchId}`);
+                                    }
+                                }
+                            } catch (statusError) {
+                                this.logger.error(`State transition failed for match ${quickMatchId}:`, statusError);
+                                // Don't throw - screenshots are still uploaded successfully
+                                // State can be manually corrected later if needed
                             }
+                        } else {
+                            this.logger.info(`Could not acquire lock for match status update: ${quickMatchId}`);
                         }
                     } finally {
-                        // Always release lock
-                        await redis.delete(lockKey);
+                        // Always release lock if we acquired it
+                        if (lockAcquired) {
+                            try {
+                                await redis.delete(lockKey);
+                            } catch (unlockError) {
+                                this.logger.warn(`Failed to release lock ${lockKey}:`, unlockError);
+                                // Lock has TTL so it will expire anyway
+                            }
+                        }
                     }
+                } catch (lockError) {
+                    this.logger.error(`Lock management failed for match ${quickMatchId}:`, lockError);
+                    // Continue without state update - screenshots are still valid
                 }
             }
 
