@@ -245,7 +245,7 @@ const handleMulterError = (err: any, req: Request, res: Response, next: NextFunc
             });
         }
     }
-    next();
+    return next();
 };
 
 //post upload processing
