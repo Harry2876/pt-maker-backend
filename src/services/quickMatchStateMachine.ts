@@ -59,6 +59,16 @@ export class QuickMatchStateMachine extends BaseService {
                 }
             ]
         },
+        // Allow processing directly from attendance uploaded (for attendance processing)
+        {
+            from: 'ATTENDANCE_UPLOADED',
+            to: 'PROCESSING'
+        },
+        // Allow processing directly from slots uploaded (for direct processing)
+        {
+            from: 'SLOTS_UPLOADED',
+            to: 'PROCESSING'
+        },
         {
             from: 'RESULTS_UPLOADED',
             to: 'PROCESSING',
