@@ -461,10 +461,19 @@ export class QuickProcessingService extends BaseService {
                     if (pythonResponse.status === 'success' && pythonResponse.data?.cards) {
                         // Process detected results
                         for (const card of pythonResponse.data.cards) {
-                            if (card.rank && card.players.length > 0) {
+                            // Convert rank to number if it's a string
+                            const rankNumber = typeof card.rank === 'string' ? parseInt(card.rank) : card.rank;
+                            
+                            if (rankNumber && card.players.length > 0) {
+                                // Transform OCR format: combine players array with finishes array
+                                const transformedPlayers = card.players.map((playerName: string, index: number) => ({
+                                    name: playerName,
+                                    finish: card.finishes && card.finishes[index] ? card.finishes[index] : 0
+                                }));
+
                                 allDetectedResults.push({
-                                    rank: card.rank,
-                                    players: card.players,
+                                    rank: rankNumber,
+                                    players: transformedPlayers,
                                     source: screenshot.id
                                 });
                             }
@@ -823,6 +832,7 @@ export class QuickProcessingService extends BaseService {
 
     /**
      * Find matching slot for a team name using fuzzy matching
+     * Enhanced to handle player-based team identification
      * @private
      */
     private findMatchingSlot(slots: QuickSlotCache[], teamName: string): QuickSlotCache | null {
@@ -834,7 +844,20 @@ export class QuickProcessingService extends BaseService {
         );
         if (exactMatch) return exactMatch;
 
-        // 2. Fuzzy matching - check if team name contains slot name or vice versa
+        // 2. Check if any player name matches team name (for player-based matching)
+        const playerMatch = slots.find(slot => {
+            if (!slot.playerNames || slot.playerNames.length === 0) return false;
+            
+            return slot.playerNames.some(playerName => 
+                playerName.toLowerCase().trim() === normalizedTeamName
+            );
+        });
+        if (playerMatch) {
+            this.logger.info(`Player-based matched team "${teamName}" with slot "${playerMatch.teamName}"`);
+            return playerMatch;
+        }
+
+        // 3. Fuzzy matching - check if team name contains slot name or vice versa
         const fuzzyMatch = slots.find(slot => {
             if (!slot.teamName) return false;
 
@@ -850,6 +873,25 @@ export class QuickProcessingService extends BaseService {
 
         if (fuzzyMatch) {
             this.logger.info(`Fuzzy matched team "${teamName}" with slot "${fuzzyMatch.teamName}"`);
+        }
+
+        // 4. Advanced fuzzy matching - check if any slot player matches result player
+        if (!fuzzyMatch) {
+            const advancedMatch = slots.find(slot => {
+                if (!slot.playerNames || slot.playerNames.length === 0) return false;
+                
+                return slot.playerNames.some(slotPlayer => {
+                    const normalizedSlotPlayer = slotPlayer.toLowerCase().trim();
+                    // Check if player names have common parts (minimum 4 characters)
+                    return normalizedSlotPlayer.length >= 4 && 
+                           normalizedTeamName.includes(normalizedSlotPlayer.substring(0, 4));
+                });
+            });
+            
+            if (advancedMatch) {
+                this.logger.info(`Advanced matched team "${teamName}" with slot "${advancedMatch.teamName}"`);
+                return advancedMatch;
+            }
         }
 
         return fuzzyMatch || null;

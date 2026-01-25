@@ -100,11 +100,10 @@ export interface PythonAIResultResponse {
     request_id: string;
     data: {
         cards: Array<{
-            rank: number;
-            players: Array<{
-                name: string;           // Individual player tracking
-                finish: number;         // Individual finish position
-            }>;
+            card_number?: number;        // Optional card number from OCR
+            rank: string | number;       // Rank as string or number from OCR
+            players: string[];           // Player names as string array
+            finishes: number[];          // Individual finish counts as number array
         }>;
         processing_stats: {
             total_cards: number;
