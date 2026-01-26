@@ -1,6 +1,5 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
-import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
 import {
     QuickMatchCache,
@@ -8,147 +7,9 @@ import {
     UpdateQuickMatchData,
     QuickMatchStatus
 } from '../types/quickMatch';
-import { quickMatchStateMachine } from './quickMatchStateMachine';
-import { QuickMatchStateContext, StateTransitionResult } from '../types/stateMachine';
 
 export class QuickMatchService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
-
-    /**
- * Helper method to build state context for validation
- * This method gets counts from database for accuracy
- */
-    private async buildStateContextForMatch(quickMatchId: string, userId: string): Promise<QuickMatchStateContext | null> {
-        try {
-            // Get the current match
-            const quickMatch = await this.getQuickMatchById(quickMatchId, userId);
-            if (!quickMatch) {
-                return null;
-            }
-
-            // Hybrid approach: Try Redis first, fallback to database
-            let slotsCount = 0;
-            let attendanceScreenshotsCount = 0;
-            let resultScreenshotsCount = 0;
-
-            try {
-                // Try Redis first (current application state)
-                slotsCount = await redis.scard(`quickMatch:${quickMatchId}:slots`);
-                attendanceScreenshotsCount = await redis.scard(`quickMatch:${quickMatchId}:attendanceScreenshots`) || 0;
-                resultScreenshotsCount = await redis.scard(`quickMatch:${quickMatchId}:resultScreenshots`) || 0;
-
-                // If Redis has no data (system restart/maintenance), recover from database
-                if (slotsCount === 0) {
-                    const recoveredCounts = await this.recoverStateFromDatabase(quickMatchId);
-                    slotsCount = recoveredCounts.slotsCount;
-                    attendanceScreenshotsCount = recoveredCounts.attendanceScreenshotsCount;
-                    resultScreenshotsCount = recoveredCounts.resultScreenshotsCount;
-                }
-
-            } catch (redisError) {
-                // Redis unavailable, fallback to database completely
-                this.logger.warn(`Redis unavailable for state context, using database fallback:`, redisError);
-                const recoveredCounts = await this.recoverStateFromDatabase(quickMatchId);
-                slotsCount = recoveredCounts.slotsCount;
-                attendanceScreenshotsCount = recoveredCounts.attendanceScreenshotsCount;
-                resultScreenshotsCount = recoveredCounts.resultScreenshotsCount;
-            }
-
-            return {
-                id: quickMatch.id,
-                currentStatus: quickMatch.status,
-                slotsCount: slotsCount,
-                attendanceScreenshotsCount: attendanceScreenshotsCount,
-                resultScreenshotsCount: resultScreenshotsCount,
-                processingStep: quickMatch.processingStep,
-                teamsDetected: quickMatch.teamsDetected
-            };
-        } catch (error) {
-            this.logger.error(`Error building state context for match ${quickMatchId}:`, error);
-            return null;
-        }
-    }
-
-    /**
-     * Recover state from database and rebuild Redis cache
-     */
-    private async recoverStateFromDatabase(quickMatchId: string): Promise<{
-        slotsCount: number;
-        attendanceScreenshotsCount: number;
-        resultScreenshotsCount: number;
-    }> {
-        try {
-            // Get counts from database
-            const dbMatch = await this.db.quickMatch.findUnique({
-                where: { id: quickMatchId },
-                include: {
-                    slotAssignments: { select: { id: true } },
-                    screenshots: { 
-                        select: { id: true, type: true },
-                        where: { type: { in: ['ATTENDANCE', 'RESULT'] } }
-                    }
-                }
-            });
-
-            if (!dbMatch) {
-                return { slotsCount: 0, attendanceScreenshotsCount: 0, resultScreenshotsCount: 0 };
-            }
-
-            const slotsCount = dbMatch.slotAssignments.length;
-            const attendanceScreenshots = dbMatch.screenshots.filter(s => s.type === 'ATTENDANCE');
-            const resultScreenshots = dbMatch.screenshots.filter(s => s.type === 'RESULT');
-
-            // Rebuild Redis state for future requests (fire and forget)
-            this.rebuildRedisState(quickMatchId, {
-                slotIds: dbMatch.slotAssignments.map(s => s.id),
-                attendanceScreenshotIds: attendanceScreenshots.map(s => s.id),
-                resultScreenshotIds: resultScreenshots.map(s => s.id)
-            }).catch(error => {
-                this.logger.warn(`Failed to rebuild Redis state for match ${quickMatchId}:`, error);
-            });
-
-            this.logger.info(`Recovered state from database for match ${quickMatchId}: ${slotsCount} slots, ${attendanceScreenshots.length} attendance, ${resultScreenshots.length} results`);
-
-            return {
-                slotsCount: slotsCount,
-                attendanceScreenshotsCount: attendanceScreenshots.length,
-                resultScreenshotsCount: resultScreenshots.length
-            };
-
-        } catch (error) {
-            this.logger.error(`Failed to recover state from database for match ${quickMatchId}:`, error);
-            return { slotsCount: 0, attendanceScreenshotsCount: 0, resultScreenshotsCount: 0 };
-        }
-    }
-
-    /**
-     * Rebuild Redis state from database data (async)
-     */
-    private async rebuildRedisState(quickMatchId: string, data: {
-        slotIds: string[];
-        attendanceScreenshotIds: string[];
-        resultScreenshotIds: string[];
-    }): Promise<void> {
-        try {
-            // Rebuild slot state
-            if (data.slotIds.length > 0) {
-                await redis.sadd(`quickMatch:${quickMatchId}:slots`, ...data.slotIds);
-            }
-
-            // Rebuild screenshot state
-            if (data.attendanceScreenshotIds.length > 0) {
-                await redis.sadd(`quickMatch:${quickMatchId}:attendanceScreenshots`, ...data.attendanceScreenshotIds);
-            }
-
-            if (data.resultScreenshotIds.length > 0) {
-                await redis.sadd(`quickMatch:${quickMatchId}:resultScreenshots`, ...data.resultScreenshotIds);
-            }
-
-            this.logger.info(`Redis state rebuilt for match ${quickMatchId}`);
-        } catch (error) {
-            this.logger.error(`Failed to rebuild Redis state for match ${quickMatchId}:`, error);
-        }
-    }
 
     /**
      * Create a new Quick Match with optional scoring configuration
@@ -169,7 +30,7 @@ export class QuickMatchService extends BaseService {
                 matchName: data.matchName,
                 game: data.game || 'BGMI',
                 map: data.map,
-                status: 'CREATED',
+                status: 'ACTIVE',
                 teamsDetected: 0,
                 warningsCount: 0,
                 positionPointsConfig,
@@ -178,15 +39,25 @@ export class QuickMatchService extends BaseService {
                 userId,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
+                dbStatus: 'SYNCED' // Direct DB write, so it's synced
             };
 
-            // 4. Store in Redis immediately
+            // 4. Store directly in database (no queue needed)
+            await this.db.quickMatch.create({
+                data: {
+                    id: quickMatchId,
+                    matchName: `Quick Match ${new Date().toISOString().slice(0, 10)}`,
+                    game: 'BGMI',
+                    userId,
+                    status: 'ACTIVE',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            });
+
+            // 5. Cache the result for quick access
             await redis.hsetObject(`quickMatch:${quickMatchId}`, quickMatch);
             await redis.sadd(`user:${userId}:quickMatches`, quickMatchId);
-
-            // 5. Queue database sync
-            await QueueService.syncQuickPtImmediately('QUICK_MATCH', 'CREATE', quickMatchId, quickMatch, userId);
 
             this.logger.info(`Quick Match ${quickMatchId} created by user ${userId}`);
             return quickMatch;
@@ -355,14 +226,20 @@ export class QuickMatchService extends BaseService {
                 ...existing,
                 ...data,
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
+                dbStatus: 'SYNCED' // Direct DB write, so it's synced
             };
 
-            // 3. Update Redis
-            await redis.hsetObject(`quickMatch:${quickMatchId}`, updated);
+            // 3. Update directly in database (no queue needed)
+            await this.db.quickMatch.update({
+                where: { id: quickMatchId },
+                data: {
+                    status: data.status as any,
+                    updatedAt: new Date()
+                }
+            });
 
-            // 4. Queue database sync
-            await QueueService.syncQuickPtImmediately('QUICK_MATCH', 'UPDATE', quickMatchId, updated, userId);
+            // 4. Update Redis cache
+            await redis.hsetObject(`quickMatch:${quickMatchId}`, updated);
 
             this.logger.info(`Quick Match ${quickMatchId} updated by user ${userId}`);
             return updated;
@@ -406,70 +283,6 @@ export class QuickMatchService extends BaseService {
         }
     }
 
-    /**
-     * Update Quick Match status with state machine validation
-     */
-    async updateStatus(
-        quickMatchId: string,
-        userId: string,
-        status: QuickMatchStatus,
-        processingStep?: string
-    ): Promise<QuickMatchCache> {
-        try {
-            // 1. Get current match and build state context
-            const currentMatch = await this.getQuickMatchById(quickMatchId, userId);
-            if (!currentMatch) {
-                throw new Error('Quick Match not found or access denied');
-            }
-
-            // 2. Skip state validation if status is not changing
-            if (currentMatch.status === status) {
-                this.logger.info(`Status unchanged for match ${quickMatchId}: ${status}`);
-                return await this.updateQuickMatch(quickMatchId, userId, {
-                    processingStep
-                });
-            }
-
-            // 3. Build state context for validation
-            const stateContext = await this.buildStateContextForMatch(quickMatchId, userId);
-            if (!stateContext) {
-                throw new Error('Failed to build state context for validation');
-            }
-
-            // 4. Validate state transition
-            const transitionResult = await quickMatchStateMachine.executeTransition(
-                quickMatchId,
-                status,
-                stateContext
-            );
-
-            if (!transitionResult.isValid) {
-                this.logger.error(`State transition rejected: ${currentMatch.status} → ${status}`, {
-                    matchId: quickMatchId,
-                    error: transitionResult.errorMessage,
-                    errorCode: transitionResult.errorCode
-                });
-                throw new Error(`Invalid state transition: ${transitionResult.errorMessage}`);
-            }
-
-            // 5. Execute the status update after successful validation
-            const updatedMatch = await this.updateQuickMatch(quickMatchId, userId, {
-                status,
-                processingStep
-            });
-
-            this.logger.info(`State transition successful: ${transitionResult.previousState} → ${transitionResult.newState}`, {
-                matchId: quickMatchId,
-                processingStep
-            });
-
-            return updatedMatch;
-
-        } catch (error) {
-            this.handleError(error, 'Update Quick Match Status with State Machine');
-            throw error; // Re-throw after logging
-        }
-    }
 }
 
 export const quickMatchService = new QuickMatchService();

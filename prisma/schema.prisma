@@ -844,7 +844,7 @@ model QuickMatch {
   matchName      String
   game           String           @default("BGMI")
   map            String?
-  status         QuickMatchStatus @default(CREATED)
+  status         QuickMatchStatus
   processingStep String?
   aiProcessingId String?
   teamsDetected  Int              @default(0)
@@ -1108,14 +1108,9 @@ enum DelayType {
 }
 
 enum QuickMatchStatus {
-  CREATED
-  SLOTS_UPLOADED
-  ATTENDANCE_UPLOADED
-  RESULTS_UPLOADED
-  PROCESSING
+  ACTIVE
   COMPLETED
   ERROR
-  CANCELLED
 }
 
 enum QuickScreenshotType {

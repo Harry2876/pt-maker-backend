@@ -53,14 +53,9 @@ export const updateQuickMatchSchema = z.object({
         .optional(),
     
     status: z.enum([
-        'CREATED',
-        'SLOTS_UPLOADED',
-        'ATTENDANCE_UPLOADED',
-        'RESULTS_UPLOADED',
-        'PROCESSING',
+        'ACTIVE',
         'COMPLETED',
-        'ERROR',
-        'CANCELLED'
+        'ERROR'
     ] as const).optional(),
     
     // Scoring Configuration
@@ -90,14 +85,9 @@ export const quickMatchParamsSchema = z.object({
 // Query params for listing matches
 export const listQuickMatchesQuerySchema = z.object({
     status: z.enum([
-        'CREATED',
-        'SLOTS_UPLOADED',
-        'ATTENDANCE_UPLOADED',
-        'RESULTS_UPLOADED',
-        'PROCESSING',
+        'ACTIVE',
         'COMPLETED',
-        'ERROR',
-        'CANCELLED'
+        'ERROR'
     ] as const).optional(),
     
     page: z.string()

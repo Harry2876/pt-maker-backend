@@ -1,6 +1,5 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
-import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
 import { db } from '../config/database';
 import {
@@ -58,23 +57,26 @@ export class QuickSlotService extends BaseService {
                 detectedInAttendance: false,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
+                dbStatus: 'SYNCED' // Direct DB write, so it's synced
             };
 
-            // 6. Store in Redis
+            // 6. Store directly in database (no queue needed)
+            await this.db.quickSlotAssignment.create({
+                data: {
+                    id: slotId,
+                    quickMatchId,
+                    slotNumber: data.slotNumber,
+                    teamName: data.teamName,
+                    status: 'DETECTED',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            });
+
+            // 7. Cache the result for quick access
             await redis.hsetObject(`quickSlot:${slotId}`, slot);
             await redis.hsetObject(`quickMatch:${quickMatchId}:slot:${data.slotNumber}`, slot);
             await redis.sadd(`quickMatch:${quickMatchId}:slots`, slotId);
-
-            // 7. Queue database sync (maintain architecture consistency)
-            await QueueService.syncQuickPtImmediately('QUICK_SLOT', 'CREATE', slotId, slot, userId);
-
-            // 8. Update match status to SLOTS_UPLOADED if this is the first slot
-            const slotIds = await redis.smembers(`quickMatch:${quickMatchId}:slots`);
-            const slotsCount = slotIds.length;
-            if (slotsCount === 1) {
-                await quickMatchService.updateStatus(quickMatchId, userId, 'SLOTS_UPLOADED');
-            }
 
             this.logger.info(`Slot ${data.slotNumber} created for Quick Match ${quickMatchId}`);
             return slot;
@@ -308,20 +310,27 @@ export class QuickSlotService extends BaseService {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            // 3. Update slot object
+            // 3. Update directly in database (no queue needed)
+            await this.db.quickSlotAssignment.update({
+                where: { id: slotId },
+                data: {
+                    teamName: data.teamName,
+                    status: 'DETECTED',
+                    updatedAt: new Date()
+                }
+            });
+
+            // 4. Create updated object for cache
             const updated: QuickSlotCache = {
                 ...existing,
                 ...data,
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
+                dbStatus: 'SYNCED' // Direct DB write, so it's synced
             };
 
-            // 4. Update Redis
+            // 5. Update Redis cache
             await redis.hsetObject(`quickSlot:${slotId}`, updated);
             await redis.hsetObject(`quickMatch:${quickMatchId}:slot:${existing.slotNumber}`, updated);
-
-            // 5. Queue database sync
-            await QueueService.syncQuickPtImmediately('QUICK_SLOT', 'UPDATE', slotId, updated, userId);
 
             this.logger.info(`Slot ${slotId} updated for Quick Match ${quickMatchId}`);
             return updated;

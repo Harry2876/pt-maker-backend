@@ -177,7 +177,7 @@ export class UnifiedScreenshotService extends BaseService {
                     const rawType = uploadData.screenshotType || 'RESULT';
                     // Sanitize and normalize type names for consistency
                     const normalizedType = rawType.toString().toUpperCase().trim();
-                    
+
                     if (normalizedType === 'ATTENDANCE' || normalizedType === 'ATTENDANCE_IMAGE') {
                         screenshotType = 'ATTENDANCE';
                     } else if (normalizedType === 'RESULT' || normalizedType === 'RESULT_IMAGE') {
@@ -252,24 +252,11 @@ export class UnifiedScreenshotService extends BaseService {
                         if (lockAcquired) {
                             try {
                                 // Re-check current status with validation
-                                const currentMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-                                if (currentMatch && currentMatch.status) {
-                                    // Determine new status based on screenshot type and current state
-                                    const hasAttendance = screenshots.some(s => s.type === 'ATTENDANCE');
-                                    const hasResults = screenshots.some(s => s.type === 'RESULT');
-                                    
-                                    if (currentMatch.status === 'SLOTS_UPLOADED' && hasAttendance) {
-                                        await quickMatchService.updateStatus(quickMatchId, userId, 'ATTENDANCE_UPLOADED');
-                                        this.logger.info(`Status updated to ATTENDANCE_UPLOADED for match ${quickMatchId}`);
-                                    } else if (currentMatch.status === 'ATTENDANCE_UPLOADED' && hasResults) {
-                                        await quickMatchService.updateStatus(quickMatchId, userId, 'RESULTS_UPLOADED');
-                                        this.logger.info(`Status updated to RESULTS_UPLOADED for match ${quickMatchId}`);
-                                    }
-                                }
+                                // Status updates removed - no more complex state management
+                                this.logger.info(`Screenshots uploaded successfully for match ${quickMatchId}`);
                             } catch (statusError) {
-                                this.logger.error(`State transition failed for match ${quickMatchId}:`, statusError);
+                                this.logger.error(`Error during screenshot processing for match ${quickMatchId}:`, statusError);
                                 // Don't throw - screenshots are still uploaded successfully
-                                // State can be manually corrected later if needed
                             }
                         } else {
                             this.logger.info(`Could not acquire lock for match status update: ${quickMatchId}`);

@@ -46,14 +46,9 @@ export interface UpdateQuickMatchData {
 }
 
 export type QuickMatchStatus = 
-    | 'CREATED'
-    | 'SLOTS_UPLOADED'
-    | 'ATTENDANCE_UPLOADED'
-    | 'RESULTS_UPLOADED'
-    | 'PROCESSING'
+    | 'ACTIVE'
     | 'COMPLETED'
-    | 'ERROR'
-    | 'CANCELLED';
+    | 'ERROR';
 
 export interface QuickMatchWithDetails extends QuickMatchCache {
     slotsCount: number;

@@ -1,6 +1,5 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
-import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { quickSlotService } from './quickSlotService';
@@ -20,9 +19,8 @@ import {
     PythonAIAttendanceResponse,
     PythonAIResultResponse
 } from '../types/quickResult';
-import { quickMatchStateMachine } from './quickMatchStateMachine';
 import { quickSeriesService } from './quickSeriesService';
-import { QuickMatchStateContext, StateTransitionResult } from '../types/stateMachine';
+
 
 // Response interfaces
 export interface AttendanceProcessingResult {
@@ -65,32 +63,6 @@ export interface CompleteProcessingResult {
 }
 
 export class QuickProcessingService extends BaseService {
-
-    /**
- * Helper method to build state context for validation
- */
-    private async buildStateContext(quickMatch: QuickMatchCache, userId: string): Promise<QuickMatchStateContext> {
-        // Get counts for validation
-        const slots = await quickSlotService.listQuickMatchSlots(quickMatch.id, userId);
-        const slotsCount = slots.length;
-        const attendanceScreenshots = await unifiedScreenshotService.listScreenshots(
-            'quick-pt', quickMatch.id, userId, { type: 'ATTENDANCE' }
-        );
-        const resultScreenshots = await unifiedScreenshotService.listScreenshots(
-            'quick-pt', quickMatch.id, userId, { type: 'RESULT' }
-        );
-
-        return {
-            id: quickMatch.id,
-            currentStatus: quickMatch.status,
-            slotsCount,
-            attendanceScreenshotsCount: attendanceScreenshots.length,
-            resultScreenshotsCount: resultScreenshots.length,
-            processingStep: quickMatch.processingStep,
-            teamsDetected: quickMatch.teamsDetected
-        };
-    }
-
     /**
      * Process attendance screenshots - extracts team slots from screenshots
      * STEP 1: Attendance Processing
@@ -111,18 +83,6 @@ export class QuickProcessingService extends BaseService {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            // Validate state transition first
-            const initialStateContext = await this.buildStateContext(quickMatch, userId);
-            const validationResult = quickMatchStateMachine.validateTransition(
-                quickMatch.status,
-                'PROCESSING',
-                initialStateContext
-            );
-
-            if (!validationResult.isValid) {
-                throw new Error(`Cannot process attendance: ${validationResult.errorMessage}`);
-            }
-
             // 2. Get attendance screenshots
             const screenshots = await unifiedScreenshotService.listScreenshots(
                 'quick-pt',
@@ -137,25 +97,10 @@ export class QuickProcessingService extends BaseService {
 
             this.logger.info(`Processing ${screenshots.length} attendance screenshots`);
 
-            // 3. Validate state transition and update status
-            const processingStateContext = await this.buildStateContext(quickMatch, userId);
-            const transitionResult = await quickMatchStateMachine.executeTransition(
-                quickMatchId,
-                'PROCESSING',
-                processingStateContext
-            );
-
-            if (!transitionResult.isValid) {
-                throw new Error(`State transition failed: ${transitionResult.errorMessage}`);
-            }
-
-            // Update match status after successful validation
+            // 3. Update processing step
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'PROCESSING',
                 processingStep: 'Processing Attendance Screenshots'
             });
-
-            this.logger.info(`State transition successful: ${transitionResult.previousState} → ${transitionResult.newState}`);
 
             // 4. Process each screenshot individually with new single-image API
             const allDetectedSlots: Array<{
@@ -167,24 +112,37 @@ export class QuickProcessingService extends BaseService {
 
             let successfulScreenshots = 0;
 
-            for (const screenshot of screenshots) {
+            // Process all screenshots in parallel
+            const screenshotPromises = screenshots.map(async (screenshot) => {
                 try {
                     this.logger.info(`Processing attendance screenshot: ${screenshot.id}`);
+                    const response = await pythonAIService.detectAttendance(screenshot.storageUrl);
+                    return { screenshot, response, success: true };
+                } catch (error) {
+                    this.logger.error(`Error processing screenshot ${screenshot.id}:`, error);
+                    return {
+                        screenshot,
+                        error: error as Error,
+                        success: false
+                    };
+                }
+            });
 
-                    // Call Python AI with single image
-                    const pythonResponse: PythonAIAttendanceResponse = await pythonAIService.detectAttendance(
-                        screenshot.storageUrl
-                    );
+            const results = await Promise.allSettled(screenshotPromises);
 
-                    if (pythonResponse.status === 'success' && pythonResponse.data?.cards) {
+            // Process results sequentially
+            for (const result of results) {
+                if (result.status === 'fulfilled' && result.value.success && result.value.response) {
+                    const { screenshot, response } = result.value;
+
+                    if (response.status === 'success' && response.data?.cards) {
                         // Process detected cards
-                        for (const card of pythonResponse.data.cards) {
+                        for (const card of response.data.cards) {
                             if (card.slot_number && card.players.length > 0) {
-                                // Use first player as team name or construct from players
                                 const teamName = card.players[0] || `Team ${card.slot_number}`;
 
                                 allDetectedSlots.push({
-                                    slotNumber: card.slot_number,
+                                    slotNumber: parseInt(card.slot_number.toString()), // ✅ Fixed conversion
                                     teamName: teamName.trim(),
                                     players: card.players,
                                     source: screenshot.id
@@ -193,21 +151,20 @@ export class QuickProcessingService extends BaseService {
                         }
 
                         successfulScreenshots++;
-
-                        this.logger.info(`Detected ${pythonResponse.data.cards.length} cards from screenshot ${screenshot.id}`);
+                        this.logger.info(`Detected ${response.data.cards.length} cards from screenshot ${screenshot.id}`);
                     } else {
                         warnings.push({
                             type: 'LOW_AI_CONFIDENCE',
                             message: `Failed to process screenshot ${screenshot.originalName}`,
-                            details: { screenshotId: screenshot.id, status: pythonResponse.status }
+                            details: { screenshotId: screenshot.id, status: response?.status || 'unknown' }
                         });
                     }
-                } catch (error) {
-                    this.logger.error(`Error processing screenshot ${screenshot.id}:`, error);
+                } else if (result.status === 'fulfilled' && !result.value.success) {
+                    const { screenshot, error } = result.value;
                     warnings.push({
                         type: 'LOW_AI_CONFIDENCE',
                         message: `Error processing screenshot ${screenshot.originalName}`,
-                        details: { screenshotId: screenshot.id, error: (error as Error).message }
+                        details: { screenshotId: screenshot.id, error: error?.message || 'Unknown error' }
                     });
                 }
             }
@@ -300,34 +257,12 @@ export class QuickProcessingService extends BaseService {
             // 7. Mark attendance screenshots as processed
             await unifiedScreenshotService.markScreenshotsProcessed(quickMatchId, 'ATTENDANCE', userId);
 
-            // 8. Validate transition to ATTENDANCE_UPLOADED
-            const finalStateContext = await this.buildStateContext(quickMatch, userId);
-            finalStateContext.slotsCount = finalSlots.length; // Update with detected slots
-            finalStateContext.attendanceScreenshotsCount = screenshots.length;
-
-            const finalTransition = await quickMatchStateMachine.executeTransition(
-                quickMatchId,
-                'ATTENDANCE_UPLOADED',
-                finalStateContext
-            );
-
-            if (finalTransition.isValid) {
-                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                    status: 'ATTENDANCE_UPLOADED',
-                    processingStep: 'Attendance Processing Complete',
-                    teamsDetected: finalSlots.length,
-                    warningsCount: (quickMatch.warningsCount || 0) + warnings.length
-                });
-                this.logger.info(`Final state transition: ${finalTransition.previousState} → ${finalTransition.newState}`);
-            } else {
-                this.logger.error(`Final state transition failed: ${finalTransition.errorMessage}`);
-                // Keep status as PROCESSING but log completion
-                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                    processingStep: 'Attendance Processing Complete (State Transition Warning)',
-                    teamsDetected: finalSlots.length,
-                    warningsCount: (quickMatch.warningsCount || 0) + warnings.length
-                });
-            }
+            // 8. Update match with results
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                processingStep: 'Attendance Processing Complete',
+                teamsDetected: finalSlots.length,
+                warningsCount: (quickMatch.warningsCount || 0) + warnings.length
+            });
 
             const processingTimeMs = Date.now() - startTime;
 
@@ -353,38 +288,11 @@ export class QuickProcessingService extends BaseService {
         } catch (error) {
             this.logger.error(`Attendance processing failed for Quick Match ${quickMatchId}:`, error);
 
-            // Update match status to error using state machine
-            try {
-                const currentQuickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-                if (currentQuickMatch) {
-                    const errorStateContext = await this.buildStateContext(currentQuickMatch, userId);
-                    const errorTransition = await quickMatchStateMachine.executeTransition(
-                        quickMatchId,
-                        'ERROR',
-                        errorStateContext
-                    );
-
-                    if (errorTransition.isValid) {
-                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                            status: 'ERROR',
-                            processingStep: `Error: ${(error as Error).message}`
-                        });
-                        this.logger.info(`Error state transition: ${errorTransition.previousState} → ERROR`);
-                    } else {
-                        // Fallback - direct update if state machine fails
-                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                            status: 'ERROR',
-                            processingStep: `Error: ${(error as Error).message}`
-                        });
-                    }
-                }
-            } catch (stateError) {
-                // Fallback - direct update if state machine fails
-                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                    status: 'ERROR',
-                    processingStep: `Error: ${(error as Error).message}`
-                }).catch(() => { });
-            }
+            // Update match status to error
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                status: 'ERROR',
+                processingStep: `Error: ${(error as Error).message}`
+            }).catch(() => { });
 
             throw error;
         }
@@ -410,14 +318,10 @@ export class QuickProcessingService extends BaseService {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            if (!['ATTENDANCE_UPLOADED', 'RESULTS_UPLOADED'].includes(quickMatch.status)) {
-                throw new Error(`Cannot process results. Current status: ${quickMatch.status}. Please process attendance first.`);
-            }
-
             // 2. Get existing slots to match against
             const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId);
             if (slots.length === 0) {
-                throw new Error('No teams detected in attendance. Please process attendance first.');
+                throw new Error('No teams detected. Process attendance screenshots first.');
             }
 
             // 3. Get result screenshots
@@ -434,9 +338,8 @@ export class QuickProcessingService extends BaseService {
 
             this.logger.info(`Processing ${screenshots.length} result screenshots`);
 
-            // 4. Update match status to processing
+            // 4. Update processing step
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'PROCESSING',
                 processingStep: 'Processing Result Screenshots'
             });
 
@@ -463,7 +366,7 @@ export class QuickProcessingService extends BaseService {
                         for (const card of pythonResponse.data.cards) {
                             // Convert rank to number if it's a string
                             const rankNumber = typeof card.rank === 'string' ? parseInt(card.rank) : card.rank;
-                            
+
                             if (rankNumber && card.players.length > 0) {
                                 // Transform OCR format: combine players array with finishes array
                                 const transformedPlayers = card.players.map((playerName: string, index: number) => ({
@@ -603,16 +506,16 @@ export class QuickProcessingService extends BaseService {
                 warningsCount: (quickMatch.warningsCount || 0) + warnings.length
             });
 
-                        // 10. Handle series progression (if match belongs to a series)
+            // 10. Handle series progression (if match belongs to a series)
             try {
                 const series = await quickSeriesService.getSeriesByMatchId(quickMatchId, userId);
                 if (series) {
                     this.logger.info(`Match ${quickMatchId} belongs to series ${series.id}, updating series progression`);
-                    
+
                     // Mark this match as completed in series
                     await this.db.quickSeriesMatch.update({
                         where: { quickMatchId },
-                        data: { 
+                        data: {
                             isCompleted: true,
                             completedAt: new Date()
                         }
@@ -620,7 +523,7 @@ export class QuickProcessingService extends BaseService {
 
                     // Update series leaderboard with new results
                     await quickSeriesService.updateSeriesLeaderboard(series.id, userId);
-                    
+
                     this.logger.info(`Series ${series.id} progression completed for match ${quickMatchId}`);
                 }
             } catch (seriesError) {
@@ -654,39 +557,11 @@ export class QuickProcessingService extends BaseService {
         } catch (error) {
             this.logger.error(`Result processing failed for Quick Match ${quickMatchId}:`, error);
 
-
-            // Update match status to error using state machine
-            try {
-                const currentQuickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-                if (currentQuickMatch) {
-                    const errorStateContext = await this.buildStateContext(currentQuickMatch, userId);
-                    const errorTransition = await quickMatchStateMachine.executeTransition(
-                        quickMatchId,
-                        'ERROR',
-                        errorStateContext
-                    );
-
-                    if (errorTransition.isValid) {
-                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                            status: 'ERROR',
-                            processingStep: `Error: ${(error as Error).message}`
-                        });
-                        this.logger.info(`Error state transition: ${errorTransition.previousState} → ERROR`);
-                    } else {
-                        // Fallback - direct update if state machine fails
-                        await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                            status: 'ERROR',
-                            processingStep: `Error: ${(error as Error).message}`
-                        });
-                    }
-                }
-            } catch (stateError) {
-                // Fallback - direct update if state machine fails
-                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                    status: 'ERROR',
-                    processingStep: `Error: ${(error as Error).message}`
-                }).catch(() => { });
-            }
+            // Update match status to error
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                status: 'ERROR',
+                processingStep: `Error: ${(error as Error).message}`
+            }).catch(() => { });
 
             throw error;
         }
@@ -760,15 +635,32 @@ export class QuickProcessingService extends BaseService {
             aiConfidence: data.aiConfidence,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            dbStatus: 'PENDING_SYNC'
+            dbStatus: 'SYNCED' // Direct DB write, so it's synced
         };
 
-        // Store in Redis
+        // Store directly in database (no queue needed)
+        await this.db.quickMatchResult.create({
+            data: {
+                id: resultId,
+                quickMatchId,
+                slotNumber: data.slotNumber,
+                teamName: data.teamName,
+                position: data.position,
+                rank: data.position,
+                totalKills: data.totalKills,
+                positionPoints: data.positionPoints,
+                killPoints: data.killPoints,
+                totalPoints: data.totalPoints,
+                needsReview: data.needsReview || false,
+                aiConfidence: data.aiConfidence,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            }
+        });
+
+        // Cache the result for quick access
         await redis.hsetObject(`quickResult:${resultId}`, result);
         await redis.sadd(`quickMatch:${quickMatchId}:results`, resultId);
-
-        // Queue database sync with correct entity type
-        await QueueService.syncQuickPtImmediately('QUICK_RESULT', 'CREATE', resultId, result, userId);
 
         this.logger.info(`Created match result for slot ${data.slotNumber} (${data.teamName})`);
         return result;
@@ -847,8 +739,8 @@ export class QuickProcessingService extends BaseService {
         // 2. Check if any player name matches team name (for player-based matching)
         const playerMatch = slots.find(slot => {
             if (!slot.playerNames || slot.playerNames.length === 0) return false;
-            
-            return slot.playerNames.some(playerName => 
+
+            return slot.playerNames.some(playerName =>
                 playerName.toLowerCase().trim() === normalizedTeamName
             );
         });
@@ -879,15 +771,15 @@ export class QuickProcessingService extends BaseService {
         if (!fuzzyMatch) {
             const advancedMatch = slots.find(slot => {
                 if (!slot.playerNames || slot.playerNames.length === 0) return false;
-                
+
                 return slot.playerNames.some(slotPlayer => {
                     const normalizedSlotPlayer = slotPlayer.toLowerCase().trim();
                     // Check if player names have common parts (minimum 4 characters)
-                    return normalizedSlotPlayer.length >= 4 && 
-                           normalizedTeamName.includes(normalizedSlotPlayer.substring(0, 4));
+                    return normalizedSlotPlayer.length >= 4 &&
+                        normalizedTeamName.includes(normalizedSlotPlayer.substring(0, 4));
                 });
             });
-            
+
             if (advancedMatch) {
                 this.logger.info(`Advanced matched team "${teamName}" with slot "${advancedMatch.teamName}"`);
                 return advancedMatch;

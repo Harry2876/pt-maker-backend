@@ -1,6 +1,5 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
-import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { quickProcessingService } from './quickProcessingService';
@@ -92,17 +91,29 @@ export class QuickExportService extends BaseService {
                 expiresAt: this.calculateExpiryDate(),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
+                dbStatus: 'SYNCED' // Direct DB write, so it's synced
             };
 
-            // 6. Store in Redis
+            const generationTimeMs = Date.now() - startTime;
+
+            // 6. Store directly in database (no queue needed)
+            await this.db.quickPointsTable.create({
+                data: {
+                    id: pointsTableId,
+                    quickMatchId: quickMatchId,
+                    tableImageUrl: aiResponse.data.png_url,
+                    csvData: aiResponse.data.csv_data,
+                    pngGeneratedAt: new Date(),
+                    generationTimeMs: generationTimeMs,
+                    template: 'default',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            });
+
+            // 7. Cache the result for quick access
             await redis.hsetObject(`quickPointsTable:${pointsTableId}`, pointsTable, this.EXPORT_CACHE_TTL);
             await redis.set(`quickMatch:${quickMatchId}:pointsTable`, pointsTableId, this.EXPORT_CACHE_TTL);
-
-            // 7. Queue database sync
-            await QueueService.syncQuickPtImmediately('QUICK_POINTS_TABLE', 'CREATE', pointsTableId, pointsTable, userId);
-
-            const generationTimeMs = Date.now() - startTime;
 
             this.logger.info(`Points table exported successfully: ${pointsTableId} (${generationTimeMs}ms)`);
 

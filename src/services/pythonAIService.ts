@@ -124,15 +124,32 @@ export class PythonAIService extends BaseService {
                 }
             };
 
-            this.logger.info(`Processing attendance for screenshot: ${screenshotUrl}`);
+            this.logger.info(`Processing attendance for screenshot: ${screenshotUrl}`, {
+                requestPayload: request,
+                apiUrl: this.apiUrl,
+                endpoint: '/api/v1/ocr/attendance'
+            });
 
             const response = await this.axiosInstance.post(
                 '/api/v1/ocr/attendance',   // NEW endpoint
-                request
+                request,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(this.apiKey && { 'X-API-Key': this.apiKey }),
+                        'Accept': 'application/json'
+                    },
+                    timeout: this.timeout
+                }
             );
 
             // NEW: Check status field instead of success
             if (response.data.status !== 'success') {
+                this.logger.error(`Python AI returned error status:`, {
+                    status: response.data.status,
+                    response: response.data,
+                    url: screenshotUrl
+                });
                 throw new Error(`Python AI returned error status: ${response.data.status}`);
             }
 
@@ -140,6 +157,13 @@ export class PythonAIService extends BaseService {
             return response.data;
 
         } catch (error) {
+            this.logger.error(`Python AI attendance detection failed:`, {
+                error: (error as any).message,
+                response: (error as any).response?.data,
+                status: (error as any).response?.status,
+                url: screenshotUrl,
+                apiUrl: this.apiUrl
+            });
             this.handleError(error, 'Detect Attendance');
             throw this.formatError(error);
         }

@@ -1,6 +1,5 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
-import { QueueService } from './queueService';
 import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { QuickPointsTableCache } from '../types/quickResult';
@@ -52,15 +51,24 @@ export class QuickPointsTableService extends BaseService {
                 expiresAt: this.calculateExpiryDate(),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
+                dbStatus: 'SYNCED' // Direct DB write, so it's synced
             };
 
-            // 4. Store in Redis
+            // 4. Store directly in database (no queue needed)
+            await this.db.quickPointsTable.create({
+                data: {
+                    id: pointsTableId,
+                    quickMatchId: data.quickMatchId,
+                    csvData: data.csvData as any,
+                    template: data.template || 'default',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            });
+
+            // 5. Cache the result for quick access
             await redis.hsetObject(`quickPointsTable:${pointsTableId}`, pointsTable, this.CACHE_TTL);
             await redis.set(`quickMatch:${data.quickMatchId}:pointsTable`, pointsTableId, this.CACHE_TTL);
-
-            // 5. Queue database sync
-            await QueueService.syncQuickPtImmediately('QUICK_POINTS_TABLE', 'CREATE', pointsTableId, pointsTable, userId);
 
             this.logger.info(`Points table ${pointsTableId} created for Quick Match ${data.quickMatchId}`);
             return pointsTable;
@@ -249,19 +257,26 @@ export class QuickPointsTableService extends BaseService {
                 throw new Error('Points table not found or access denied');
             }
 
-            // 2. Update points table object
+            // 2. Update directly in database (no queue needed)
+            await this.db.quickPointsTable.update({
+                where: { id: pointsTableId },
+                data: {
+                    csvData: data.csvData as any,
+                    template: data.template || 'default',
+                    updatedAt: new Date()
+                }
+            });
+
+            // 3. Update points table object for cache
             const updated: QuickPointsTableCache = {
                 ...existing,
                 ...data,
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'PENDING_SYNC'
+                dbStatus: 'SYNCED' // Direct DB write, so it's synced
             };
 
-            // 3. Update Redis
+            // 4. Update Redis cache
             await redis.hsetObject(`quickPointsTable:${pointsTableId}`, updated, this.CACHE_TTL);
-
-            // 4. Queue database sync
-            await QueueService.syncQuickPtImmediately('QUICK_POINTS_TABLE', 'UPDATE', pointsTableId, updated, userId);
 
             this.logger.info(`Points table ${pointsTableId} updated`);
             return updated;
