@@ -25,6 +25,15 @@ import {
     processResultsSchema,
     exportPointsTableSchema
 } from '../validations/quickResultValidation';
+import {
+    setTieBreakingRulesSchema,
+    resolveConflictsSchema,
+    detectConflictsSchema,
+    setSeriesTieBreakingRulesSchema,
+    matchIdParamSchema,
+    seriesIdParamSchema,
+    tieBreakingRulesWithValidationSchema
+} from '../validations/tieBreakingValidation';
 
 import { QuickSeriesController } from '../controllers/quickSeriesController';
 import {
@@ -34,6 +43,15 @@ import {
     updateQuickSeriesSchema,
     listQuickSeriesQuerySchema
 } from '../validations/quickSeriesValidation';
+
+import {
+    createManualResultSchema,
+    updateManualResultSchema,
+    manualResultParamsSchema,
+    bulkCreateManualResultsSchema,
+    bulkUpdateManualResultsSchema,
+    bulkDeleteManualResultsSchema
+} from '../validations/manualResultValidation';
 
 /**
  * @swagger
@@ -2844,4 +2862,494 @@ quickPTRouter.get('/series/:id/leaderboard',
     validateRequest(quickSeriesParamsSchema, 'params'),
     QuickSeriesController.getSeriesLeaderboard
 );
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/results/manual:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Create manual result entry
+ *     description: Manually enter team result without AI processing
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ */
+quickPTRouter.post('/matches/:id/results/manual',
+    validateRequest(manualResultParamsSchema, 'params'),
+    validateRequest(createManualResultSchema, 'body'),
+    QuickPTController.createManualResult
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{quickMatchId}/results/{resultId}:
+ *   put:
+ *     tags: [Quick-PT]  
+ *     summary: Update manual result
+ *     security:
+ *       - bearerAuth: []
+ */
+quickPTRouter.put('/matches/:quickMatchId/results/:resultId',
+    validateRequest(manualResultParamsSchema, 'params'),
+    validateRequest(updateManualResultSchema, 'body'),
+    QuickPTController.updateManualResult
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{quickMatchId}/results/{resultId}:
+ *   delete:
+ *     tags: [Quick-PT]
+ *     summary: Delete result
+ *     security:
+ *       - bearerAuth: []
+ */
+quickPTRouter.delete('/matches/:quickMatchId/results/:resultId',
+    validateRequest(manualResultParamsSchema, 'params'),
+    QuickPTController.deleteResult
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/results:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get all results for a match
+ *     security:
+ *       - bearerAuth: []
+ */
+quickPTRouter.get('/matches/:id/results',
+    validateRequest(manualResultParamsSchema, 'params'),
+    QuickPTController.getMatchResults
+);
+
+// ========================================
+// BULK MANUAL RESULT ROUTES
+// ========================================
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/results/bulk:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Create multiple manual results in bulk
+ *     description: Create multiple team results at once with validation and conflict checking
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ */
+quickPTRouter.post('/matches/:id/results/bulk',
+    validateRequest(manualResultParamsSchema, 'params'),
+    validateRequest(bulkCreateManualResultsSchema, 'body'), 
+    QuickPTController.createBulkManualResults
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/results/bulk:
+ *   put:
+ *     tags: [Quick-PT]
+ *     summary: Update multiple results in bulk
+ *     description: Update multiple team results at once
+ *     security:
+ *       - bearerAuth: []
+ */
+quickPTRouter.put('/matches/:id/results/bulk',
+    validateRequest(manualResultParamsSchema, 'params'),
+    validateRequest(bulkUpdateManualResultsSchema, 'body'),
+    QuickPTController.updateBulkManualResults
+);
+
+/**
+ * @swagger  
+ * /api/v1/quick-pt/matches/{id}/results/bulk:
+ *   delete:
+ *     tags: [Quick-PT]
+ *     summary: Delete multiple results in bulk
+ *     description: Delete multiple team results at once
+ *     security:
+ *       - bearerAuth: []
+ */
+quickPTRouter.delete('/matches/:id/results/bulk',
+    validateRequest(manualResultParamsSchema, 'params'),
+    validateRequest(bulkDeleteManualResultsSchema, 'body'),
+    QuickPTController.deleteBulkManualResults
+);
+
+// ========================================
+// TIE-BREAKING ROUTES
+// ========================================
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/conflicts/detect:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Detect points conflicts in match results
+ *     description: Analyze match results to identify teams with identical points that need tie-breaking
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               forceRefresh:
+ *                 type: boolean
+ *                 default: false
+ *               includeResolved:
+ *                 type: boolean
+ *                 default: false
+ *     responses:
+ *       200:
+ *         description: Conflicts detected successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     hasConflicts:
+ *                       type: boolean
+ *                     conflictGroups:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *       404:
+ *         description: Match not found
+ */
+quickPTRouter.post('/matches/:id/conflicts/detect',
+    validateRequest(matchIdParamSchema, 'params'),
+    validateRequest(detectConflictsSchema, 'body'),
+    QuickPTController.detectPointsConflicts
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/conflicts/resolve:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Resolve points conflicts manually
+ *     description: Manually resolve conflicts by providing custom team ordering
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - conflictGroupId
+ *               - userDefinedOrder
+ *             properties:
+ *               conflictGroupId:
+ *                 type: string
+ *                 format: uuid
+ *               userDefinedOrder:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *                 minItems: 2
+ *               reason:
+ *                 type: string
+ *                 maxLength: 500
+ *     responses:
+ *       200:
+ *         description: Conflicts resolved successfully
+ *       400:
+ *         description: Invalid request data
+ *       404:
+ *         description: Match not found
+ */
+quickPTRouter.post('/matches/:id/conflicts/resolve',
+    validateRequest(matchIdParamSchema, 'params'),
+    validateRequest(resolveConflictsSchema, 'body'),
+    QuickPTController.resolvePointsConflicts
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/tie-breaking/rules:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Set tie-breaking rules for a match
+ *     description: Configure automatic tie-breaking rules for resolving conflicts
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - rules
+ *             properties:
+ *               rules:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - type
+ *                     - priority
+ *                   properties:
+ *                     type:
+ *                       type: string
+ *                       enum: [KILL_POINTS, PLACEMENT_POINTS, TOTAL_POINTS, CUSTOM_FIELD, MANUAL]
+ *                     priority:
+ *                       type: integer
+ *                       minimum: 1
+ *                       maximum: 10
+ *                     ascending:
+ *                       type: boolean
+ *                       default: false
+ *                     fieldName:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                 minItems: 1
+ *                 maxItems: 5
+ *               autoResolveEnabled:
+ *                 type: boolean
+ *                 default: true
+ *     responses:
+ *       200:
+ *         description: Tie-breaking rules set successfully
+ *       400:
+ *         description: Invalid rule configuration
+ *       404:
+ *         description: Match not found
+ */
+quickPTRouter.post('/matches/:id/tie-breaking/rules',
+    validateRequest(matchIdParamSchema, 'params'),
+    validateRequest(tieBreakingRulesWithValidationSchema, 'body'),
+    QuickPTController.setTieBreakingRules
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/tie-breaking/config:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get tie-breaking configuration for a match
+ *     description: Retrieve current tie-breaking rules and configuration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *     responses:
+ *       200:
+ *         description: Tie-breaking configuration retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     entityId:
+ *                       type: string
+ *                       format: uuid
+ *                     entityType:
+ *                       type: string
+ *                       enum: [match, series]
+ *                     rules:
+ *                       type: array
+ *                     autoResolveEnabled:
+ *                       type: boolean
+ *       404:
+ *         description: Match not found
+ */
+quickPTRouter.get('/matches/:id/tie-breaking/config',
+    validateRequest(matchIdParamSchema, 'params'),
+    QuickPTController.getTieBreakingConfig
+);
+
+// ========================================
+// SERIES TIE-BREAKING ROUTES
+// ========================================
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/conflicts/detect:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Detect conflicts in series standings
+ *     description: Analyze series standings to identify teams with identical points that need tie-breaking
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Series ID
+ *     responses:
+ *       200:
+ *         description: Series conflicts detected successfully
+ *       404:
+ *         description: Series not found
+ */
+quickPTRouter.post('/series/:id/conflicts/detect',
+    validateRequest(seriesIdParamSchema, 'params'),
+    QuickPTController.detectSeriesConflicts
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/tie-breaking/rules:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Set tie-breaking rules for a series
+ *     description: Configure automatic tie-breaking rules for series standings
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Series ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - rules
+ *             properties:
+ *               rules:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - type
+ *                     - priority
+ *                   properties:
+ *                     type:
+ *                       type: string
+ *                       enum: [KILL_POINTS, PLACEMENT_POINTS, TOTAL_POINTS, CUSTOM_FIELD, MANUAL]
+ *                     priority:
+ *                       type: integer
+ *                       minimum: 1
+ *                       maximum: 10
+ *                     ascending:
+ *                       type: boolean
+ *                       default: false
+ *                     fieldName:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                 minItems: 1
+ *                 maxItems: 5
+ *               autoResolveEnabled:
+ *                 type: boolean
+ *                 default: true
+ *               applyToAllMatches:
+ *                 type: boolean
+ *                 default: false
+ *     responses:
+ *       200:
+ *         description: Series tie-breaking rules set successfully
+ *       400:
+ *         description: Invalid rule configuration
+ *       404:
+ *         description: Series not found
+ */
+quickPTRouter.post('/series/:id/tie-breaking/rules',
+    validateRequest(seriesIdParamSchema, 'params'),
+    validateRequest(setSeriesTieBreakingRulesSchema, 'body'),
+    QuickPTController.setSeriesTieBreakingRules
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/tie-breaking/config:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Get tie-breaking configuration for a series
+ *     description: Retrieve current series tie-breaking rules and configuration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Series ID
+ *     responses:
+ *       200:
+ *         description: Series tie-breaking configuration retrieved
+ *       404:
+ *         description: Series not found
+ */
+quickPTRouter.get('/series/:id/tie-breaking/config',
+    validateRequest(seriesIdParamSchema, 'params'),
+    QuickPTController.getSeriesTieBreakingConfig
+);
+
 export default quickPTRouter;

@@ -4,7 +4,16 @@ import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { quickProcessingService } from './quickProcessingService';
 import { pythonAIService } from './pythonAIService';
+import { tieBreakingService } from './tieBreakingService';
 import { QuickPointsTableCache } from '../types/quickResult';
+import { 
+    ConflictDetectionResult, 
+    TieBreakingResult, 
+    EnhancedMatchResult,
+    TieBreakingConfig,
+    ConflictGroup,
+    ManualTieBreaking
+} from '../types/tieBreaking';
 
 export interface ExportPointsTableRequest {
     quickMatchId: string;
@@ -18,6 +27,9 @@ export interface ExportPointsTableResponse {
     pngUrl: string;
     csvData: any;
     generationTimeMs: number;
+    tieBreakingApplied: boolean;
+    conflictsResolved: number;
+    manualResolutionsApplied: number;
 }
 
 export class QuickExportService extends BaseService {
@@ -58,8 +70,56 @@ export class QuickExportService extends BaseService {
                 throw new Error('No results found for this match. Please process results first.');
             }
 
-            // 3. Format results for Python AI
-            const matchResults = results.map(result => ({
+            // 3. Detect and resolve tie-breaking conflicts
+            const conflictDetection = await tieBreakingService.detectMatchConflicts(results);
+            let finalResults = results;
+            let tieBreakingApplied = false;
+            let conflictsResolved = 0;
+            let manualResolutionsApplied = 0;
+
+            if (conflictDetection.hasConflicts) {
+                this.logger.info(`Conflicts detected: ${conflictDetection.conflictGroups.length} groups, ${conflictDetection.totalConflictedTeams} teams`);
+                
+                // Get tie-breaking configuration
+                const tieBreakingConfig = await tieBreakingService.getTieBreakingConfig(quickMatchId, 'match');
+                
+                if (tieBreakingConfig && tieBreakingConfig.autoResolveEnabled) {
+                    const tieBreakingResult = await tieBreakingService.applyAutomaticTieBreaking(
+                        conflictDetection.conflictGroups,
+                        tieBreakingConfig.rules
+                    );
+                    
+                    finalResults = tieBreakingResult.resolvedResults;
+                    tieBreakingApplied = true;
+                    conflictsResolved = tieBreakingResult.summary.autoResolved;
+                    manualResolutionsApplied = tieBreakingResult.summary.manuallyResolved;
+                    
+                    this.logger.info(`Tie-breaking applied: ${conflictsResolved} auto-resolved, ${manualResolutionsApplied} manual`);
+                }
+            }
+
+            // 4. Generate enhanced results for Python AI
+            const enhancedResults = tieBreakingApplied ? 
+                await tieBreakingService.generateEnhancedResults(results, {
+                    originalResults: results,
+                    resolvedResults: finalResults,
+                    appliedRules: [],
+                    manualResolutions: [],
+                    summary: { totalTeams: finalResults.length, conflictsDetected: conflictDetection.conflictGroups.length, autoResolved: conflictsResolved, manuallyResolved: manualResolutionsApplied, remainingConflicts: 0 }
+                }) : null;
+
+            const matchResults = enhancedResults ? enhancedResults.map(result => ({
+                slot_number: result.slotNumber,
+                team_name: result.teamName,
+                position: result.finalPosition,
+                original_position: result.originalPosition,
+                total_kills: result.totalKills,
+                position_points: result.positionPoints,
+                kill_points: result.killPoints,
+                total_points: result.totalPoints,
+                tie_breaking_applied: result.tieBreakingApplied,
+                tie_breaking_method: result.tieBreakingMethod || null
+            })) : finalResults.map(result => ({
                 slot_number: result.slotNumber,
                 team_name: result.teamName,
                 position: result.position,
@@ -115,14 +175,17 @@ export class QuickExportService extends BaseService {
             await redis.hsetObject(`quickPointsTable:${pointsTableId}`, pointsTable, this.EXPORT_CACHE_TTL);
             await redis.set(`quickMatch:${quickMatchId}:pointsTable`, pointsTableId, this.EXPORT_CACHE_TTL);
 
-            this.logger.info(`Points table exported successfully: ${pointsTableId} (${generationTimeMs}ms)`);
+            this.logger.info(`Points table exported successfully: ${pointsTableId} (${generationTimeMs}ms, tie-breaking: ${tieBreakingApplied})`);
 
             return {
                 success: true,
                 pointsTableId,
                 pngUrl: aiResponse.data.png_url,
                 csvData: aiResponse.data.csv_data,
-                generationTimeMs
+                generationTimeMs,
+                tieBreakingApplied,
+                conflictsResolved,
+                manualResolutionsApplied
             };
 
         } catch (error) {
@@ -210,6 +273,149 @@ export class QuickExportService extends BaseService {
 
         } catch (error) {
             this.handleError(error, 'Regenerate Points Table');
+            throw error;
+        }
+    }
+
+    /**
+     * Detect points conflicts for a match
+     */
+    async detectConflicts(
+        quickMatchId: string,
+        userId: string
+    ): Promise<ConflictDetectionResult> {
+        try {
+            // 1. Verify ownership
+            const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+            if (!quickMatch) {
+                throw new Error('Quick Match not found or access denied');
+            }
+
+            // 2. Get match results
+            const results = await quickProcessingService.getMatchResults(quickMatchId, userId);
+            if (results.length === 0) {
+                return {
+                    hasConflicts: false,
+                    conflictGroups: [],
+                    totalConflictedTeams: 0,
+                    autoResolvableCount: 0,
+                    manualResolutionRequired: 0
+                };
+            }
+
+            // 3. Detect conflicts
+            const conflictDetection = await tieBreakingService.detectMatchConflicts(results);
+            
+            this.logger.info(`Conflict detection for match ${quickMatchId}: ${conflictDetection.conflictGroups.length} conflicts found`);
+            
+            return conflictDetection;
+
+        } catch (error) {
+            this.handleError(error, 'Detect Conflicts');
+            throw error;
+        }
+    }
+
+    /**
+     * Apply manual tie-breaking resolution
+     */
+    async resolveConflicts(
+        quickMatchId: string,
+        userId: string,
+        conflictGroupId: string,
+        userDefinedOrder: string[],
+        reason?: string
+    ): Promise<{ success: boolean; resolvedTeams: string[] }> {
+        try {
+            // 1. Verify ownership
+            const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+            if (!quickMatch) {
+                throw new Error('Quick Match not found or access denied');
+            }
+
+            // 2. Get current conflicts
+            const results = await quickProcessingService.getMatchResults(quickMatchId, userId);
+            const conflictDetection = await tieBreakingService.detectMatchConflicts(results);
+            
+            // 3. Find specific conflict group
+            const conflictGroup = conflictDetection.conflictGroups.find(g => 
+                g.points.toString() === conflictGroupId
+            );
+            
+            if (!conflictGroup) {
+                throw new Error('Conflict group not found');
+            }
+
+            // 4. Create manual resolution
+            const manualResolution: ManualTieBreaking = {
+                conflictGroupId,
+                points: conflictGroup.points,
+                userDefinedOrder,
+                resolvedBy: userId,
+                resolvedAt: new Date().toISOString(),
+                reason
+            };
+
+            // 5. Apply manual tie-breaking
+            const resolvedTeams = await tieBreakingService.applyManualTieBreaking(
+                conflictGroup,
+                manualResolution
+            );
+
+            // 6. Update tie-breaking configuration with manual resolution
+            const config = await tieBreakingService.getTieBreakingConfig(quickMatchId, 'match');
+            if (config) {
+                config.manualResolutions = config.manualResolutions || [];
+                config.manualResolutions.push(manualResolution);
+                await tieBreakingService.saveTieBreakingConfig(quickMatchId, 'match', config);
+            }
+
+            this.logger.info(`Manual tie-breaking applied for match ${quickMatchId}, conflict ${conflictGroupId}`);
+            
+            return {
+                success: true,
+                resolvedTeams: resolvedTeams.map(t => t.teamName)
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Resolve Conflicts');
+            throw error;
+        }
+    }
+
+    /**
+     * Set tie-breaking rules for a match
+     */
+    async setTieBreakingRules(
+        quickMatchId: string,
+        userId: string,
+        rules: any[],
+        autoResolveEnabled: boolean
+    ): Promise<{ success: boolean }> {
+        try {
+            // 1. Verify ownership
+            const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+            if (!quickMatch) {
+                throw new Error('Quick Match not found or access denied');
+            }
+
+            // 2. Create tie-breaking configuration
+            const config: TieBreakingConfig = {
+                matchId: quickMatchId,
+                rules,
+                manualResolutions: [],
+                autoResolveEnabled
+            };
+
+            // 3. Save configuration
+            await tieBreakingService.saveTieBreakingConfig(quickMatchId, 'match', config);
+            
+            this.logger.info(`Tie-breaking rules set for match ${quickMatchId}: ${rules.length} rules, auto-resolve: ${autoResolveEnabled}`);
+            
+            return { success: true };
+
+        } catch (error) {
+            this.handleError(error, 'Set Tie Breaking Rules');
             throw error;
         }
     }

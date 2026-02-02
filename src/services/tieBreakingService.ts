@@ -1,0 +1,437 @@
+import { BaseService } from './baseService';
+import redis from '../config/redis';
+import { randomUUID } from 'crypto';
+import {
+    TieBreakingRule,
+    ConflictGroup,
+    ManualTieBreaking,
+    TieBreakingConfig,
+    ConflictDetectionResult,
+    TieBreakingResult,
+    SeriesConflictGroup,
+    SeriesTieBreakingResult,
+    EnhancedMatchResult
+} from '../types/tieBreaking';
+import { QuickMatchResultCache } from '../types/quickResult';
+import { SeriesTeamStanding } from '../types/quickSeries';
+
+export class TieBreakingService extends BaseService {
+    private CACHE_TTL = 600; // 10 minutes
+
+    /**
+     * Detect points conflicts in match results
+     */
+    async detectMatchConflicts(
+        results: QuickMatchResultCache[]
+    ): Promise<ConflictDetectionResult> {
+        try {
+            const conflictGroups: ConflictGroup[] = [];
+            
+            // Group teams by total points
+            const pointsGroups = new Map<number, QuickMatchResultCache[]>();
+            
+            for (const result of results) {
+                const points = result.totalPoints;
+                if (!pointsGroups.has(points)) {
+                    pointsGroups.set(points, []);
+                }
+                pointsGroups.get(points)!.push(result);
+            }
+
+            // Identify conflicts (groups with more than 1 team)
+            let autoResolvableCount = 0;
+            let manualResolutionRequired = 0;
+            let totalConflictedTeams = 0;
+
+            for (const [points, teams] of pointsGroups) {
+                if (teams.length > 1) {
+                    const canAutoResolve = this.canAutoResolveConflict(teams);
+                    
+                    const conflictGroup: ConflictGroup = {
+                        points,
+                        conflictedTeams: teams,
+                        requiresManualResolution: !canAutoResolve,
+                        conflictType: 'TOTAL_POINTS'
+                    };
+
+                    conflictGroups.push(conflictGroup);
+                    totalConflictedTeams += teams.length;
+
+                    if (canAutoResolve) {
+                        autoResolvableCount++;
+                    } else {
+                        manualResolutionRequired++;
+                    }
+                }
+            }
+
+            return {
+                hasConflicts: conflictGroups.length > 0,
+                conflictGroups,
+                totalConflictedTeams,
+                autoResolvableCount,
+                manualResolutionRequired
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Detect Match Conflicts');
+            throw error;
+        }
+    }
+
+    /**
+     * Detect conflicts in series standings
+     */
+    async detectSeriesConflicts(
+        standings: SeriesTeamStanding[]
+    ): Promise<ConflictDetectionResult> {
+        try {
+            const conflictGroups: SeriesConflictGroup[] = [];
+            
+            // Group teams by total points
+            const pointsGroups = new Map<number, SeriesTeamStanding[]>();
+            
+            for (const standing of standings) {
+                const points = standing.totalPoints;
+                if (!pointsGroups.has(points)) {
+                    pointsGroups.set(points, []);
+                }
+                pointsGroups.get(points)!.push(standing);
+            }
+
+            // Identify conflicts
+            let autoResolvableCount = 0;
+            let manualResolutionRequired = 0;
+            let totalConflictedTeams = 0;
+
+            for (const [points, teams] of pointsGroups) {
+                if (teams.length > 1) {
+                    const canAutoResolve = this.canAutoResolveSeriesConflict(teams);
+                    
+                    const conflictGroup: SeriesConflictGroup = {
+                        points,
+                        conflictedStandings: teams,
+                        requiresManualResolution: !canAutoResolve
+                    };
+
+                    conflictGroups.push(conflictGroup);
+                    totalConflictedTeams += teams.length;
+
+                    if (canAutoResolve) {
+                        autoResolvableCount++;
+                    } else {
+                        manualResolutionRequired++;
+                    }
+                }
+            }
+
+            return {
+                hasConflicts: conflictGroups.length > 0,
+                conflictGroups: conflictGroups.map(group => ({
+                    points: group.points,
+                    conflictedTeams: [], // Convert series standings to match results format
+                    requiresManualResolution: group.requiresManualResolution,
+                    conflictType: 'SERIES_POINTS' as const
+                })),
+                totalConflictedTeams,
+                autoResolvableCount,
+                manualResolutionRequired
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Detect Series Conflicts');
+            throw error;
+        }
+    }
+
+    /**
+     * Apply automatic tie-breaking rules
+     */
+    async applyAutomaticTieBreaking(
+        conflictGroups: ConflictGroup[],
+        rules: TieBreakingRule[]
+    ): Promise<TieBreakingResult> {
+        try {
+            const activeRules = rules.filter(rule => rule.isActive)
+                .sort((a, b) => a.priority - b.priority);
+
+            let resolvedResults: QuickMatchResultCache[] = [];
+            let appliedRules: any[] = [];
+            let autoResolved = 0;
+            let remainingConflicts = 0;
+
+            for (const conflictGroup of conflictGroups) {
+                if (conflictGroup.requiresManualResolution) {
+                    // Can't auto-resolve, keep original order
+                    resolvedResults.push(...conflictGroup.conflictedTeams);
+                    remainingConflicts++;
+                    continue;
+                }
+
+                let resolved = false;
+                for (const rule of activeRules) {
+                    const sortedTeams = this.applySingleTieBreakingRule(
+                        conflictGroup.conflictedTeams, 
+                        rule
+                    );
+
+                    if (this.isConflictResolved(sortedTeams)) {
+                        resolvedResults.push(...sortedTeams);
+                        appliedRules.push({
+                            ruleId: rule.priority,
+                            method: rule.method,
+                            teamsAffected: sortedTeams.map(t => t.teamName)
+                        });
+                        resolved = true;
+                        autoResolved++;
+                        break;
+                    }
+                }
+
+                if (!resolved) {
+                    resolvedResults.push(...conflictGroup.conflictedTeams);
+                    remainingConflicts++;
+                }
+            }
+
+            return {
+                originalResults: conflictGroups.flatMap(g => g.conflictedTeams),
+                resolvedResults,
+                appliedRules,
+                manualResolutions: [],
+                summary: {
+                    totalTeams: resolvedResults.length,
+                    conflictsDetected: conflictGroups.length,
+                    autoResolved,
+                    manuallyResolved: 0,
+                    remainingConflicts
+                }
+            };
+
+        } catch (error) {
+            this.handleError(error, 'Apply Automatic Tie Breaking');
+            throw error;
+        }
+    }
+
+    /**
+     * Apply manual tie-breaking resolution
+     */
+    async applyManualTieBreaking(
+        conflictGroup: ConflictGroup,
+        manualResolution: ManualTieBreaking
+    ): Promise<QuickMatchResultCache[]> {
+        try {
+            const { userDefinedOrder } = manualResolution;
+            const orderedResults: QuickMatchResultCache[] = [];
+
+            // Sort teams according to user-defined order
+            for (const teamName of userDefinedOrder) {
+                const team = conflictGroup.conflictedTeams.find(t => t.teamName === teamName);
+                if (team) {
+                    orderedResults.push(team);
+                }
+            }
+
+            // Add any missing teams at the end (safety check)
+            for (const team of conflictGroup.conflictedTeams) {
+                if (!orderedResults.find(r => r.teamName === team.teamName)) {
+                    orderedResults.push(team);
+                }
+            }
+
+            // Store manual resolution in cache
+            const cacheKey = `manual_tie_breaking:${conflictGroup.points}`;
+            await redis.hsetObject(cacheKey, manualResolution, this.CACHE_TTL);
+
+            this.logger.info(`Manual tie-breaking applied for ${conflictGroup.points} points: ${userDefinedOrder.join(', ')}`);
+
+            return orderedResults;
+
+        } catch (error) {
+            this.handleError(error, 'Apply Manual Tie Breaking');
+            throw error;
+        }
+    }
+
+    /**
+     * Generate enhanced results for Python API with tie-breaking info
+     */
+    async generateEnhancedResults(
+        originalResults: QuickMatchResultCache[],
+        tieBreakingResult: TieBreakingResult
+    ): Promise<EnhancedMatchResult[]> {
+        try {
+            const enhancedResults: EnhancedMatchResult[] = [];
+
+            for (let i = 0; i < tieBreakingResult.resolvedResults.length; i++) {
+                const result = tieBreakingResult.resolvedResults[i];
+                const originalIndex = originalResults.findIndex(r => r.id === result.id);
+                
+                const enhanced: EnhancedMatchResult = {
+                    ...result,
+                    finalPosition: i + 1, // Position after tie-breaking
+                    originalPosition: originalIndex + 1, // Position before tie-breaking
+                    tieBreakingApplied: originalIndex !== i,
+                    tieBreakingMethod: this.getTieBreakingMethodForTeam(result.teamName, tieBreakingResult),
+                    tieBreakingReason: this.getTieBreakingReasonForTeam(result.teamName, tieBreakingResult)
+                };
+
+                enhancedResults.push(enhanced);
+            }
+
+            return enhancedResults;
+
+        } catch (error) {
+            this.handleError(error, 'Generate Enhanced Results');
+            throw error;
+        }
+    }
+
+    /**
+     * Save tie-breaking configuration
+     */
+    async saveTieBreakingConfig(
+        entityId: string,
+        entityType: 'match' | 'series',
+        config: TieBreakingConfig
+    ): Promise<void> {
+        try {
+            const cacheKey = `tie_breaking_config:${entityType}:${entityId}`;
+            await redis.hsetObject(cacheKey, config, this.CACHE_TTL * 24); // 24 hour cache
+
+            this.logger.info(`Tie-breaking config saved for ${entityType} ${entityId}`);
+
+        } catch (error) {
+            this.handleError(error, 'Save Tie Breaking Config');
+            throw error;
+        }
+    }
+
+    /**
+     * Get tie-breaking configuration
+     */
+    async getTieBreakingConfig(
+        entityId: string,
+        entityType: 'match' | 'series'
+    ): Promise<TieBreakingConfig | null> {
+        try {
+            const cacheKey = `tie_breaking_config:${entityType}:${entityId}`;
+            const config = await redis.hgetObject<TieBreakingConfig>(cacheKey);
+
+            return config || this.getDefaultTieBreakingConfig();
+
+        } catch (error) {
+            this.handleError(error, 'Get Tie Breaking Config');
+            return this.getDefaultTieBreakingConfig();
+        }
+    }
+
+    // Private helper methods
+    private canAutoResolveConflict(teams: QuickMatchResultCache[]): boolean {
+        // Check if teams have different kill counts
+        const killCounts = teams.map(t => t.totalKills);
+        const uniqueKillCounts = new Set(killCounts);
+        
+        if (uniqueKillCounts.size > 1) {
+            return true; // Can resolve by kills
+        }
+
+        // Check if teams have different positions (in case of manual entries)
+        const positions = teams.map(t => t.position);
+        const uniquePositions = new Set(positions);
+        
+        return uniquePositions.size > 1; // Can resolve by best position
+    }
+
+    private canAutoResolveSeriesConflict(standings: SeriesTeamStanding[]): boolean {
+        // Check if teams have different kill counts
+        const killCounts = standings.map(s => s.totalKills);
+        const uniqueKillCounts = new Set(killCounts);
+        
+        if (uniqueKillCounts.size > 1) {
+            return true;
+        }
+
+        // Check if teams have different best positions
+        const bestPositions = standings.map(s => s.bestPosition);
+        const uniqueBestPositions = new Set(bestPositions);
+        
+        return uniqueBestPositions.size > 1;
+    }
+
+    private applySingleTieBreakingRule(
+        teams: QuickMatchResultCache[],
+        rule: TieBreakingRule
+    ): QuickMatchResultCache[] {
+        switch (rule.method) {
+            case 'KILLS':
+                return teams.sort((a, b) => b.totalKills - a.totalKills);
+            
+            case 'BEST_POSITION':
+                return teams.sort((a, b) => a.position - b.position);
+            
+            case 'MANUAL_ORDER':
+                // Manual order should be handled separately
+                return teams;
+            
+            default:
+                return teams;
+        }
+    }
+
+    private isConflictResolved(teams: QuickMatchResultCache[]): boolean {
+        // Check if all teams now have unique values for the tie-breaking criteria
+        for (let i = 1; i < teams.length; i++) {
+            // If any two consecutive teams are still tied, conflict not resolved
+            if (teams[i-1].totalKills === teams[i].totalKills && 
+                teams[i-1].position === teams[i].position) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private getTieBreakingMethodForTeam(
+        teamName: string,
+        result: TieBreakingResult
+    ): string | undefined {
+        const appliedRule = result.appliedRules.find(rule => 
+            rule.teamsAffected.includes(teamName)
+        );
+        return appliedRule?.method;
+    }
+
+    private getTieBreakingReasonForTeam(
+        teamName: string,
+        result: TieBreakingResult
+    ): string | undefined {
+        const manualResolution = result.manualResolutions.find(resolution => 
+            resolution.userDefinedOrder.includes(teamName)
+        );
+        return manualResolution?.reason;
+    }
+
+    private getDefaultTieBreakingConfig(): TieBreakingConfig {
+        return {
+            rules: [
+                {
+                    priority: 1,
+                    method: 'KILLS',
+                    isActive: true,
+                    description: 'Higher kills wins'
+                },
+                {
+                    priority: 2,
+                    method: 'BEST_POSITION',
+                    isActive: true,
+                    description: 'Better position wins'
+                }
+            ],
+            manualResolutions: [],
+            autoResolveEnabled: true
+        };
+    }
+}
+
+export const tieBreakingService = new TieBreakingService();

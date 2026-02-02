@@ -31,7 +31,7 @@ export const env = {
   DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID!,
   PYTHON_AI_API_URL: process.env.PYTHON_AI_API_URL || 'http://localhost:8000',
   PYTHON_AI_API_KEY: process.env.PYTHON_AI_API_KEY,
-  PYTHON_AI_TIMEOUT: parseInt(process.env.PYTHON_AI_TIMEOUT || '60000', 10),
+  PYTHON_AI_TIMEOUT: parseInt(process.env.PYTHON_AI_TIMEOUT || '300000', 10),
   ENABLE_GEMINI_FALLBACK: process.env.ENABLE_GEMINI_FALLBACK === 'true',
   AI_PROCESSING_MAX_RETRIES: parseInt(process.env.AI_PROCESSING_MAX_RETRIES || '2', 10),
   DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET!,

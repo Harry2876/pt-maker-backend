@@ -8,6 +8,9 @@ import { quickExportService } from '../services/quickExportService';
 import { unifiedScreenshotService } from '../services/unifiedScreenshotService';
 import { pythonAIService } from '../services/pythonAIService';
 import { quickPointsTableService } from '../services/quickPointsTableService';
+import { quickResultService } from '../services/quickResultService';
+import { tieBreakingService } from '../services/tieBreakingService';
+import { quickSeriesService } from '../services/quickSeriesService';
 
 export class QuickPTController {
 
@@ -395,7 +398,149 @@ export class QuickPTController {
             ResponseHelper.success('Results processed successfully', result)
         );
     });
+    // ========================================
+    // TIE-BREAKING ENDPOINTS
+    // ========================================
 
+    /**
+     * POST /api/quick-pt/matches/:id/conflicts/detect
+     * Detect points conflicts in match results
+     */
+    static detectPointsConflicts = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+
+        const conflicts = await quickExportService.detectConflicts(quickMatchId, userId);
+
+        return res.json(
+            ResponseHelper.success('Conflicts detection completed', conflicts)
+        );
+    });
+
+    /**
+     * POST /api/quick-pt/matches/:id/conflicts/resolve
+     * Resolve points conflicts manually
+     */
+    static resolvePointsConflicts = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const { conflictGroupId, userDefinedOrder, reason } = req.body;
+
+        const result = await quickExportService.resolveConflicts(
+            quickMatchId,
+            userId,
+            conflictGroupId,
+            userDefinedOrder,
+            reason
+        );
+
+        return res.json(
+            ResponseHelper.success('Conflicts resolved successfully', result)
+        );
+    });
+
+    /**
+     * POST /api/quick-pt/matches/:id/tie-breaking/rules
+     * Set tie-breaking rules for a match
+     */
+    static setTieBreakingRules = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const { rules, autoResolveEnabled } = req.body;
+
+        const result = await quickExportService.setTieBreakingRules(
+            quickMatchId,
+            userId,
+            rules,
+            autoResolveEnabled
+        );
+
+        return res.json(
+            ResponseHelper.success('Tie-breaking rules set successfully', result)
+        );
+    });
+
+    /**
+     * GET /api/quick-pt/matches/:id/tie-breaking/config
+     * Get tie-breaking configuration for a match
+     */
+    static getTieBreakingConfig = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+
+        // Verify ownership first
+        const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+        if (!quickMatch) {
+            return res.status(404).json(ResponseHelper.notFound('Quick Match not found'));
+        }
+
+        const config = await tieBreakingService.getTieBreakingConfig(quickMatchId, 'match');
+
+        return res.json(
+            ResponseHelper.success('Tie-breaking config retrieved', config)
+        );
+    });
+
+    // ========================================
+    // SERIES TIE-BREAKING ENDPOINTS
+    // ========================================
+
+    /**
+     * POST /api/quick-pt/series/:id/conflicts/detect
+     * Detect conflicts in series standings
+     */
+    static detectSeriesConflicts = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+
+        const conflicts = await quickSeriesService.detectSeriesConflicts(seriesId, userId);
+
+        return res.json(
+            ResponseHelper.success('Series conflicts detection completed', conflicts)
+        );
+    });
+
+    /**
+     * POST /api/quick-pt/series/:id/tie-breaking/rules
+     * Set tie-breaking rules for a series
+     */
+    static setSeriesTieBreakingRules = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+        const { rules, autoResolveEnabled } = req.body;
+
+        const result = await quickSeriesService.setSeriesTieBreakingRules(
+            seriesId,
+            userId,
+            rules,
+            autoResolveEnabled
+        );
+
+        return res.json(
+            ResponseHelper.success('Series tie-breaking rules set successfully', result)
+        );
+    });
+
+    /**
+     * GET /api/quick-pt/series/:id/tie-breaking/config
+     * Get tie-breaking configuration for a series
+     */
+    static getSeriesTieBreakingConfig = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+
+        // Verify ownership first
+        const series = await quickSeriesService.getTournamentSeriesById(seriesId, userId);
+        if (!series) {
+            return res.status(404).json(ResponseHelper.notFound('Tournament series not found'));
+        }
+
+        const config = await tieBreakingService.getTieBreakingConfig(seriesId, 'series');
+
+        return res.json(
+            ResponseHelper.success('Series tie-breaking config retrieved', config)
+        );
+    });
     /**
      * POST /api/quick-pt/matches/:id/process/complete
      * Run complete processing (attendance + results)
@@ -540,4 +685,162 @@ export class QuickPTController {
             ResponseHelper.success('Health status retrieved successfully', health)
         );
     });
+
+/**
+ * POST /api/v1/quick-pt/matches/:id/results/manual
+ * Create a manual result entry
+ */
+static createManualResult = asyncHandler(async (req: Request, res: Response) => {
+    const { id: quickMatchId } = req.params;
+    const userId = req.user!.id;
+    const resultData = req.body;
+
+    const result = await quickResultService.createManualResult(quickMatchId, userId, {
+        ...resultData,
+        source: 'MANUAL_ENTRY',
+        entryMethod: 'INDIVIDUAL',
+        enteredBy: userId
+    });
+
+    return res.status(201).json(
+        ResponseHelper.success('Manual result created successfully', result)
+    );
+});
+
+/**
+ * PUT /api/v1/quick-pt/matches/:quickMatchId/results/:resultId
+ * Update an existing result
+ */
+static updateManualResult = asyncHandler(async (req: Request, res: Response) => {
+    const { resultId } = req.params;
+    const userId = req.user!.id;
+    const updateData = req.body;
+
+    const result = await quickResultService.updateManualResult(resultId, userId, {
+        ...updateData,
+        modifiedBy: userId
+    });
+
+    return res.json(
+        ResponseHelper.success('Result updated successfully', result)
+    );
+});
+/**
+ * POST /api/v1/quick-pt/matches/:id/results/bulk
+ * Create multiple manual results in bulk
+ */
+static createBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
+    const { id: quickMatchId } = req.params;
+    const userId = req.user!.id;
+    const bulkData = req.body;
+
+    const result = await quickResultService.createBulkManualResults(quickMatchId, userId, {
+        ...bulkData,
+        results: bulkData.results.map((r: any) => ({
+            ...r,
+            source: 'MANUAL_ENTRY',
+            entryMethod: 'BULK',
+            enteredBy: userId
+        }))
+    });
+
+    const statusCode = result.success ? 201 : (result.created.length > 0 ? 207 : 400);
+    
+    return res.status(statusCode).json(
+        result.success 
+            ? ResponseHelper.success('Bulk results created successfully', result)
+            : {
+                success: false,
+                message: 'Bulk operation completed with errors',
+                data: result,
+                error: {
+                    code: 'BULK_PARTIAL_SUCCESS',
+                    timestamp: new Date().toISOString()
+                },
+                meta: {
+                    timestamp: new Date().toISOString(),
+                    version: '1.0'
+                }
+            }
+    );
+});
+
+/**
+ * PUT /api/v1/quick-pt/matches/:id/results/bulk
+ * Update multiple results in bulk
+ */
+static updateBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
+    const { id: quickMatchId } = req.params;
+    const userId = req.user!.id;
+    const { updates } = req.body;
+
+    const result = await quickResultService.updateBulkManualResults(quickMatchId, userId, updates);
+
+    const statusCode = result.success ? 200 : (result.updated.length > 0 ? 207 : 400);
+    
+    return res.status(statusCode).json(
+        result.success 
+            ? ResponseHelper.success('Bulk results updated successfully', result)
+            : {
+                success: false,
+                message: 'Bulk update completed with errors',
+                data: result,
+                error: {
+                    code: 'BULK_PARTIAL_SUCCESS',
+                    timestamp: new Date().toISOString()
+                },
+                meta: {
+                    timestamp: new Date().toISOString(),
+                    version: '1.0'
+                }
+            }
+    );
+});
+
+/**
+ * DELETE /api/v1/quick-pt/matches/:id/results/bulk  
+ * Delete multiple results in bulk
+ */
+static deleteBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
+    const { id: quickMatchId } = req.params;
+    const userId = req.user!.id;
+    const { resultIds } = req.body;
+
+    const result = await quickResultService.deleteBulkManualResults(quickMatchId, userId, resultIds);
+
+    const statusCode = result.success ? 200 : 400;
+    
+    return res.json(
+        result.success 
+            ? ResponseHelper.success('Bulk results deleted successfully', result)
+            : {
+                success: false,
+                message: 'Bulk deletion failed',
+                data: result,
+                error: {
+                    code: 'BULK_DELETE_ERROR',
+                    timestamp: new Date().toISOString()
+                },
+                meta: {
+                    timestamp: new Date().toISOString(),
+                    version: '1.0'
+                }
+            }
+    );
+});
+/**
+ * DELETE /api/v1/quick-pt/matches/:quickMatchId/results/:resultId
+ * Delete a result
+ */
+static deleteResult = asyncHandler(async (req: Request, res: Response) => {
+    const { resultId } = req.params;
+    const userId = req.user!.id;
+
+    await quickResultService.deleteResult(resultId, userId);
+
+    return res.json(
+        ResponseHelper.success('Result deleted successfully')
+    );
+});
+
 }

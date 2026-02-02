@@ -88,8 +88,13 @@ export class QuickProcessingService extends BaseService {
                 'quick-pt',
                 quickMatchId,
                 userId,
-                { type: 'ATTENDANCE', isProcessed: false }
+                { type: 'ATTENDANCE' }
             );
+
+            this.logger.info(`Found ${screenshots.length} attendance screenshots for processing`, {
+                quickMatchId,
+                screenshotIds: screenshots.map(s => ({ id: s.id, type: s.type, originalName: s.originalName }))
+            });
 
             if (screenshots.length === 0) {
                 throw new Error('No attendance screenshots found');
@@ -324,13 +329,18 @@ export class QuickProcessingService extends BaseService {
                 throw new Error('No teams detected. Process attendance screenshots first.');
             }
 
-            // 3. Get result screenshots
+            // 2. Get result screenshots
             const screenshots = await unifiedScreenshotService.listScreenshots(
                 'quick-pt',
                 quickMatchId,
                 userId,
                 { type: 'RESULT', isProcessed: false }
             );
+
+            this.logger.info(`Found ${screenshots.length} result screenshots for processing`, {
+                quickMatchId,
+                screenshotIds: screenshots.map(s => ({ id: s.id, type: s.type, originalName: s.originalName }))
+            });
 
             if (screenshots.length === 0) {
                 throw new Error('No result screenshots found');

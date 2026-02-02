@@ -13,6 +13,13 @@ import {
 } from '../types/quickSeries';
 import { quickMatchService } from './quickMatchService';
 import { quickProcessingService } from './quickProcessingService';
+import { tieBreakingService } from './tieBreakingService';
+import {
+    ConflictDetectionResult,
+    TieBreakingConfig,
+    SeriesTieBreakingResult,
+    TieBreakingRule
+} from '../types/tieBreaking';
 
 export class QuickSeriesService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
@@ -221,8 +228,31 @@ export class QuickSeriesService extends BaseService {
             standing.averagePosition = totalPositions / standing.matchesPlayed;
         }
 
-        // Sort by total points (descending)
-        return Array.from(teamStandings.values()).sort((a, b) => b.totalPoints - a.totalPoints);
+        // Apply tie-breaking logic before final sorting
+        let finalStandings = Array.from(teamStandings.values());
+        
+        // Get tie-breaking configuration for series
+        const seriesId = completedMatches[0]?.seriesId;
+        if (seriesId) {
+            try {
+                const conflictDetection = await tieBreakingService.detectSeriesConflicts(finalStandings);
+                
+                if (conflictDetection.hasConflicts) {
+                    const tieBreakingConfig = await tieBreakingService.getTieBreakingConfig(seriesId, 'series');
+                    
+                    if (tieBreakingConfig && tieBreakingConfig.autoResolveEnabled) {
+                        // Apply series-specific tie-breaking rules
+                        finalStandings = this.applySeriesTieBreaking(finalStandings, tieBreakingConfig.rules);
+                        this.logger.info(`Series tie-breaking applied for ${seriesId}: ${conflictDetection.conflictGroups.length} conflicts resolved`);
+                    }
+                }
+            } catch (error) {
+                this.logger.warn(`Tie-breaking failed for series ${seriesId}, using simple sort:`, error);
+            }
+        }
+
+        // Final sort by total points (with tie-breaking already applied)
+        return finalStandings.sort((a, b) => b.totalPoints - a.totalPoints);
     }
 
     /**
@@ -414,7 +444,169 @@ export class QuickSeriesService extends BaseService {
             return null;
         }
     }
+    /**
+     * Detect conflicts in series standings
+     */
+    async detectSeriesConflicts(
+        seriesId: string,
+        userId: string
+    ): Promise<ConflictDetectionResult> {
+        try {
+            // 1. Get series standings - need to get completed matches first
+            const completedMatches = await this.getSeriesMatches(seriesId, userId);
+            const standings = await this.calculateSeriesStandings(completedMatches, userId);
+            
+            if (standings.length === 0) {
+                return {
+                    hasConflicts: false,
+                    conflictGroups: [],
+                    totalConflictedTeams: 0,
+                    autoResolvableCount: 0,
+                    manualResolutionRequired: 0
+                };
+            }
 
+            // 2. Detect conflicts
+            const conflictDetection = await tieBreakingService.detectSeriesConflicts(standings);
+            
+            this.logger.info(`Series conflict detection for ${seriesId}: ${conflictDetection.conflictGroups.length} conflicts found`);
+            
+            return conflictDetection;
+
+        } catch (error) {
+            this.handleError(error, 'Detect Series Conflicts');
+            throw error;
+        }
+    }
+
+    /**
+     * Set tie-breaking rules for a series
+     */
+    async setSeriesTieBreakingRules(
+        seriesId: string,
+        userId: string,
+        rules: TieBreakingRule[],
+        autoResolveEnabled: boolean
+    ): Promise<{ success: boolean }> {
+        try {
+            // 1. Verify ownership
+            const series = await this.getTournamentSeriesById(seriesId, userId);
+            if (!series) {
+                throw new Error('Tournament series not found or access denied');
+            }
+
+            // 2. Create tie-breaking configuration
+            const config: TieBreakingConfig = {
+                seriesId,
+                rules,
+                manualResolutions: [],
+                autoResolveEnabled
+            };
+
+            // 3. Save configuration
+            await tieBreakingService.saveTieBreakingConfig(seriesId, 'series', config);
+            
+            this.logger.info(`Series tie-breaking rules set for ${seriesId}: ${rules.length} rules, auto-resolve: ${autoResolveEnabled}`);
+            
+            return { success: true };
+
+        } catch (error) {
+            this.handleError(error, 'Set Series Tie Breaking Rules');
+            throw error;
+        }
+    }
+
+    /**
+     * Apply series-specific tie-breaking rules
+     * @private
+     */
+    private applySeriesTieBreaking(
+        standings: SeriesTeamStanding[],
+        rules: TieBreakingRule[]
+    ): SeriesTeamStanding[] {
+        try {
+            // Group teams by total points to identify conflicts
+            const pointsGroups = new Map<number, SeriesTeamStanding[]>();
+            
+            for (const standing of standings) {
+                const points = standing.totalPoints;
+                if (!pointsGroups.has(points)) {
+                    pointsGroups.set(points, []);
+                }
+                pointsGroups.get(points)!.push(standing);
+            }
+
+            let resolvedStandings: SeriesTeamStanding[] = [];
+            const activeRules = rules.filter(rule => rule.isActive)
+                .sort((a, b) => a.priority - b.priority);
+
+            for (const [points, teamGroup] of pointsGroups) {
+                if (teamGroup.length === 1) {
+                    // No conflict, add as is
+                    resolvedStandings.push(...teamGroup);
+                } else {
+                    // Apply tie-breaking rules
+                    let sortedGroup = [...teamGroup];
+                    
+                    for (const rule of activeRules) {
+                        sortedGroup = this.applySingleSeriesTieBreakingRule(sortedGroup, rule);
+                        
+                        // Check if conflict is resolved
+                        if (this.isSeriesConflictResolved(sortedGroup)) {
+                            break;
+                        }
+                    }
+                    
+                    resolvedStandings.push(...sortedGroup);
+                }
+            }
+
+            return resolvedStandings;
+
+        } catch (error) {
+            this.logger.warn('Series tie-breaking failed, returning original order:', error);
+            return standings;
+        }
+    }
+
+    /**
+     * Apply single tie-breaking rule to series standings
+     * @private
+     */
+    private applySingleSeriesTieBreakingRule(
+        standings: SeriesTeamStanding[],
+        rule: TieBreakingRule
+    ): SeriesTeamStanding[] {
+        switch (rule.method) {
+            case 'KILLS':
+                return standings.sort((a, b) => b.totalKills - a.totalKills);
+            
+            case 'BEST_POSITION':
+                return standings.sort((a, b) => a.bestPosition - b.bestPosition);
+            
+            case 'MANUAL_ORDER':
+                // Manual order should be handled separately
+                return standings;
+            
+            default:
+                return standings;
+        }
+    }
+
+    /**
+     * Check if series conflict is resolved
+     * @private
+     */
+    private isSeriesConflictResolved(standings: SeriesTeamStanding[]): boolean {
+        for (let i = 1; i < standings.length; i++) {
+            // If any two consecutive teams are still tied on relevant criteria
+            if (standings[i-1].totalKills === standings[i].totalKills && 
+                standings[i-1].bestPosition === standings[i].bestPosition) {
+                return false;
+            }
+        }
+        return true;
+    }
     /**
  * List all Tournament Series for a user with pagination
  */

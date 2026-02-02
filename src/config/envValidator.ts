@@ -54,7 +54,7 @@ const envSchema = z.object({
 
   PYTHON_AI_API_URL: z.string().url('Invalid PYTHON_AI_API_URL').optional().default('http://localhost:8000'),
   PYTHON_AI_API_KEY: z.string().min(10, 'PYTHON_AI_API_KEY must be at least 10 characters').optional(),
-  PYTHON_AI_TIMEOUT: z.string().transform(Number).pipe(z.number().min(10000).max(120000)).optional().default(60000),
+  PYTHON_AI_TIMEOUT: z.string().transform(Number).pipe(z.number().min(10000).max(300000)).optional().default(300000),
   ENABLE_GEMINI_FALLBACK: z.string().transform(val => val === 'true').optional().default(true),
   AI_PROCESSING_MAX_RETRIES: z.string().transform(Number).pipe(z.number().min(1).max(5)).optional().default(2),
 

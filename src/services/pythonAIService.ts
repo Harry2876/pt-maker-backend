@@ -69,7 +69,7 @@ export class PythonAIService extends BaseService {
         // Create axios instance with default config
         this.axiosInstance = axios.create({
             baseURL: this.apiUrl,
-            timeout: this.timeout,
+            timeout: 0,
             headers: {
                 'Content-Type': 'application/json',
                 ...(this.apiKey && { 'X-API-Key': this.apiKey })
@@ -97,9 +97,22 @@ export class PythonAIService extends BaseService {
             (error: any) => {
                 this.logger.error('Python AI API Response Error:', {
                     status: error.response?.status,
+                    statusText: error.response?.statusText,
                     url: error.config?.url,
-                    message: error.message
+                    method: error.config?.method?.toUpperCase(),
+                    message: error.message,
+                    responseData: error.response?.data,
+                    responseHeaders: error.response?.headers
                 });
+                
+                // Additional logging for 500 errors
+                if (error.response?.status === 500) {
+                    this.logger.error('Python AI 500 Error Details:', {
+                        fullError: error.response?.data || error.response || error,
+                        requestPayload: error.config?.data ? JSON.parse(error.config.data) : null
+                    });
+                }
+                
                 return Promise.reject(error);
             }
         );
@@ -139,7 +152,7 @@ export class PythonAIService extends BaseService {
                         ...(this.apiKey && { 'X-API-Key': this.apiKey }),
                         'Accept': 'application/json'
                     },
-                    timeout: this.timeout
+                    timeout: 0
                 }
             );
 

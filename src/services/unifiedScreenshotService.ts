@@ -360,7 +360,7 @@ export class UnifiedScreenshotService extends BaseService {
         matchId: string,
         userId: string,
         filters?: {
-            type?: any;
+            type?: string;
             isProcessed?: boolean;
         }
     ): Promise<any[]> {
@@ -422,7 +422,7 @@ export class UnifiedScreenshotService extends BaseService {
         return validScreenshots;
     }
 
-    private async listQuickPtScreenshots(matchId: string, userId: string, filters?: { type?: any; isProcessed?: boolean }): Promise<any[]> {
+    private async listQuickPtScreenshots(matchId: string, userId: string, filters?: { type?: string; isProcessed?: boolean }): Promise<any[]> {
         // Import service dynamically
         const { quickMatchService } = await import('./quickMatchService');
 
@@ -432,18 +432,63 @@ export class UnifiedScreenshotService extends BaseService {
             throw new Error('Quick Match not found or access denied');
         }
 
-        // Build where clause
+        // Build where clause for basic filters
         const where: any = { quickMatchId: matchId };
-        if (filters?.type) {
-            where.type = filters.type;
-        }
         if (filters?.isProcessed !== undefined) {
             where.isProcessed = filters.isProcessed;
         }
 
-        // Get screenshots from database
+        // First get all screenshots for debugging and filtering
+        this.logger.info(`Querying screenshots for match ${matchId} with filters:`, filters);
+        
+        let targetTypes: string[] = [];
+        try {
+            // Build debug where clause same as main query to avoid filtering mismatches
+            const debugWhere: any = { quickMatchId: matchId };
+            if (filters?.isProcessed !== undefined) {
+                debugWhere.isProcessed = filters.isProcessed;
+            }
+
+            // Get all screenshots first to see what types exist
+            const allScreenshots = await this.db.quickScreenshot.findMany({
+                where: debugWhere,
+                select: { id: true, type: true, originalName: true, isProcessed: true }
+            });
+            
+            this.logger.info(`Found ${allScreenshots.length} total screenshots (with same filters):`, 
+                allScreenshots.map(s => ({ id: s.id, type: s.type, name: s.originalName, processed: s.isProcessed }))
+            );
+
+            // Determine what types we're looking for
+            if (filters?.type) {
+                if (filters.type === 'ATTENDANCE') {
+                    targetTypes = ['ATTENDANCE', 'ATTENDANCE_IMAGE'];
+                    const attendanceScreenshots = allScreenshots.filter(s => 
+                        targetTypes.includes(s.type)
+                    );
+                    this.logger.info(`Found ${attendanceScreenshots.length} attendance-type screenshots (including variants) with isProcessed filter applied`);
+                } else if (filters.type === 'RESULT') {
+                    targetTypes = ['RESULT', 'RESULT_IMAGE'];
+                    const resultScreenshots = allScreenshots.filter(s => 
+                        targetTypes.includes(s.type)
+                    );
+                    this.logger.info(`Found ${resultScreenshots.length} result-type screenshots (including variants) with isProcessed filter applied`);
+                } else {
+                    targetTypes = [filters.type];
+                }
+            }
+        } catch (debugError) {
+            this.logger.error('Debug query failed:', debugError);
+        }
+
+        // Get all screenshots from database without type filter first
+        const baseWhere: any = { quickMatchId: matchId };
+        if (filters?.isProcessed !== undefined) {
+            baseWhere.isProcessed = filters.isProcessed;
+        }
+
         const dbScreenshots = await this.db.quickScreenshot.findMany({
-            where,
+            where: baseWhere,
             orderBy: [
                 { type: 'asc' },
                 { pageNumber: 'asc' },
@@ -451,8 +496,15 @@ export class UnifiedScreenshotService extends BaseService {
             ]
         });
 
+        // Filter by type in memory to handle both normalized and IMAGE variants
+        let filteredScreenshots = dbScreenshots;
+        if (targetTypes.length > 0) {
+            filteredScreenshots = dbScreenshots.filter(s => targetTypes.includes(s.type));
+            this.logger.info(`After type filtering: ${filteredScreenshots.length} screenshots match criteria`);
+        }
+
         // Convert to cache format
-        const screenshots = dbScreenshots.map(dbScreenshot => ({
+        const screenshots = filteredScreenshots.map(dbScreenshot => ({
             id: dbScreenshot.id,
             quickMatchId: dbScreenshot.quickMatchId,
             originalName: dbScreenshot.originalName,

@@ -37,6 +37,8 @@ model User {
   quickMatches          QuickMatch[]
   subscription          Subscription?            @relation(fields: [subscriptionId], references: [id])
   quickTournamentSeries QuickTournamentSeries[]
+  tieBreakingConfigs    TieBreakingConfig[]
+  resolvedConflicts     ConflictGroup[]
 
   @@map("users")
 }
@@ -1123,4 +1125,92 @@ enum SlotStatus {
   DETECTED
   MATCHED
   NOT_FOUND
+}
+
+enum TieBreakingRuleType {
+  KILL_POINTS
+  PLACEMENT_POINTS
+  TOTAL_POINTS
+  CUSTOM_FIELD
+  MANUAL
+}
+
+enum TieBreakingEntityType {
+  MATCH
+  SERIES
+}
+
+enum ConflictStatus {
+  DETECTED
+  RESOLVED_AUTO
+  RESOLVED_MANUAL
+  IGNORED
+}
+
+// ========================================
+// TIE-BREAKING MODELS
+// ========================================
+
+model TieBreakingConfig {
+  id                 String                 @id @default(cuid())
+  entityId           String                 // QuickMatch.id or QuickTournamentSeries.id
+  entityType         TieBreakingEntityType
+  autoResolveEnabled Boolean                @default(true)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  createdBy          String
+
+  user  User                 @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  rules TieBreakingRule[]
+  conflicts ConflictGroup[]
+
+  @@unique([entityId, entityType])
+  @@map("tie_breaking_configs")
+}
+
+model TieBreakingRule {
+  id          String               @id @default(cuid())
+  configId    String
+  type        TieBreakingRuleType
+  priority    Int                  // 1-10, lower number = higher priority
+  ascending   Boolean              @default(false) // false = descending (higher values win)
+  fieldName   String?              // For CUSTOM_FIELD type
+  description String?
+  createdAt   DateTime             @default(now())
+
+  config TieBreakingConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@unique([configId, priority])
+  @@map("tie_breaking_rules")
+}
+
+model ConflictGroup {
+  id          String        @id @default(cuid())
+  configId    String
+  status      ConflictStatus @default(DETECTED)
+  conflictKey String        // Hash of conflicting values (e.g., "15-5" for 15 total, 5 kills)
+  detectedAt  DateTime      @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?       // User ID who resolved manually
+  reason      String?       // Reason for manual resolution
+
+  config            TieBreakingConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  resolver          User?             @relation(fields: [resolvedBy], references: [id], onDelete: SetNull)
+  manualResolutions ManualTieBreaking[]
+
+  @@map("conflict_groups")
+}
+
+model ManualTieBreaking {
+  id              String   @id @default(cuid())
+  conflictGroupId String
+  resultId        String   // QuickResult.id or aggregated series result identifier
+  finalPosition   Int      // User-defined position (1, 2, 3, etc.)
+  createdAt       DateTime @default(now())
+
+  conflictGroup ConflictGroup @relation(fields: [conflictGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([conflictGroupId, resultId])
+  @@unique([conflictGroupId, finalPosition])
+  @@map("manual_tie_breaking")
 }
