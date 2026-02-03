@@ -588,16 +588,18 @@ export class QuickPTController {
     static exportPointsTable = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
-        const { template } = req.body;
+        const { template, formatType, outputFilename } = req.body;
 
         const result = await quickExportService.exportPointsTable({
             quickMatchId,
             userId,
-            template
+            template,
+            formatType,
+            outputFilename
         });
 
         return res.json(
-            ResponseHelper.success('Points table exported successfully', result)
+            ResponseHelper.success('Standings table exported successfully', result)
         );
     });
 
@@ -627,9 +629,15 @@ export class QuickPTController {
     static regeneratePointsTable = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
-        const { template } = req.body;
+        const { template, formatType, outputFilename } = req.body;
 
-        const result = await quickExportService.regeneratePointsTable(quickMatchId, userId, template);
+        const result = await quickExportService.regeneratePointsTable(
+            quickMatchId, 
+            userId, 
+            template, 
+            formatType, 
+            outputFilename
+        );
 
         return res.json(
             ResponseHelper.success('Points table regenerated successfully', result)

@@ -97,11 +97,24 @@ export const processResultsSchema = z.object({
 export const exportPointsTableSchema = z.object({
     format: z.enum(['PNG', 'CSV', 'BOTH'] as const)
         .optional()
-        .default('BOTH'),
+        .default('PNG'),
     
     template: z.string()
         .min(1, 'Template name is required')
-        .max(50, 'Template name must be at most 50 characters')
+        .max(100, 'Template name must be at most 100 characters')
+        .regex(/^[\w\/-]+$/, 'Template name contains invalid characters')
         .optional()
-        .default('default')
+        .default('24_teams/template1'),
+        
+    formatType: z.string()
+        .min(1, 'Format type is required')
+        .max(50, 'Format type must be at most 50 characters')
+        .optional()
+        .default('24_teams'),
+        
+    outputFilename: z.string()
+        .min(1, 'Output filename is required')
+        .max(100, 'Output filename must be at most 100 characters')
+        .regex(/^[\w\-_.]+\.png$/, 'Output filename must be a valid PNG filename')
+        .optional()
 });

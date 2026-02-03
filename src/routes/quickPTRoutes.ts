@@ -53,6 +53,13 @@ import {
     bulkDeleteManualResultsSchema
 } from '../validations/manualResultValidation';
 
+import { CropStorageController } from '../controllers/cropStorageController';
+import {
+    generateCropsSchema,
+    cropParamsSchema,
+    cropDownloadParamsSchema
+} from '../validations/cropValidation';
+
 /**
  * @swagger
  * tags:
@@ -1471,8 +1478,23 @@ quickPTRouter.get(
  * /api/v1/quick-pt/matches/{id}/export:
  *   post:
  *     tags: [Quick-PT]
- *     summary: Generate and export points table
- *     description: Generate formatted points table image via Python API and save to R2
+ *     summary: Generate and export standings table
+ *     description: |
+ *       Generate professional standings table using advanced templating system.
+ *       
+ *       **New Features:**
+ *       - Advanced template system with multiple formats
+ *       - Support for 16_teams, 24_teams, 32_teams formats
+ *       - Professional branding and styling options
+ *       - Signed URLs for secure access (30-minute expiry)
+ *       - Enhanced metadata and processing information
+ *       
+ *       **Template Options:**
+ *       - `24_teams/template1` - Modern dark theme
+ *       - `24_teams/template2` - Light professional theme  
+ *       - `16_teams/template1` - Compact format for smaller tournaments
+ *       
+ *       **Security:** Returns signed URLs valid for 30 minutes
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1490,12 +1512,19 @@ quickPTRouter.get(
  *             properties:
  *               template:
  *                 type: string
- *                 description: Visual template for the points table
- *                 default: default
- *                 example: "default"
+ *                 example: "24_teams/template1"
+ *                 description: "Template with format (format_type/template_name)"
+ *               formatType:
+ *                 type: string
+ *                 example: "24_teams"  
+ *                 description: "Format type based on team count"
+ *               outputFilename:
+ *                 type: string
+ *                 example: "tournament_standings_final.png"
+ *                 description: "Custom output filename"
  *     responses:
  *       200:
- *         description: Points table generated and exported successfully
+ *         description: Standings table generated and exported successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1506,36 +1535,29 @@ quickPTRouter.get(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Points table exported successfully"
+ *                   example: "Standings table exported successfully"
  *                 data:
  *                   type: object
  *                   properties:
- *                     id:
+ *                     pointsTableId:
  *                       type: string
- *                     r2Key:
+ *                       example: "table_abc123"
+ *                     signedImageUrl:
  *                       type: string
- *                       example: "quick-pt/clx123/points-table_1733312400.png"
- *                     r2Url:
+ *                       example: "https://storage.com/signed?token=..."
+ *                       description: "Signed URL valid for 30 minutes"
+ *                     originalImageUrl:
  *                       type: string
- *                       example: "https://cdn.example.com/points-tables/..."
- *                     template:
+ *                       example: "https://r2.com/standings/table.png"
+ *                     templateUsed:
  *                       type: string
- *                       example: "default"
- *                     tableData:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           rank:
- *                             type: integer
- *                           teamName:
- *                             type: string
- *                           position:
- *                             type: integer
- *                           kills:
- *                             type: integer
- *                           totalPoints:
- *                             type: integer
+ *                       example: "24_teams/template1"
+ *                     formatType:
+ *                       type: string
+ *                       example: "24_teams"
+ *                     teamsProcessed:
+ *                       type: integer
+ *                       example: 24
  *                     quickMatchId:
  *                       type: string
  *                     createdAt:
@@ -3350,6 +3372,340 @@ quickPTRouter.post('/series/:id/tie-breaking/rules',
 quickPTRouter.get('/series/:id/tie-breaking/config',
     validateRequest(seriesIdParamSchema, 'params'),
     QuickPTController.getSeriesTieBreakingConfig
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/crops/generate:
+ *   post:
+ *     tags: [Quick-PT Crops]
+ *     summary: Generate crops from screenshot
+ *     description: |
+ *       Processes a screenshot through Python AI API to generate crop images.
+ *       
+ *       **Process Flow:**
+ *       1. Sends screenshot URL to Python AI API
+ *       2. Python API generates and stores crops in R2 storage
+ *       3. Backend stores crop metadata in database  
+ *       4. Returns signed URLs for crop access (30-minute expiry)
+ *       
+ *       **Crop Types:**
+ *       - `kill_feed`: Kill feed/elimination log crops
+ *       - `leaderboard`: Match leaderboard/ranking crops
+ *       - `attendance`: Player attendance list crops
+ *       - Auto-detected if not specified
+ *       
+ *       **Authentication:** Requires valid JWT token
+ *       **Authorization:** User must own the match
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Quick Match ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "12345678-1234-1234-1234-123456789012"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/GenerateCropsRequest'
+ *           examples:
+ *             basic:
+ *               summary: Generate all crop types
+ *               value:
+ *                 screenshotUrl: "https://storage.example.com/screenshots/result_1703859600.png"
+ *             specific:
+ *               summary: Generate specific crop type
+ *               value:
+ *                 screenshotUrl: "https://storage.example.com/screenshots/result_1703859600.png"
+ *                 cropType: "kill_feed"
+ *     responses:
+ *       201:
+ *         description: Crops generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CropStorageResponse'
+ *             examples:
+ *               success:
+ *                 summary: Successful crop generation
+ *                 value:
+ *                   success: true
+ *                   message: "Crops generated successfully"
+ *                   data:
+ *                     crops:
+ *                       - id: "clh1234567890abcdef"
+ *                         cropType: "kill_feed"
+ *                         signedUrl: "https://storage.example.com/crops/signed?token=..."
+ *                         expiresAt: "2024-01-15T11:00:00.000Z"
+ *                         cropMetadata: { x: 100, y: 150, width: 300, height: 200 }
+ *                       - id: "clh0987654321fedcba"
+ *                         cropType: "leaderboard"
+ *                         signedUrl: "https://storage.example.com/crops/signed?token=..."
+ *                         expiresAt: "2024-01-15T11:00:00.000Z"
+ *                         cropMetadata: { x: 50, y: 300, width: 400, height: 250 }
+ *                     totalCrops: 2
+ *                   meta:
+ *                     timestamp: "2024-01-15T10:30:00.000Z"
+ *                     version: "1.0"
+ *       400:
+ *         description: Validation error or crop generation failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ValidationErrorResponse'
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedErrorResponse'
+ *       403:
+ *         description: Access denied - user doesn't own the match
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenErrorResponse'
+ *       404:
+ *         description: Match not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/NotFoundErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ServerErrorResponse'
+ */
+quickPTRouter.post(
+    '/matches/:id/crops/generate',
+    validateRequest(cropParamsSchema, 'params'),
+    validateRequest(generateCropsSchema, 'body'),
+    CropStorageController.generateCrops
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/crops:
+ *   get:
+ *     tags: [Quick-PT Crops]
+ *     summary: Get all crops for a match
+ *     description: |
+ *       Retrieves all crop metadata for a match with fresh signed URLs.
+ *       
+ *       **Features:**
+ *       - Returns all active crops for the match
+ *       - Generates fresh signed URLs (30-minute expiry)
+ *       - Includes crop metadata and coordinates
+ *       - Cached for performance (10-minute cache TTL)
+ *       
+ *       **Authentication:** Requires valid JWT token
+ *       **Authorization:** User must own the match
+ *       
+ *       **Signed URL Expiry:** 30 minutes from generation
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Quick Match ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "12345678-1234-1234-1234-123456789012"
+ *     responses:
+ *       200:
+ *         description: Crops retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CropStorageResponse'
+ *             examples:
+ *               with_crops:
+ *                 summary: Match has crops available
+ *                 value:
+ *                   success: true
+ *                   message: "Crops retrieved successfully"
+ *                   data:
+ *                     crops:
+ *                       - id: "clh1234567890abcdef"
+ *                         cropType: "kill_feed"
+ *                         signedUrl: "https://storage.example.com/crops/signed?token=..."
+ *                         expiresAt: "2024-01-15T11:00:00.000Z"
+ *                         cropMetadata: { x: 100, y: 150, width: 300, height: 200 }
+ *                     totalCrops: 1
+ *                   meta:
+ *                     timestamp: "2024-01-15T10:30:00.000Z"
+ *                     version: "1.0"
+ *               no_crops:
+ *                 summary: No crops available for match
+ *                 value:
+ *                   success: true
+ *                   message: "Crops retrieved successfully"
+ *                   data:
+ *                     crops: []
+ *                     totalCrops: 0
+ *                   meta:
+ *                     timestamp: "2024-01-15T10:30:00.000Z"
+ *                     version: "1.0"
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedErrorResponse'
+ *       403:
+ *         description: Access denied - user doesn't own the match
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenErrorResponse'
+ *       404:
+ *         description: Match not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/NotFoundErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ServerErrorResponse'
+ */
+quickPTRouter.get(
+    '/matches/:id/crops',
+    validateRequest(cropParamsSchema, 'params'),
+    CropStorageController.getMatchCrops
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/crops/{cropId}/download:
+ *   get:
+ *     tags: [Quick-PT Crops]
+ *     summary: Get fresh signed URL for specific crop
+ *     description: |
+ *       Generates a fresh signed URL for accessing a specific crop image.
+ *       
+ *       **Use Cases:**
+ *       - Refresh expired signed URLs  
+ *       - Direct crop access for Android/Web apps
+ *       - Download specific crop images
+ *       
+ *       **Authentication:** Requires valid JWT token
+ *       **Authorization:** User must own the match
+ *       
+ *       **Signed URL:** Valid for 30 minutes from generation
+ *       **Compatible:** Android WebView and Web browsers
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Quick Match ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "12345678-1234-1234-1234-123456789012"
+ *       - name: cropId
+ *         in: path
+ *         required: true
+ *         description: Crop ID
+ *         schema:
+ *           type: string
+ *           example: "clh1234567890abcdef"
+ *     responses:
+ *       200:
+ *         description: Crop download URL generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Crop download URL generated"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     cropId:
+ *                       type: string
+ *                       example: "clh1234567890abcdef"
+ *                     signedUrl:
+ *                       type: string
+ *                       format: uri
+ *                       example: "https://storage.example.com/crops/signed?token=..."
+ *                       description: "Direct download URL valid for 30 minutes"
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T11:00:00.000Z"
+ *                       description: "URL expiration timestamp"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
+ *             examples:
+ *               success:
+ *                 summary: Successful URL generation
+ *                 value:
+ *                   success: true
+ *                   message: "Crop download URL generated"
+ *                   data:
+ *                     cropId: "clh1234567890abcdef"
+ *                     signedUrl: "https://storage.example.com/crops/signed?token=eyJ..."
+ *                     expiresAt: "2024-01-15T11:00:00.000Z"
+ *                   meta:
+ *                     timestamp: "2024-01-15T10:30:00.000Z"
+ *                     version: "1.0"
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedErrorResponse'
+ *       403:
+ *         description: Access denied - user doesn't own the match
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenErrorResponse'
+ *       404:
+ *         description: Crop not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/NotFoundErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ServerErrorResponse'
+ */
+quickPTRouter.get(
+    '/matches/:id/crops/:cropId/download',
+    validateRequest(cropDownloadParamsSchema, 'params'),
+    CropStorageController.getCropDownloadUrl
 );
 
 export default quickPTRouter;

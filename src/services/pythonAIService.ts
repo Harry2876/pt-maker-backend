@@ -52,6 +52,51 @@ export interface PointsTableGenerationRequest {
     template?: string;
 }
 
+export interface StandingsGenerationRequest {
+    template_name: string;           // "24_teams/template1", "16_teams/template2" etc.
+    format_type: string;            // "24_teams", "16_teams" etc.
+    team_data: Array<{
+        rank: number;
+        slot_number: number;
+        team_name: string;
+        matches_played: number;
+        total_points: number;
+        position_points: number;
+        finish_points: number;  // renamed from kill_points
+        wwcd: number;
+    }>;
+    output_filename: string;
+    options: {
+        upload_to_r2: boolean;
+        compress_image: boolean;
+        image_quality: number;
+    };
+}
+
+export interface StandingsGenerationResponse {
+    status: string;
+    request_id: string;
+    timestamp: string;
+    data: {
+        standings_generated: boolean;
+        output_filename: string;
+        image_url: string;
+        format_type: string;
+        teams_processed: number;
+        template_used: string;
+    };
+    metadata: {
+        processing_time_seconds: number;
+        image_dimensions: string;
+        template_source: string;
+        config_auto_loaded: boolean;
+        font_files_used: number;
+        total_text_elements: number;
+        r2_upload_success: boolean;
+        branding_signature: string;
+    };
+}
+
 export class PythonAIService extends BaseService {
     private axiosInstance: any;
     private apiUrl: string;
@@ -104,7 +149,7 @@ export class PythonAIService extends BaseService {
                     responseData: error.response?.data,
                     responseHeaders: error.response?.headers
                 });
-                
+
                 // Additional logging for 500 errors
                 if (error.response?.status === 500) {
                     this.logger.error('Python AI 500 Error Details:', {
@@ -112,7 +157,7 @@ export class PythonAIService extends BaseService {
                         requestPayload: error.config?.data ? JSON.parse(error.config.data) : null
                     });
                 }
-                
+
                 return Promise.reject(error);
             }
         );
@@ -448,6 +493,103 @@ export class PythonAIService extends BaseService {
             throw new Error(`Python AI API is not available: ${health.message}`);
         }
         this.logger.info('Python AI API connection validated successfully');
+    }
+
+    /**
+ * Generate crops from screenshot
+ */
+    async generateCrops(
+        screenshotUrl: string,
+        cropType?: string
+    ): Promise<any> {
+        const startTime = Date.now();
+
+        try {
+            const requestPayload = {
+                image_url: screenshotUrl,
+                crop_type: cropType,
+                options: {
+                    save_variants: true,
+                    cleanup_temp: true,
+                    timeout_seconds: 30
+                }
+            };
+
+            this.logger.info(`🎯 Generating crops for: ${screenshotUrl}`);
+
+            const response = await this.axiosInstance.post('/generate-crops', requestPayload, {
+                timeout: this.timeout,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': this.apiKey
+                }
+            });
+
+            const processingTime = Date.now() - startTime;
+            this.logger.info(`✅ Crops generated in ${processingTime}ms`);
+
+            return response.data;
+
+        } catch (error) {
+            const processingTime = Date.now() - startTime;
+            this.logger.error(`❌ Crop generation failed after ${processingTime}ms:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Generate standings table image with advanced templating
+     */
+    async generateStandingsTable(
+        teamData: Array<{
+            rank: number;
+            slot_number: number;
+            team_name: string;
+            matches_played: number;
+            total_points: number;
+            position_points: number;
+            finish_points: number;
+            wwcd: number;
+        }>,
+        templateName: string = '24_teams/template1',
+        formatType: string = '24_teams',
+        outputFilename: string = 'standings_auto.png'
+    ): Promise<StandingsGenerationResponse> {
+        const startTime = Date.now();
+        
+        try {
+            const requestPayload: StandingsGenerationRequest = {
+                template_name: templateName,
+                format_type: formatType,
+                team_data: teamData,
+                output_filename: outputFilename,
+                options: {
+                    upload_to_r2: true,
+                    compress_image: false,
+                    image_quality: 95
+                }
+            };
+
+            this.logger.info(`🏆 Generating standings for ${teamData.length} teams with template: ${templateName}`);
+
+            const response = await this.axiosInstance.post('/api/v1/standings/generate', requestPayload, {
+                timeout: this.timeout,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': this.apiKey
+                }
+            });
+
+            const processingTime = Date.now() - startTime;
+            this.logger.info(`✅ Standings generated in ${processingTime}ms: ${response.data.data.output_filename}`);
+
+            return response.data;
+
+        } catch (error) {
+            const processingTime = Date.now() - startTime;
+            this.logger.error(`❌ Standings generation failed after ${processingTime}ms:`, error);
+            throw error;
+        }
     }
 
     /**
