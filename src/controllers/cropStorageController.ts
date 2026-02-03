@@ -58,8 +58,29 @@ export class CropStorageController {
     });
 
     /**
+     * GET /api/v1/quick-pt/matches/:id/crops/download
+     * Get bulk download URLs for all crops in a match organized by category
+     */
+    static getBulkCropDownloadUrls = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+
+        const result = await cropStorageService.getBulkCropDownloadUrls(quickMatchId, userId);
+
+        if (!result.success) {
+            return res.status(400).json(
+                ResponseHelper.error('Failed to get crop download URLs', 'CROP_DOWNLOAD_FAILED')
+            );
+        }
+
+        return res.json(
+            ResponseHelper.success('Crop download URLs retrieved successfully', result)
+        );
+    });
+
+    /**
      * GET /api/v1/quick-pt/matches/:id/crops/:cropId/download
-     * Get fresh signed URL for specific crop
+     * Get fresh signed URL for specific crop (legacy endpoint)
      */
     static getCropDownloadUrl = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId, cropId } = req.params;
@@ -74,7 +95,8 @@ export class CropStorageController {
             );
         }
 
-        const crop = crops.crops.find(c => c.id === cropId);
+        // Search in all crops array (which contains both attendance and result crops)
+        const crop = crops.crops.all.find((c: any) => c.id === cropId);
         
         if (!crop) {
             return res.status(404).json(

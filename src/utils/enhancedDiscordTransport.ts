@@ -150,16 +150,16 @@ class EnhancedDiscordTransport extends Transport {
             const payloadClean = this.cleanPayload(payload);
 
             // debug: log embed colors (decimal + hex) for verification
-            console.log('🔍 Discord payload preview:', {
-                embeds: payloadClean.embeds?.map((embed: any) => {
-                    const dec = Number(embed.color ?? 0);
-                    return {
-                        title: embed.title,
-                        colorDecimal: dec,
-                        colorHex: '0x' + dec.toString(16).padStart(6, '0')
-                    };
-                })
-            });
+            // console.log('🔍 Discord payload preview:', {
+            //     embeds: payloadClean.embeds?.map((embed: any) => {
+            //         const dec = Number(embed.color ?? 0);
+            //         return {
+            //             title: embed.title,
+            //             colorDecimal: dec,
+            //             colorHex: '0x' + dec.toString(16).padStart(6, '0')
+            //         };
+            //     })
+            // });
 
             this.sendToDiscord(payloadClean);
         } catch (error) {

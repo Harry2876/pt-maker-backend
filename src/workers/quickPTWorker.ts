@@ -294,7 +294,7 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
                     teamName: resultData.teamName,
                     detectedTeamName: resultData.detectedTeamName,
                     position: resultData.position,
-                    rank: resultData.rank,
+                    rank: resultData.rank || resultData.position, // Use position as rank if rank is not provided
                     totalKills: resultData.totalKills,
                     positionPoints: resultData.positionPoints,
                     killPoints: resultData.killPoints,

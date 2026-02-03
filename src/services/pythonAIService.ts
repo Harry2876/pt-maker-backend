@@ -496,28 +496,34 @@ export class PythonAIService extends BaseService {
     }
 
     /**
- * Generate crops from screenshot
- */
-    async generateCrops(
+     * Generate attendance crops from screenshot
+     */
+    async generateAttendanceCrops(
         screenshotUrl: string,
-        cropType?: string
+        matchId: string,
+        tournamentId?: string,
+        metadata?: any
     ): Promise<any> {
         const startTime = Date.now();
 
         try {
+            const endpoint = '/api/v1/crops/attendance';
             const requestPayload = {
                 image_url: screenshotUrl,
-                crop_type: cropType,
-                options: {
-                    save_variants: true,
-                    cleanup_temp: true,
-                    timeout_seconds: 30
+                match_id: matchId,
+                tournament_id: tournamentId || "bgmi_tournament_2024",
+                crop_type: "attendance",
+                metadata: {
+                    week: metadata?.week || 1,
+                    day: metadata?.day || 2,
+                    session: metadata?.session || "morning",
+                    uploaded_by: metadata?.uploaded_by || "api_user"
                 }
             };
 
-            this.logger.info(`🎯 Generating crops for: ${screenshotUrl}`);
+            this.logger.info(`🎯 Generating attendance crops for: ${screenshotUrl}`);
 
-            const response = await this.axiosInstance.post('/generate-crops', requestPayload, {
+            const response = await this.axiosInstance.post(endpoint, requestPayload, {
                 timeout: this.timeout,
                 headers: {
                     'Content-Type': 'application/json',
@@ -526,13 +532,62 @@ export class PythonAIService extends BaseService {
             });
 
             const processingTime = Date.now() - startTime;
-            this.logger.info(`✅ Crops generated in ${processingTime}ms`);
+            this.logger.info(`✅ Attendance crops generated in ${processingTime}ms: ${response.data.data?.crops_generated || 0} crops`);
 
             return response.data;
 
         } catch (error) {
             const processingTime = Date.now() - startTime;
-            this.logger.error(`❌ Crop generation failed after ${processingTime}ms:`, error);
+            this.logger.error(`❌ Attendance crop generation failed after ${processingTime}ms:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Generate result crops from screenshot
+     */
+    async generateResultCrops(
+        screenshotUrl: string,
+        matchId: string,
+        tournamentId?: string,
+        metadata?: any
+    ): Promise<any> {
+        const startTime = Date.now();
+
+        try {
+            const endpoint = '/api/v1/crops/results';
+            const requestPayload = {
+                image_url: screenshotUrl,
+                match_id: matchId,
+                tournament_id: tournamentId || "bgmi_tournament_2024",
+                crop_type: "results",
+                metadata: {
+                    week: metadata?.week || 1,
+                    day: metadata?.day || 2,
+                    session: metadata?.session || "morning",
+                    game_number: metadata?.game_number || 3,
+                    uploaded_by: metadata?.uploaded_by || "api_user"
+                }
+            };
+
+            this.logger.info(`🎯 Generating result crops for: ${screenshotUrl}`);
+
+            const response = await this.axiosInstance.post(endpoint, requestPayload, {
+                timeout: this.timeout,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': this.apiKey
+                }
+            });
+
+            const processingTime = Date.now() - startTime;
+            this.logger.info(`✅ Result crops generated in ${processingTime}ms: ${response.data.data?.crops_generated || 0} crops`);
+
+            return response.data;
+
+        } catch (error) {
+            const processingTime = Date.now() - startTime;
+            this.logger.error(`❌ Result crop generation failed after ${processingTime}ms:`, error);
             throw error;
         }
     }

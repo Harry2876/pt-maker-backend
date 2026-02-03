@@ -55,9 +55,7 @@ import {
 
 import { CropStorageController } from '../controllers/cropStorageController';
 import {
-    generateCropsSchema,
-    cropParamsSchema,
-    cropDownloadParamsSchema
+    cropParamsSchema
 } from '../validations/cropValidation';
 
 /**
@@ -933,14 +931,14 @@ quickPTRouter.delete(
  *           schema:
  *             type: object
  *             required:
- *               - files
+ *               - screenshots
  *             properties:
- *               files:
+ *               screenshots:
  *                 type: array
  *                 items:
  *                   type: string
  *                   format: binary
- *                 description: Image files (PNG, JPG, JPEG, WebP) - Max 10 files, 10MB each
+ *                 description: Screenshot image files (PNG, JPG, JPEG, WebP) - Max 10 files, 10MB each
  *               pageNumber:
  *                 type: integer
  *                 minimum: 1
@@ -2901,6 +2899,123 @@ quickPTRouter.get('/series/:id/leaderboard',
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: Quick Match ID
+ *         example: "clx123abc456"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - slotNumber
+ *               - teamName
+ *               - position
+ *               - totalKills
+ *             properties:
+ *               slotNumber:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 25
+ *                 example: 1
+ *                 description: Team's slot number in the match
+ *               teamName:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 50
+ *                 example: "Team Alpha"
+ *                 description: Team name
+ *               position:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 25
+ *                 example: 1
+ *                 description: Final placement/rank in match
+ *               totalKills:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 99
+ *                 example: 12
+ *                 description: Total kills achieved by team
+ *               playerResults:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - playerName
+ *                     - kills
+ *                   properties:
+ *                     playerName:
+ *                       type: string
+ *                       minLength: 1
+ *                       maxLength: 50
+ *                       example: "Player1"
+ *                     kills:
+ *                       type: integer
+ *                       minimum: 0
+ *                       maximum: 99
+ *                       example: 5
+ *                 minItems: 1
+ *                 maxItems: 4
+ *                 description: Individual player kill breakdown (optional)
+ *               entryNotes:
+ *                 type: string
+ *                 maxLength: 500
+ *                 example: "Manual entry due to OCR issues"
+ *                 description: Optional notes about the entry
+ *     responses:
+ *       201:
+ *         description: Manual result created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Manual result created successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: "result_xyz789"
+ *                     slotNumber:
+ *                       type: integer
+ *                       example: 1
+ *                     teamName:
+ *                       type: string
+ *                       example: "Team Alpha"
+ *                     position:
+ *                       type: integer
+ *                       example: 1
+ *                     totalKills:
+ *                       type: integer
+ *                       example: 12
+ *                     positionPoints:
+ *                       type: integer
+ *                       example: 15
+ *                     killPoints:
+ *                       type: integer
+ *                       example: 12
+ *                     totalPoints:
+ *                       type: integer
+ *                       example: 27
+ *                     source:
+ *                       type: string
+ *                       example: "MANUAL_ENTRY"
+ *                     entryMethod:
+ *                       type: string
+ *                       example: "INDIVIDUAL"
+ *       400:
+ *         description: Validation error or constraint violation
+ *       404:
+ *         description: Quick Match not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.post('/matches/:id/results/manual',
     validateRequest(manualResultParamsSchema, 'params'),
@@ -2912,10 +3027,93 @@ quickPTRouter.post('/matches/:id/results/manual',
  * @swagger
  * /api/v1/quick-pt/matches/{quickMatchId}/results/{resultId}:
  *   put:
- *     tags: [Quick-PT]  
- *     summary: Update manual result
+ *     tags: [Quick-PT]
+ *     summary: Update manual result entry
+ *     description: Update an existing manual result entry
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: quickMatchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *         example: "clx123abc456"
+ *       - in: path
+ *         name: resultId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Result ID
+ *         example: "result_xyz789"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               teamName:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 50
+ *                 example: "Team Alpha Updated"
+ *               position:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 25
+ *                 example: 2
+ *               totalKills:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 99
+ *                 example: 10
+ *               playerResults:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - playerName
+ *                     - kills
+ *                   properties:
+ *                     playerName:
+ *                       type: string
+ *                       example: "Player1"
+ *                     kills:
+ *                       type: integer
+ *                       example: 3
+ *                 maxItems: 4
+ *               entryNotes:
+ *                 type: string
+ *                 maxLength: 500
+ *                 example: "Updated kill count"
+ *             description: At least one field must be provided for update
+ *     responses:
+ *       200:
+ *         description: Result updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Result updated successfully"
+ *                 data:
+ *                   type: object
+ *                   description: Updated result data
+ *       400:
+ *         description: Validation error
+ *       404:
+ *         description: Result not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.put('/matches/:quickMatchId/results/:resultId',
     validateRequest(manualResultParamsSchema, 'params'),
@@ -2928,9 +3126,45 @@ quickPTRouter.put('/matches/:quickMatchId/results/:resultId',
  * /api/v1/quick-pt/matches/{quickMatchId}/results/{resultId}:
  *   delete:
  *     tags: [Quick-PT]
- *     summary: Delete result
+ *     summary: Delete manual result entry
+ *     description: Delete a specific result entry
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: quickMatchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *         example: "clx123abc456"
+ *       - in: path
+ *         name: resultId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Result ID to delete
+ *         example: "result_xyz789"
+ *     responses:
+ *       200:
+ *         description: Result deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Result deleted successfully"
+ *       404:
+ *         description: Result not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.delete('/matches/:quickMatchId/results/:resultId',
     validateRequest(manualResultParamsSchema, 'params'),
@@ -2943,8 +3177,94 @@ quickPTRouter.delete('/matches/:quickMatchId/results/:resultId',
  *   get:
  *     tags: [Quick-PT]
  *     summary: Get all results for a match
+ *     description: Retrieve all processed and manual results for a specific match with rankings and points
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *         example: "clx123abc456"
+ *     responses:
+ *       200:
+ *         description: Match results retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Match results retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     results:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             example: "result_abc123"
+ *                           slotNumber:
+ *                             type: integer
+ *                             example: 1
+ *                           teamName:
+ *                             type: string
+ *                             example: "Team Alpha"
+ *                           position:
+ *                             type: integer
+ *                             example: 1
+ *                           totalKills:
+ *                             type: integer
+ *                             example: 12
+ *                           positionPoints:
+ *                             type: integer
+ *                             example: 15
+ *                           killPoints:
+ *                             type: integer
+ *                             example: 12
+ *                           totalPoints:
+ *                             type: integer
+ *                             example: 27
+ *                           source:
+ *                             type: string
+ *                             enum: [MANUAL_ENTRY, AI_PROCESSED]
+ *                             example: "MANUAL_ENTRY"
+ *                           playerResults:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *                               properties:
+ *                                 playerName:
+ *                                   type: string
+ *                                   example: "Player1"
+ *                                 kills:
+ *                                   type: integer
+ *                                   example: 5
+ *                           matchQuality:
+ *                             type: number
+ *                             example: 95.5
+ *                             description: AI confidence score (if applicable)
+ *                           createdAt:
+ *                             type: string
+ *                             format: date-time
+ *                     count:
+ *                       type: integer
+ *                       example: 16
+ *                       description: Total number of results
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.get('/matches/:id/results',
     validateRequest(manualResultParamsSchema, 'params'),
@@ -2971,6 +3291,146 @@ quickPTRouter.get('/matches/:id/results',
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: Quick Match ID
+ *         example: "clx123abc456"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - results
+ *             properties:
+ *               results:
+ *                 type: array
+ *                 minItems: 1
+ *                 maxItems: 25
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - slotNumber
+ *                     - teamName
+ *                     - position
+ *                     - totalKills
+ *                   properties:
+ *                     slotNumber:
+ *                       type: integer
+ *                       minimum: 1
+ *                       maximum: 25
+ *                       example: 1
+ *                     teamName:
+ *                       type: string
+ *                       minLength: 2
+ *                       maxLength: 50
+ *                       example: "Team Alpha"
+ *                     position:
+ *                       type: integer
+ *                       minimum: 1
+ *                       maximum: 25
+ *                       example: 1
+ *                     totalKills:
+ *                       type: integer
+ *                       minimum: 0
+ *                       maximum: 99
+ *                       example: 12
+ *                     playerResults:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           playerName:
+ *                             type: string
+ *                             example: "Player1"
+ *                           kills:
+ *                             type: integer
+ *                             example: 5
+ *                       maxItems: 4
+ *                     entryNotes:
+ *                       type: string
+ *                       maxLength: 500
+ *                       example: "Bulk import from spreadsheet"
+ *                 example:
+ *                   - slotNumber: 1
+ *                     teamName: "Team Alpha"
+ *                     position: 1
+ *                     totalKills: 12
+ *                   - slotNumber: 2
+ *                     teamName: "Team Beta"
+ *                     position: 2
+ *                     totalKills: 10
+ *               replaceExisting:
+ *                 type: boolean
+ *                 default: false
+ *                 description: Replace all existing results for this match
+ *                 example: false
+ *               validateConstraints:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Validate position/slot conflicts before creation
+ *                 example: true
+ *     responses:
+ *       201:
+ *         description: Bulk results created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Bulk results created successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: true
+ *                     created:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                       description: Successfully created results
+ *                     updated:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                       description: Updated results (empty for creation)
+ *                     errors:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           field:
+ *                             type: string
+ *                           code:
+ *                             type: string
+ *                           message:
+ *                             type: string
+ *                       description: Validation or processing errors
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                           example: 2
+ *                         successful:
+ *                           type: integer
+ *                           example: 2
+ *                         failed:
+ *                           type: integer
+ *                           example: 0
+ *       207:
+ *         description: Bulk operation completed with partial success
+ *       400:
+ *         description: Validation error or all operations failed
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.post('/matches/:id/results/bulk',
     validateRequest(manualResultParamsSchema, 'params'),
@@ -2987,6 +3447,108 @@ quickPTRouter.post('/matches/:id/results/bulk',
  *     description: Update multiple team results at once
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *         example: "clx123abc456"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - updates
+ *             properties:
+ *               updates:
+ *                 type: array
+ *                 minItems: 1
+ *                 maxItems: 25
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - resultId
+ *                     - data
+ *                   properties:
+ *                     resultId:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "result_abc123"
+ *                       description: ID of result to update
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         teamName:
+ *                           type: string
+ *                           minLength: 2
+ *                           maxLength: 50
+ *                           example: "Team Alpha Updated"
+ *                         position:
+ *                           type: integer
+ *                           minimum: 1
+ *                           maximum: 25
+ *                           example: 2
+ *                         totalKills:
+ *                           type: integer
+ *                           minimum: 0
+ *                           maximum: 99
+ *                           example: 15
+ *                         playerResults:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               playerName:
+ *                                 type: string
+ *                                 example: "Player1"
+ *                               kills:
+ *                                 type: integer
+ *                                 example: 8
+ *                           maxItems: 4
+ *                         entryNotes:
+ *                           type: string
+ *                           maxLength: 500
+ *                           example: "Updated from final review"
+ *                       description: At least one field must be provided for each update
+ *                 example:
+ *                   - resultId: "result_abc123"
+ *                     data:
+ *                       position: 2
+ *                       totalKills: 15
+ *                   - resultId: "result_xyz789"
+ *                     data:
+ *                       teamName: "Team Beta Updated"
+ *                       totalKills: 18
+ *     responses:
+ *       200:
+ *         description: Bulk results updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Bulk results updated successfully"
+ *                 data:
+ *                   type: object
+ *                   description: Bulk operation result details
+ *       207:
+ *         description: Bulk update completed with partial success
+ *       400:
+ *         description: Validation error or all updates failed
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.put('/matches/:id/results/bulk',
     validateRequest(manualResultParamsSchema, 'params'),
@@ -3003,6 +3565,76 @@ quickPTRouter.put('/matches/:id/results/bulk',
  *     description: Delete multiple team results at once
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Quick Match ID
+ *         example: "clx123abc456"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - resultIds
+ *             properties:
+ *               resultIds:
+ *                 type: array
+ *                 minItems: 1
+ *                 maxItems: 25
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *                 example: ["result_abc123", "result_xyz789"]
+ *                 description: Array of result IDs to delete
+ *     responses:
+ *       200:
+ *         description: Bulk results deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Bulk results deleted successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: true
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                           example: 2
+ *                         successful:
+ *                           type: integer
+ *                           example: 2
+ *                         failed:
+ *                           type: integer
+ *                           example: 0
+ *                     errors:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                       description: Deletion errors if any
+ *       400:
+ *         description: Validation error or all deletions failed
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
  */
 quickPTRouter.delete('/matches/:id/results/bulk',
     validateRequest(manualResultParamsSchema, 'params'),
@@ -3376,140 +4008,30 @@ quickPTRouter.get('/series/:id/tie-breaking/config',
 
 /**
  * @swagger
- * /api/v1/quick-pt/matches/{id}/crops/generate:
- *   post:
- *     tags: [Quick-PT Crops]
- *     summary: Generate crops from screenshot
- *     description: |
- *       Processes a screenshot through Python AI API to generate crop images.
- *       
- *       **Process Flow:**
- *       1. Sends screenshot URL to Python AI API
- *       2. Python API generates and stores crops in R2 storage
- *       3. Backend stores crop metadata in database  
- *       4. Returns signed URLs for crop access (30-minute expiry)
- *       
- *       **Crop Types:**
- *       - `kill_feed`: Kill feed/elimination log crops
- *       - `leaderboard`: Match leaderboard/ranking crops
- *       - `attendance`: Player attendance list crops
- *       - Auto-detected if not specified
- *       
- *       **Authentication:** Requires valid JWT token
- *       **Authorization:** User must own the match
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         description: Quick Match ID
- *         schema:
- *           type: string
- *           format: uuid
- *           example: "12345678-1234-1234-1234-123456789012"
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/GenerateCropsRequest'
- *           examples:
- *             basic:
- *               summary: Generate all crop types
- *               value:
- *                 screenshotUrl: "https://storage.example.com/screenshots/result_1703859600.png"
- *             specific:
- *               summary: Generate specific crop type
- *               value:
- *                 screenshotUrl: "https://storage.example.com/screenshots/result_1703859600.png"
- *                 cropType: "kill_feed"
- *     responses:
- *       201:
- *         description: Crops generated successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/CropStorageResponse'
- *             examples:
- *               success:
- *                 summary: Successful crop generation
- *                 value:
- *                   success: true
- *                   message: "Crops generated successfully"
- *                   data:
- *                     crops:
- *                       - id: "clh1234567890abcdef"
- *                         cropType: "kill_feed"
- *                         signedUrl: "https://storage.example.com/crops/signed?token=..."
- *                         expiresAt: "2024-01-15T11:00:00.000Z"
- *                         cropMetadata: { x: 100, y: 150, width: 300, height: 200 }
- *                       - id: "clh0987654321fedcba"
- *                         cropType: "leaderboard"
- *                         signedUrl: "https://storage.example.com/crops/signed?token=..."
- *                         expiresAt: "2024-01-15T11:00:00.000Z"
- *                         cropMetadata: { x: 50, y: 300, width: 400, height: 250 }
- *                     totalCrops: 2
- *                   meta:
- *                     timestamp: "2024-01-15T10:30:00.000Z"
- *                     version: "1.0"
- *       400:
- *         description: Validation error or crop generation failed
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ValidationErrorResponse'
- *       401:
- *         description: Authentication required
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/UnauthorizedErrorResponse'
- *       403:
- *         description: Access denied - user doesn't own the match
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ForbiddenErrorResponse'
- *       404:
- *         description: Match not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/NotFoundErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ServerErrorResponse'
- */
-quickPTRouter.post(
-    '/matches/:id/crops/generate',
-    validateRequest(cropParamsSchema, 'params'),
-    validateRequest(generateCropsSchema, 'body'),
-    CropStorageController.generateCrops
-);
-
-/**
- * @swagger
  * /api/v1/quick-pt/matches/{id}/crops:
  *   get:
  *     tags: [Quick-PT Crops]
- *     summary: Get all crops for a match
+ *     summary: Get all crops for a match (with auto-processing)
  *     description: |
- *       Retrieves all crop metadata for a match with fresh signed URLs.
+ *       **⭐ MAIN CROP ENDPOINT** - Auto-processes all unprocessed screenshots and returns all crops.
+ *       
+ *       **Workflow:**
+ *       1. Finds all unprocessed attendance/result screenshots
+ *       2. Calls separate Python AI endpoints:
+ *          - `/api/v1/crops/attendance` for attendance images
+ *          - `/api/v1/crops/results` for result images  
+ *       3. Stores crop metadata in database
+ *       4. Returns organized crops with fresh signed URLs
  *       
  *       **Features:**
- *       - Returns all active crops for the match
- *       - Generates fresh signed URLs (30-minute expiry)
- *       - Includes crop metadata and coordinates
- *       - Cached for performance (10-minute cache TTL)
+ *       - Auto-processing of unprocessed screenshots
+ *       - Separate optimized endpoints for attendance vs results
+ *       - Crops organized by type (attendance/result/all)
+ *       - Fresh signed URLs (30-minute expiry)
+ *       - Redis caching (10-minute TTL)
  *       
  *       **Authentication:** Requires valid JWT token
  *       **Authorization:** User must own the match
- *       
- *       **Signed URL Expiry:** 30 minutes from generation
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -3523,39 +4045,92 @@ quickPTRouter.post(
  *           example: "12345678-1234-1234-1234-123456789012"
  *     responses:
  *       200:
- *         description: Crops retrieved successfully
+ *         description: Crops retrieved successfully (with auto-processing)
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/CropStorageResponse'
- *             examples:
- *               with_crops:
- *                 summary: Match has crops available
- *                 value:
- *                   success: true
- *                   message: "Crops retrieved successfully"
- *                   data:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Crops retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
  *                     crops:
- *                       - id: "clh1234567890abcdef"
- *                         cropType: "kill_feed"
- *                         signedUrl: "https://storage.example.com/crops/signed?token=..."
- *                         expiresAt: "2024-01-15T11:00:00.000Z"
- *                         cropMetadata: { x: 100, y: 150, width: 300, height: 200 }
- *                     totalCrops: 1
- *                   meta:
- *                     timestamp: "2024-01-15T10:30:00.000Z"
- *                     version: "1.0"
- *               no_crops:
- *                 summary: No crops available for match
- *                 value:
- *                   success: true
- *                   message: "Crops retrieved successfully"
- *                   data:
- *                     crops: []
- *                     totalCrops: 0
- *                   meta:
- *                     timestamp: "2024-01-15T10:30:00.000Z"
- *                     version: "1.0"
+ *                       type: object
+ *                       properties:
+ *                         attendance:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 example: "clh1234567890abcdef"
+ *                               cropType:
+ *                                 type: string
+ *                                 example: "attendance"
+ *                               signedUrl:
+ *                                 type: string
+ *                                 format: uri
+ *                                 example: "https://storage.example.com/crops/signed?token=..."
+ *                               expiresAt:
+ *                                 type: string
+ *                                 format: date-time
+ *                                 example: "2024-01-15T11:00:00.000Z"
+ *                               cropMetadata:
+ *                                 type: object
+ *                                 example: { "detected_players": 24 }
+ *                         result:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 example: "clh0987654321fedcba"
+ *                               cropType:
+ *                                 type: string
+ *                                 example: "result"
+ *                               signedUrl:
+ *                                 type: string
+ *                                 format: uri
+ *                                 example: "https://storage.example.com/crops/signed?token=..."
+ *                               expiresAt:
+ *                                 type: string
+ *                                 format: date-time
+ *                                 example: "2024-01-15T11:00:00.000Z"
+ *                               cropMetadata:
+ *                                 type: object
+ *                                 example: { "detected_teams": 12 }
+ *                         all:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                           description: "Combined array of attendance + result crops"
+ *                     totalCrops:
+ *                       type: integer
+ *                       example: 15
+ *                     attendanceCount:
+ *                       type: integer
+ *                       example: 5
+ *                     resultCount:
+ *                       type: integer
+ *                       example: 10
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *                     version:
+ *                       type: string
+ *                       example: "1.0"
  *       401:
  *         description: Authentication required
  *         content:
@@ -3589,22 +4164,23 @@ quickPTRouter.get(
 
 /**
  * @swagger
- * /api/v1/quick-pt/matches/{id}/crops/{cropId}/download:
+ * /api/v1/quick-pt/matches/{id}/crops/download:
  *   get:
  *     tags: [Quick-PT Crops]
- *     summary: Get fresh signed URL for specific crop
+ *     summary: Get bulk download URLs for all crops organized by category
  *     description: |
- *       Generates a fresh signed URL for accessing a specific crop image.
+ *       Gets download URLs for all crops in a match organized by attendance/result categories.
  *       
- *       **Use Cases:**
- *       - Refresh expired signed URLs  
- *       - Direct crop access for Android/Web apps
- *       - Download specific crop images
+ *       **Key Features:**
+ *       - Auto-processes unprocessed screenshots
+ *       - Returns crops organized by attendance/result
+ *       - Generates fresh signed URLs for all crops
+ *       - Single endpoint for all crop downloads
  *       
  *       **Authentication:** Requires valid JWT token
  *       **Authorization:** User must own the match
  *       
- *       **Signed URL:** Valid for 30 minutes from generation
+ *       **Signed URLs:** Valid for 30 minutes from generation
  *       **Compatible:** Android WebView and Web browsers
  *     security:
  *       - bearerAuth: []
@@ -3617,16 +4193,9 @@ quickPTRouter.get(
  *           type: string
  *           format: uuid
  *           example: "12345678-1234-1234-1234-123456789012"
- *       - name: cropId
- *         in: path
- *         required: true
- *         description: Crop ID
- *         schema:
- *           type: string
- *           example: "clh1234567890abcdef"
  *     responses:
  *       200:
- *         description: Crop download URL generated successfully
+ *         description: Bulk crop download URLs retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -3637,75 +4206,98 @@ quickPTRouter.get(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Crop download URL generated"
+ *                   example: "Crop download URLs retrieved successfully"
  *                 data:
  *                   type: object
  *                   properties:
- *                     cropId:
- *                       type: string
- *                       example: "clh1234567890abcdef"
- *                     signedUrl:
- *                       type: string
- *                       format: uri
- *                       example: "https://storage.example.com/crops/signed?token=..."
- *                       description: "Direct download URL valid for 30 minutes"
- *                     expiresAt:
- *                       type: string
- *                       format: date-time
- *                       example: "2024-01-15T11:00:00.000Z"
- *                       description: "URL expiration timestamp"
+ *                     downloads:
+ *                       type: object
+ *                       properties:
+ *                         attendance:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 example: "crop123"
+ *                               cropType:
+ *                                 type: string
+ *                                 example: "attendance"
+ *                               downloadUrl:
+ *                                 type: string
+ *                                 format: uri
+ *                                 example: "https://storage.example.com/crops/signed?token=..."
+ *                               expiresAt:
+ *                                 type: string
+ *                                 format: date-time
+ *                                 example: "2024-01-15T11:00:00.000Z"
+ *                               filename:
+ *                                 type: string
+ *                                 example: "attendance_crop123.jpg"
+ *                               cropMetadata:
+ *                                 type: object
+ *                                 example: { "detected_players": 24 }
+ *                         result:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 example: "crop456"
+ *                               cropType:
+ *                                 type: string
+ *                                 example: "result"
+ *                               downloadUrl:
+ *                                 type: string
+ *                                 format: uri
+ *                                 example: "https://storage.example.com/crops/signed?token=..."
+ *                               expiresAt:
+ *                                 type: string
+ *                                 format: date-time
+ *                                 example: "2024-01-15T11:00:00.000Z"
+ *                               filename:
+ *                                 type: string
+ *                                 example: "result_crop456.jpg"
+ *                               cropMetadata:
+ *                                 type: object
+ *                                 example: { "detected_teams": 12 }
+ *                         all:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                           description: "Combined array of all attendance + result crops"
+ *                     totalCrops:
+ *                       type: integer
+ *                       example: 15
+ *                     attendanceCount:
+ *                       type: integer
+ *                       example: 5
+ *                     resultCount:
+ *                       type: integer
+ *                       example: 10
  *                 meta:
  *                   type: object
  *                   properties:
  *                     timestamp:
  *                       type: string
  *                       format: date-time
- *                       example: "2024-01-15T10:30:00.000Z"
  *                     version:
  *                       type: string
- *                       example: "1.0"
- *             examples:
- *               success:
- *                 summary: Successful URL generation
- *                 value:
- *                   success: true
- *                   message: "Crop download URL generated"
- *                   data:
- *                     cropId: "clh1234567890abcdef"
- *                     signedUrl: "https://storage.example.com/crops/signed?token=eyJ..."
- *                     expiresAt: "2024-01-15T11:00:00.000Z"
- *                   meta:
- *                     timestamp: "2024-01-15T10:30:00.000Z"
- *                     version: "1.0"
  *       401:
  *         description: Authentication required
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/UnauthorizedErrorResponse'
  *       403:
  *         description: Access denied - user doesn't own the match
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ForbiddenErrorResponse'
- *       404:
- *         description: Crop not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/NotFoundErrorResponse'
+ *       400:
+ *         description: Failed to get crop download URLs
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ServerErrorResponse'
  */
 quickPTRouter.get(
-    '/matches/:id/crops/:cropId/download',
-    validateRequest(cropDownloadParamsSchema, 'params'),
-    CropStorageController.getCropDownloadUrl
+    '/matches/:id/crops/download',
+    validateRequest(cropParamsSchema, 'params'),
+    CropStorageController.getBulkCropDownloadUrls
 );
 
 export default quickPTRouter;
