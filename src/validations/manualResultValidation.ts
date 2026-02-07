@@ -74,11 +74,15 @@ export const updateManualResultSchema = z.object({
     message: 'At least one field must be provided for update'
 });
 
-// Route params validation
+// Route params validation for routes using :id pattern
 export const manualResultParamsSchema = z.object({
-    id: z.string().uuid('Invalid match ID'),
-    quickMatchId: z.string().uuid('Invalid match ID').optional(),
-    resultId: z.string().uuid('Invalid result ID').optional()
+    id: z.string().uuid('Invalid match ID')
+});
+
+// Route params validation for routes using :quickMatchId/:resultId pattern  
+export const quickMatchResultParamsSchema = z.object({
+    quickMatchId: z.string().uuid('Invalid match ID'),
+    resultId: z.string().uuid('Invalid result ID')
 });
 
 // Bulk operations validation schemas

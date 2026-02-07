@@ -48,6 +48,7 @@ import {
     createManualResultSchema,
     updateManualResultSchema,
     manualResultParamsSchema,
+    quickMatchResultParamsSchema,
     bulkCreateManualResultsSchema,
     bulkUpdateManualResultsSchema,
     bulkDeleteManualResultsSchema
@@ -3116,7 +3117,7 @@ quickPTRouter.post('/matches/:id/results/manual',
  *         description: Unauthorized
  */
 quickPTRouter.put('/matches/:quickMatchId/results/:resultId',
-    validateRequest(manualResultParamsSchema, 'params'),
+    validateRequest(quickMatchResultParamsSchema, 'params'),
     validateRequest(updateManualResultSchema, 'body'),
     QuickPTController.updateManualResult
 );
@@ -3167,7 +3168,7 @@ quickPTRouter.put('/matches/:quickMatchId/results/:resultId',
  *         description: Unauthorized
  */
 quickPTRouter.delete('/matches/:quickMatchId/results/:resultId',
-    validateRequest(manualResultParamsSchema, 'params'),
+    validateRequest(quickMatchResultParamsSchema, 'params'),
     QuickPTController.deleteResult
 );
 
