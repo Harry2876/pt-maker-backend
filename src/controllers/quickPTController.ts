@@ -12,6 +12,7 @@ import { quickResultService } from '../services/quickResultService';
 import { tieBreakingService } from '../services/tieBreakingService';
 import { quickSeriesService } from '../services/quickSeriesService';
 import { templateService } from '../services/templateService';
+import { excelExportService } from '../services/excelExportService';
 
 export class QuickPTController {
 
@@ -865,6 +866,37 @@ static getAvailableTemplates = asyncHandler(async (req: Request, res: Response) 
 
     return res.json(
         ResponseHelper.success('Templates retrieved successfully', templates)
+    );
+});
+
+/**
+ * GET /api/v1/quick-pt/matches/:id/export/excel
+ * Export match results to Excel format
+ */
+static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
+    const { id: quickMatchId } = req.params;
+    const userId = req.user!.id;
+    const {
+        includePlayerDetails,
+        includePointsBreakdown,
+        customFilename
+    } = req.query;
+
+    const exportRequest = {
+        quickMatchId,
+        includePlayerDetails: includePlayerDetails === 'true',
+        includePointsBreakdown: includePointsBreakdown !== 'false', // Default true
+        customFilename: customFilename as string | undefined
+    };
+
+    const result = await excelExportService.exportMatchToExcel(
+        quickMatchId,
+        userId,
+        exportRequest
+    );
+
+    return res.json(
+        ResponseHelper.success('Excel export completed successfully', result)
     );
 });
 
