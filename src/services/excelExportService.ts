@@ -386,9 +386,7 @@ export class ExcelExportService extends BaseService {
      * File management methods
      */
     private async uploadToR2(buffer: Buffer, filename: string, quickMatchId: string): Promise<string> {
-        const key = `quick-pt/exports/${quickMatchId}/${Date.now()}-${filename}`;
-        
-        await r2Service.uploadFile(
+        const uploadResult = await r2Service.uploadFile(
             buffer,
             filename,
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -397,7 +395,7 @@ export class ExcelExportService extends BaseService {
             'quick-pt'
         );
         
-        return key;
+        return uploadResult.key;
     }
 
     private generateFilename(matchInfo: any, customFilename?: string): string {
