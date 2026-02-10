@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { BaseService } from "./baseService";
 import crypto from 'crypto';
@@ -90,6 +90,39 @@ export class CloudflareR2Service extends BaseService {
         } catch (error) {
             this.logger.error(`Failed to generate signed URL for: ${key}`, error);
             throw new Error('Failed to generate download URL');
+        }
+    }
+
+    async listTemplateImages(prefix: string = 'templates/'): Promise<Array<{ key: string; url: string }>> {
+        try {
+            const command = new ListObjectsV2Command({
+                Bucket: this.bucketName,
+                Prefix: prefix,
+                MaxKeys: 1000 // Limit for safety
+            });
+
+            const response = await this.s3Client.send(command);
+            
+            if (!response.Contents) {
+                return [];
+            }
+
+            // Filter for image files and create URLs
+            const templateImages = response.Contents
+                .filter(obj => {
+                    const key = obj.Key || '';
+                    return key.match(/\.(png|jpg|jpeg)$/i);
+                })
+                .map(obj => ({
+                    key: obj.Key!,
+                    url: `${this.publicUrl}/${obj.Key!}`
+                }));
+
+            this.logger.info(`Found ${templateImages.length} template images in R2`);
+            return templateImages;
+        } catch (error) {
+            this.logger.error('Failed to list template images from R2:', error);
+            throw new Error('Failed to fetch template images');
         }
     }
 }

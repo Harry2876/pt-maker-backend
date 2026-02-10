@@ -46,10 +46,14 @@ export class QuickMatchService extends BaseService {
             await this.db.quickMatch.create({
                 data: {
                     id: quickMatchId,
-                    matchName: `Quick Match ${new Date().toISOString().slice(0, 10)}`,
-                    game: 'BGMI',
+                    matchName: data.matchName || `Quick Match ${new Date().toISOString().slice(0, 10)}`,
+                    game: data.game || 'BGMI',
+                    map: data.map,
                     userId,
                     status: 'ACTIVE',
+                    killPointsValue,
+                    scoringDescription,
+                    positionPointsConfig,
                     createdAt: new Date(),
                     updatedAt: new Date()
                 }

@@ -43,7 +43,7 @@ export const createManualResultSchema = z.object({
         .optional()
 });
 
-// Update manual result schema  
+// Update manual result schema
 export const updateManualResultSchema = z.object({
     teamName: z.string()
         .min(2, 'Team name must be at least 2 characters')

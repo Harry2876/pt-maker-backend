@@ -11,6 +11,7 @@ import { quickPointsTableService } from '../services/quickPointsTableService';
 import { quickResultService } from '../services/quickResultService';
 import { tieBreakingService } from '../services/tieBreakingService';
 import { quickSeriesService } from '../services/quickSeriesService';
+import { templateService } from '../services/templateService';
 
 export class QuickPTController {
 
@@ -848,6 +849,22 @@ static deleteResult = asyncHandler(async (req: Request, res: Response) => {
 
     return res.json(
         ResponseHelper.success('Result deleted successfully')
+    );
+});
+
+// ========================================
+// TEMPLATE ENDPOINTS
+// ========================================
+
+/**
+ * GET /api/quick-pt/templates
+ * Get all available template images
+ */
+static getAvailableTemplates = asyncHandler(async (req: Request, res: Response) => {
+    const templates = await templateService.getAllTemplates();
+
+    return res.json(
+        ResponseHelper.success('Templates retrieved successfully', templates)
     );
 });
 

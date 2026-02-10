@@ -18,7 +18,8 @@ import {
 import {
     uploadQuickScreenshotSchema,
     quickScreenshotParamsSchema,
-    listQuickScreenshotsQuerySchema
+    listQuickScreenshotsQuerySchema,
+    deleteQuickScreenshotSchema
 } from '../validations/quickScreenshotValidation';
 import {
     quickResultParamsSchema,
@@ -1129,6 +1130,7 @@ quickPTRouter.get(
  */
 quickPTRouter.delete(
     '/screenshots/:screenshotId',
+    validateRequest(deleteQuickScreenshotSchema, 'body'),
     QuickPTController.deleteScreenshot
 );
 
@@ -4300,5 +4302,131 @@ quickPTRouter.get(
     validateRequest(cropParamsSchema, 'params'),
     CropStorageController.getBulkCropDownloadUrls
 );
+
+// ========================================
+// TEMPLATE ROUTES
+// ========================================
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/templates:
+ *   get:
+ *     tags: [Quick-PT Templates]
+ *     summary: Get all available template images
+ *     description: |
+ *       Retrieve all available template images organized by category from R2 storage.
+ *       
+ *       **Features:**
+ *       - Templates organized by format (16_teams, 24_teams, 32_teams, etc.)
+ *       - Signed URLs with 30-minute expiry for secure access
+ *       - Cached results for improved performance
+ *       - Automatic URL refresh for cached data
+ *       
+ *       **Use Cases:**
+ *       - Display template selection UI in mobile app
+ *       - Preview available design options
+ *       - Template picker for points table generation
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Templates retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Templates retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     templates:
+ *                       type: object
+ *                       properties:
+ *                         16_teams:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               name:
+ *                                 type: string
+ *                                 example: "template1"
+ *                               signedUrl:
+ *                                 type: string
+ *                                 example: "https://storage.com/signed?token=..."
+ *                               previewUrl:
+ *                                 type: string
+ *                                 example: "https://storage.com/preview?token=..."
+ *                               category:
+ *                                 type: string
+ *                                 example: "16_teams"
+ *                               fullPath:
+ *                                 type: string
+ *                                 example: "16_teams/template1"
+ *                         24_teams:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               name:
+ *                                 type: string
+ *                                 example: "template1"
+ *                               signedUrl:
+ *                                 type: string
+ *                                 example: "https://storage.com/signed?token=..."
+ *                               previewUrl:
+ *                                 type: string
+ *                                 example: "https://storage.com/preview?token=..."
+ *                               category:
+ *                                 type: string
+ *                                 example: "24_teams"
+ *                               fullPath:
+ *                                 type: string
+ *                                 example: "24_teams/template1"
+ *                         32_teams:
+ *                           type: array
+ *                           items:
+ *                             $ref: '#/components/schemas/TemplateInfo'
+ *                     totalTemplates:
+ *                       type: integer
+ *                       example: 15
+ *                       description: Total number of templates across all categories
+ *                     cacheExpiry:
+ *                       type: integer
+ *                       example: 1733323200000
+ *                       description: Unix timestamp when cache expires
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Authentication failed"
+ *       500:
+ *         description: Server error while fetching templates
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to fetch template images"
+ */
+quickPTRouter.get('/templates', QuickPTController.getAvailableTemplates);
 
 export default quickPTRouter;

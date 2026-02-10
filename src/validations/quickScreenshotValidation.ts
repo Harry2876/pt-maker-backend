@@ -28,3 +28,8 @@ export const listQuickScreenshotsQuerySchema = z.object({
         .transform(val => val === 'true')
         .optional()
 });
+
+// Delete screenshot validation
+export const deleteQuickScreenshotSchema = z.object({
+    quickMatchId: z.string().uuid('Invalid quick match ID')
+});
