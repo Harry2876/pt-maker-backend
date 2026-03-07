@@ -4,6 +4,7 @@ import { validateRequest } from '../middleware/commonMiddleware';
 import { refreshTokenSchema, sendOTPSchema, verifyOTPSchema, loginSchema, registrationSchema, checkUsernameSchema } from '../validations/authValidation';
 import { asyncHandler } from '../middleware/commonMiddleware';
 import { authenticateUser } from '../middleware/auth';
+import { checkAppVersion } from '../middleware/appVersionControl';
 
 /**
  * @swagger
@@ -1182,7 +1183,8 @@ authRouter.post('/login',
  *                       example: "1.0"
  */
 authRouter.get('/profile', 
-    authenticateUser, 
+    authenticateUser,
+    checkAppVersion, 
     asyncHandler(AuthController.getProfile)
 );
 
@@ -1454,6 +1456,7 @@ authRouter.post('/refresh-token',
  */
 authRouter.post('/logout', 
     authenticateUser, 
+    checkAppVersion,
     asyncHandler(AuthController.logout)
 );
 
@@ -1573,6 +1576,7 @@ authRouter.post('/logout',
  */
 authRouter.post('/logout-all', 
     authenticateUser, 
+    checkAppVersion,
     asyncHandler(AuthController.logoutAll)
 );
 
@@ -1667,6 +1671,7 @@ authRouter.post('/logout-all',
  */
 authRouter.get('/sessions', 
     authenticateUser, 
+    checkAppVersion,
     asyncHandler(AuthController.getSessions)
 );
 

@@ -17,6 +17,13 @@ const phoneNumberSchema = z.string()
     }
   });
 
+// Add app version schema
+const appVersionSchema = z.string()
+  .min(1, 'App version is required')
+  .max(20, 'App version must be at most 20 characters')
+  .regex(/^\d+\.\d+\.\d+$/, 'App version must be in format x.y.z')
+  .optional(); // Optional for now, required later
+
 export const checkUsernameSchema = z.object({
   username: z.string()
     .min(3, 'Username must be at least 3 characters')
@@ -37,7 +44,8 @@ export const registrationSchema = z.object({
     .min(8, 'Password must be at least 8 characters')
     .max(128, 'Password must be at most 128 characters')
     .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain at least one uppercase letter, one lowercase letter, and one number'),
-  organization: z.string().max(100).optional()
+  organization: z.string().max(100).optional(),
+  appVersion: appVersionSchema
 });
 
 export const sendOTPSchema = z.object({
@@ -49,6 +57,7 @@ export const verifyOTPSchema = z.object({
   otp: z.string()
     .length(6, 'OTP must be exactly 6 digits')
     .regex(/^\d{6}$/, 'OTP must contain only numbers'),
+  appVersion: appVersionSchema
 });
 
 export const refreshTokenSchema = z.object({

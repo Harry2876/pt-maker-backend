@@ -39,7 +39,7 @@ export class AuthController {
     };
 
     static verifyOTP = asyncHandler(async (req: Request, res: Response) => {
-        const { phoneNumber, otp } = req.body;
+        const { phoneNumber, otp, appVersion } = req.body;
 
         // Verify OTP only - no registration/login logic here
         const otpResult = await authService.verifyOTP(phoneNumber, otp);
@@ -55,12 +55,19 @@ export class AuthController {
             // Existing user - complete login flow immediately
             const deviceInfo = req.headers['user-agent'] || 'Unknown';
             const ipAddress = req.ip || 'Unknown';
+            
+            // Update user's last app version
+            if (appVersion && !existingUser.fromCache) {
+                await authService.updateUserAppVersion(existingUser.id, appVersion);
+            }
+            
             const tokenPair = await authService.generateTokenPair(
                 existingUser.id,
                 existingUser.phoneNumber,
                 existingUser.fromCache,
                 deviceInfo,
-                ipAddress
+                ipAddress,
+                appVersion
             );
 
             return res.json(ResponseHelper.success('Login successful', {
@@ -85,7 +92,7 @@ export class AuthController {
     });
 
     static register = asyncHandler(async (req: Request, res:Response) => {
-        const {phoneNumber, username, fullName, password, organization} = req.body;
+        const {phoneNumber, username, fullName, password, organization, appVersion} = req.body;
 
         try{
             const normalizedPhone = PhoneUtils.normalize(phoneNumber);
@@ -113,7 +120,8 @@ export class AuthController {
                 username,
                 fullName,
                 password,
-                organization
+                organization,
+                appVersion
             };
 
             const registerResult = await authService.registerUser(normalizedPhone, userData);
@@ -142,7 +150,8 @@ export class AuthController {
                 registerResult.user.phoneNumber,
                 registerResult.user.fromCache,
                 deviceInfo,
-                ipAddress
+                ipAddress,
+                appVersion
             );
 
             return res.status(201).json(ResponseHelper.success('Registration Successfull. You are Now Logged in',{

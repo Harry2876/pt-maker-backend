@@ -22,6 +22,9 @@ model User {
   subscriptionStatus    SubscriptionStatus       @default(INACTIVE)
   fullName              String
   organization          String?
+  registeredAppVersion  String?
+  lastAppVersion        String?
+  lastVersionUpdate     DateTime?
   accounts              Account[]
   activityLogs          ActivityLog[]
   discordUser           DiscordUser?             @relation("UserDiscordLink")
