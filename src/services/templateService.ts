@@ -7,7 +7,9 @@ export interface TemplateInfo {
     name: string;
     signedUrl: string;
     previewUrl: string;
-    configUrl: string; // Template config file URL
+    configUrl: string; // Template config file URL (signed)
+    rawTemplateUrl: string; // Raw R2 URL for template (for Python AI API)
+    rawConfigUrl: string; // Raw R2 URL for config (for Python AI API)
     category: string;
     fullPath: string;
     originalExtension: string; // Store the original file extension
@@ -143,11 +145,18 @@ export class TemplateService extends BaseService {
                 const configKey = `${this.TEMPLATE_PREFIX}${category}/templateConfig_${templateName.replace('tmplate_', '')}.json`;
                 const configSignedUrl = await signedUrlUtility.generateSignedUrl(configKey, { expiryMinutes: 30 });
 
+                // Construct raw R2 URLs (for Python AI API)
+                const baseR2Url = 'https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots';
+                const rawTemplateUrl = `${baseR2Url}/templates/${category}/${templateName}.${originalExtension}`;
+                const rawConfigUrl = `${baseR2Url}/templates/${category}/templateConfig_${templateName.replace('tmplate_', '')}.json`;
+
                 const templateInfo: TemplateInfo = {
                     name: templateName,
                     signedUrl: signedUrl.signedUrl,
                     previewUrl: signedUrl.signedUrl, // Same as signed URL for now
                     configUrl: configSignedUrl.signedUrl,
+                    rawTemplateUrl: rawTemplateUrl,
+                    rawConfigUrl: rawConfigUrl,
                     category: category,
                     fullPath: `${category}/${templateName}`,
                     originalExtension: originalExtension
@@ -199,11 +208,18 @@ export class TemplateService extends BaseService {
                     const signedUrl = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
                     const configSignedUrl = await signedUrlUtility.generateSignedUrl(configKey, { expiryMinutes: 30 });
                     
+                    // Construct raw R2 URLs (for Python AI API)
+                    const baseR2Url = 'https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots';
+                    const rawTemplateUrl = `${baseR2Url}/templates/${template.category}/${template.name}.${template.originalExtension}`;
+                    const rawConfigUrl = `${baseR2Url}/templates/${template.category}/templateConfig_${template.name.replace('tmplate_', '')}.json`;
+                    
                     refreshed[category].push({
                         ...template,
                         signedUrl: signedUrl.signedUrl,
                         previewUrl: signedUrl.signedUrl,
-                        configUrl: configSignedUrl.signedUrl
+                        configUrl: configSignedUrl.signedUrl,
+                        rawTemplateUrl: rawTemplateUrl,
+                        rawConfigUrl: rawConfigUrl
                     } as TemplateInfo);
                 } catch (error) {
                     this.logger.warn(`Failed to refresh signed URL for template: ${template.fullPath}`, error);
@@ -271,9 +287,10 @@ export class TemplateService extends BaseService {
                 return null;
             }
             
+            // Return RAW R2 URLs for Python AI API
             return {
-                templateUrl: template.signedUrl,
-                configUrl: template.configUrl
+                templateUrl: template.rawTemplateUrl,
+                configUrl: template.rawConfigUrl
             };
         } catch (error) {
             this.handleError(error, 'Get Template With Config');
