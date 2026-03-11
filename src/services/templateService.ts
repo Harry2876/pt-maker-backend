@@ -7,6 +7,7 @@ export interface TemplateInfo {
     name: string;
     signedUrl: string;
     previewUrl: string;
+    configUrl: string; // Template config file URL
     category: string;
     fullPath: string;
     originalExtension: string; // Store the original file extension
@@ -135,13 +136,18 @@ export class TemplateService extends BaseService {
                     continue;
                 }
 
-                // Generate signed URL
+                // Generate signed URL for template image
                 const signedUrl = await signedUrlUtility.generateSignedUrl(image.key, { expiryMinutes: 30 });
+                
+                // Generate signed URL for config file (same naming pattern)
+                const configKey = `${this.TEMPLATE_PREFIX}${category}/templateConfig_${templateName.replace('tmplate_', '')}.json`;
+                const configSignedUrl = await signedUrlUtility.generateSignedUrl(configKey, { expiryMinutes: 30 });
 
                 const templateInfo: TemplateInfo = {
                     name: templateName,
                     signedUrl: signedUrl.signedUrl,
                     previewUrl: signedUrl.signedUrl, // Same as signed URL for now
+                    configUrl: configSignedUrl.signedUrl,
                     category: category,
                     fullPath: `${category}/${templateName}`,
                     originalExtension: originalExtension
@@ -176,7 +182,7 @@ export class TemplateService extends BaseService {
      * Refresh signed URLs for cached templates
      */
     private async refreshSignedUrls(
-        templates: Record<string, Omit<TemplateInfo, 'signedUrl' | 'previewUrl'>[]>
+        templates: Record<string, Omit<TemplateInfo, 'signedUrl' | 'previewUrl' | 'configUrl'>[]>
     ): Promise<Record<string, TemplateInfo[]>> {
         const refreshed: Record<string, TemplateInfo[]> = {};
 
@@ -187,14 +193,17 @@ export class TemplateService extends BaseService {
                 try {
                     // Reconstruct R2 key with original extension
                     const r2Key = `${this.TEMPLATE_PREFIX}${template.fullPath}.${template.originalExtension}`;
+                    const configKey = `${this.TEMPLATE_PREFIX}${template.category}/templateConfig_${template.name.replace('tmplate_', '')}.json`;
                     
-                    // Generate fresh signed URL
+                    // Generate fresh signed URLs for both template and config
                     const signedUrl = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+                    const configSignedUrl = await signedUrlUtility.generateSignedUrl(configKey, { expiryMinutes: 30 });
                     
                     refreshed[category].push({
                         ...template,
                         signedUrl: signedUrl.signedUrl,
-                        previewUrl: signedUrl.signedUrl
+                        previewUrl: signedUrl.signedUrl,
+                        configUrl: configSignedUrl.signedUrl
                     } as TemplateInfo);
                 } catch (error) {
                     this.logger.warn(`Failed to refresh signed URL for template: ${template.fullPath}`, error);
@@ -210,11 +219,11 @@ export class TemplateService extends BaseService {
      */
     private stripSignedUrls(
         templates: Record<string, TemplateInfo[]>
-    ): Record<string, Omit<TemplateInfo, 'signedUrl' | 'previewUrl'>[]> {
-        const stripped: Record<string, Omit<TemplateInfo, 'signedUrl' | 'previewUrl'>[]> = {};
+    ): Record<string, Omit<TemplateInfo, 'signedUrl' | 'previewUrl' | 'configUrl'>[]> {
+        const stripped: Record<string, Omit<TemplateInfo, 'signedUrl' | 'previewUrl' | 'configUrl'>[]> = {};
 
         for (const [category, templateList] of Object.entries(templates)) {
-            stripped[category] = templateList.map(({ signedUrl, previewUrl, ...rest }) => rest);
+            stripped[category] = templateList.map(({ signedUrl, previewUrl, configUrl, ...rest }) => rest);
         }
 
         return stripped;
@@ -236,6 +245,38 @@ export class TemplateService extends BaseService {
             this.logger.info('Template cache invalidated');
         } catch (error) {
             this.handleError(error, 'Invalidate Template Cache');
+            throw error;
+        }
+    }
+
+    /**
+     * Get specific template with config URL by template name and format
+     */
+    async getTemplateWithConfig(
+        templateName: string,
+        formatType: string
+    ): Promise<{ templateUrl: string; configUrl: string } | null> {
+        try {
+            const templates = await this.getAllTemplates();
+            const categoryTemplates = templates.templates[formatType];
+            
+            if (!categoryTemplates) {
+                this.logger.warn(`Format type ${formatType} not found`);
+                return null;
+            }
+            
+            const template = categoryTemplates.find(t => t.name === templateName);
+            if (!template) {
+                this.logger.warn(`Template ${templateName} not found in ${formatType}`);
+                return null;
+            }
+            
+            return {
+                templateUrl: template.signedUrl,
+                configUrl: template.configUrl
+            };
+        } catch (error) {
+            this.handleError(error, 'Get Template With Config');
             throw error;
         }
     }

@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { quickProcessingService } from './quickProcessingService';
 import { pythonAIService } from './pythonAIService';
+import { templateService } from './templateService';
 import { tieBreakingService } from './tieBreakingService';
 import { r2Service } from './cloudflareR2Service';
 import { signedUrlUtility } from './signedUrlUtility';
@@ -20,9 +21,49 @@ import {
 export interface ExportPointsTableRequest {
     quickMatchId: string;
     userId: string;
-    template?: string; // Now supports '24_teams/template1' format
+    template?: string; // Template name (e.g., "tmplate_1")
     formatType?: string; // '24_teams', '16_teams', etc.
     outputFilename?: string; // Custom output filename
+    customization?: {
+        fonts?: {
+            main_font_name?: string;
+            bold_font_name?: string;
+        };
+        font_customization?: {
+            global_size_multiplier?: number;
+            override_all_fonts?: boolean;
+            default_font_family?: string;
+            default_font_weight?: string;
+        };
+        advanced_config?: {
+            header?: {
+                event_name?: {
+                    enabled?: boolean;
+                    text?: string;
+                    font?: { size?: number; color?: string; weight?: string; family?: string };
+                };
+                sponsor_name?: {
+                    enabled?: boolean;
+                    text?: string;
+                    font?: { size?: number; color?: string; weight?: string };
+                };
+            };
+            organiser?: {
+                name?: {
+                    enabled?: boolean;
+                    text?: string;
+                    font?: { size?: number; color?: string; weight?: string; family?: string };
+                };
+            };
+            event_details?: {
+                week_info?: { enabled?: boolean; text?: string };
+                day_info?: { enabled?: boolean; text?: string };
+            };
+            footer?: {
+                live_indicator?: { enabled?: boolean };
+            };
+        };
+    };
 }
 
 export interface ExportPointsTableResponse {
@@ -67,7 +108,7 @@ export class QuickExportService extends BaseService {
         const startTime = Date.now();
 
         try {
-            const { quickMatchId, userId, template = '24_teams/template1', formatType, outputFilename } = request;
+            const { quickMatchId, userId, template = 'tmplate_1', formatType, outputFilename, customization } = request;
 
             this.logger.info(`Starting points table export for Quick Match ${quickMatchId}`);
 
@@ -86,6 +127,14 @@ export class QuickExportService extends BaseService {
             
             if (results.length === 0) {
                 throw new Error('No results found for this match. Please process results first.');
+            }
+
+            // 3. Determine format type and get template URLs
+            const finalFormatType = formatType || this.determineFormatType(results.length);
+            const templateUrls = await templateService.getTemplateWithConfig(template, finalFormatType);
+            
+            if (!templateUrls) {
+                throw new Error(`Template ${template} not found for format ${finalFormatType}`);
             }
 
             // 3. Detect and resolve tie-breaking conflicts
@@ -171,18 +220,19 @@ export class QuickExportService extends BaseService {
             // Sort by rank to ensure correct ordering
             standingsTeamData.sort((a, b) => a.rank - b.rank);
 
-            // Determine format type and filename
-            const finalFormatType = formatType || this.determineFormatType(standingsTeamData.length);
+            // Determine final output filename
             const finalOutputFilename = outputFilename || this.generateOutputFilename(quickMatch.matchName);
 
-            // Call new standings API
-            this.logger.info(`Calling new Standings API to generate table with ${standingsTeamData.length} teams`);
+            // Call enhanced standings API with template URLs and customization
+            this.logger.info(`Calling enhanced Standings API with template: ${template}, format: ${finalFormatType}`);
             
             const standingsResponse = await pythonAIService.generateStandingsTable(
+                templateUrls.templateUrl,
+                templateUrls.configUrl,
+                finalFormatType,
                 standingsTeamData,
-                template,              // template now supports "24_teams/template1" format
-                finalFormatType,       // format type - auto-determined or specified
-                finalOutputFilename
+                finalOutputFilename,
+                customization
             );
 
             if (standingsResponse.status !== 'success') {
@@ -342,7 +392,8 @@ export class QuickExportService extends BaseService {
         userId: string,
         template?: string,
         formatType?: string,
-        outputFilename?: string
+        outputFilename?: string,
+        customization?: any
     ): Promise<ExportPointsTableResponse> {
         try {
             this.logger.info(`Regenerating points table for Quick Match ${quickMatchId}`);
@@ -353,7 +404,8 @@ export class QuickExportService extends BaseService {
                 userId,
                 template,
                 formatType,
-                outputFilename
+                outputFilename,
+                customization
             });
 
         } catch (error) {

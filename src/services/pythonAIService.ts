@@ -53,8 +53,51 @@ export interface PointsTableGenerationRequest {
 }
 
 export interface StandingsGenerationRequest {
-    template_name: string;           // "24_teams/template1", "16_teams/template2" etc.
-    format_type: string;            // "24_teams", "16_teams" etc.
+    template_url: string;            // Template image URL
+    template_config_url: string;     // Template config JSON URL
+    format_type: string;             // "24_teams", "16_teams" etc.
+    output_filename: string;
+    fonts?: {
+        main_font_name?: string;
+        bold_font_name?: string;
+    };
+    font_customization?: {
+        global_size_multiplier?: number;
+        override_all_fonts?: boolean;
+        default_font_family?: string;
+        default_font_weight?: string;
+    };
+    advanced_config?: {
+        header?: {
+            event_name?: {
+                enabled?: boolean;
+                text?: string;
+                font?: { size?: number; color?: string; weight?: string; family?: string };
+            };
+            sponsor_name?: {
+                enabled?: boolean;
+                text?: string;
+                font?: { size?: number; color?: string; weight?: string };
+            };
+        };
+        organiser?: {
+            name?: {
+                enabled?: boolean;
+                text?: string;
+                font?: { size?: number; color?: string; weight?: string; family?: string };
+            };
+        };
+        event_details?: {
+            week_info?: { enabled?: boolean; text?: string };
+            day_info?: { enabled?: boolean; text?: string };
+        };
+        footer?: {
+            live_indicator?: { enabled?: boolean };
+        };
+    };
+    options?: {
+        upload_to_r2?: boolean;
+    };
     team_data: Array<{
         rank: number;
         slot_number: number;
@@ -65,12 +108,6 @@ export interface StandingsGenerationRequest {
         finish_points: number;  // renamed from kill_points
         wwcd: number;
     }>;
-    output_filename: string;
-    options: {
-        upload_to_r2: boolean;
-        compress_image: boolean;
-        image_quality: number;
-    };
 }
 
 export interface StandingsGenerationResponse {
@@ -593,9 +630,12 @@ export class PythonAIService extends BaseService {
     }
 
     /**
-     * Generate standings table image with advanced templating
+     * Generate standings table image with advanced templating and customization
      */
     async generateStandingsTable(
+        templateUrl: string,
+        templateConfigUrl: string,
+        formatType: string,
         teamData: Array<{
             rank: number;
             slot_number: number;
@@ -606,26 +646,101 @@ export class PythonAIService extends BaseService {
             finish_points: number;
             wwcd: number;
         }>,
-        templateName: string = '24_teams/template1',
-        formatType: string = '24_teams',
-        outputFilename: string = 'standings_auto.png'
+        outputFilename: string = 'standings_auto.png',
+        customization?: {
+            fonts?: {
+                main_font_name?: string;
+                bold_font_name?: string;
+            };
+            font_customization?: {
+                global_size_multiplier?: number;
+                override_all_fonts?: boolean;
+                default_font_family?: string;
+                default_font_weight?: string;
+            };
+            advanced_config?: {
+                header?: {
+                    event_name?: {
+                        enabled?: boolean;
+                        text?: string;
+                        font?: { size?: number; color?: string; weight?: string; family?: string };
+                    };
+                    sponsor_name?: {
+                        enabled?: boolean;
+                        text?: string;
+                        font?: { size?: number; color?: string; weight?: string };
+                    };
+                };
+                organiser?: {
+                    name?: {
+                        enabled?: boolean;
+                        text?: string;
+                        font?: { size?: number; color?: string; weight?: string; family?: string };
+                    };
+                };
+                event_details?: {
+                    week_info?: { enabled?: boolean; text?: string };
+                    day_info?: { enabled?: boolean; text?: string };
+                };
+                footer?: {
+                    live_indicator?: { enabled?: boolean };
+                };
+            };
+        }
     ): Promise<StandingsGenerationResponse> {
         const startTime = Date.now();
         
         try {
             const requestPayload: StandingsGenerationRequest = {
-                template_name: templateName,
+                template_url: templateUrl,
+                template_config_url: templateConfigUrl,
                 format_type: formatType,
-                team_data: teamData,
                 output_filename: outputFilename,
+                fonts: customization?.fonts || {
+                    main_font_name: "Inter_24pt-Regular.ttf",
+                    bold_font_name: "Inter_24pt-Bold.ttf"
+                },
+                font_customization: customization?.font_customization || {
+                    global_size_multiplier: 1.0,
+                    override_all_fonts: false,
+                    default_font_family: "Inter",
+                    default_font_weight: "regular"
+                },
+                advanced_config: customization?.advanced_config || {
+                    header: {
+                        event_name: {
+                            enabled: true,
+                            text: "BGMI Tournament",
+                            font: { size: 64, color: "#FFFFFF", weight: "bold", family: "Montserrat" }
+                        },
+                        sponsor_name: {
+                            enabled: true,
+                            text: "Powered by SCRYMZ",
+                            font: { size: 40, color: "#CCCCCC", weight: "regular" }
+                        }
+                    },
+                    organiser: {
+                        name: {
+                            enabled: true,
+                            text: "Tournament Organizer",
+                            font: { size: 52, color: "#FFFFFF", weight: "bold", family: "Oswald" }
+                        }
+                    },
+                    event_details: {
+                        week_info: { enabled: true, text: "Week 1" },
+                        day_info: { enabled: true, text: "Day 1" }
+                    },
+                    footer: {
+                        live_indicator: { enabled: false }
+                    }
+                },
                 options: {
-                    upload_to_r2: true,
-                    compress_image: false,
-                    image_quality: 95
-                }
+                    upload_to_r2: true
+                },
+                team_data: teamData
             };
 
-            this.logger.info(`🏆 Generating standings for ${teamData.length} teams with template: ${templateName}`);
+            this.logger.info(`🏆 Generating enhanced standings for ${teamData.length} teams with template: ${templateUrl}`);
 
             const response = await this.axiosInstance.post('/api/v1/standings/generate', requestPayload, {
                 timeout: this.timeout,
@@ -636,13 +751,13 @@ export class PythonAIService extends BaseService {
             });
 
             const processingTime = Date.now() - startTime;
-            this.logger.info(`✅ Standings generated in ${processingTime}ms: ${response.data.data.output_filename}`);
+            this.logger.info(`✅ Enhanced standings generated in ${processingTime}ms: ${response.data.data.output_filename}`);
 
             return response.data;
 
         } catch (error) {
             const processingTime = Date.now() - startTime;
-            this.logger.error(`❌ Standings generation failed after ${processingTime}ms:`, error);
+            this.logger.error(`❌ Enhanced standings generation failed after ${processingTime}ms:`, error);
             throw error;
         }
     }

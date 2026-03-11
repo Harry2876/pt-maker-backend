@@ -93,7 +93,54 @@ export const processResultsSchema = z.object({
         .default(true)
 });
 
-// Export points table
+// Font customization schema
+const fontSchema = z.object({
+    size: z.number().optional(),
+    color: z.string().optional(),
+    weight: z.string().optional(),
+    family: z.string().optional()
+});
+
+// Advanced config schemas
+const headerConfigSchema = z.object({
+    event_name: z.object({
+        enabled: z.boolean().optional(),
+        text: z.string().optional(),
+        font: fontSchema.optional()
+    }).optional(),
+    sponsor_name: z.object({
+        enabled: z.boolean().optional(),
+        text: z.string().optional(),
+        font: fontSchema.optional()
+    }).optional()
+}).optional();
+
+const organiserConfigSchema = z.object({
+    name: z.object({
+        enabled: z.boolean().optional(),
+        text: z.string().optional(),
+        font: fontSchema.optional()
+    }).optional()
+}).optional();
+
+const eventDetailsSchema = z.object({
+    week_info: z.object({
+        enabled: z.boolean().optional(),
+        text: z.string().optional()
+    }).optional(),
+    day_info: z.object({
+        enabled: z.boolean().optional(),
+        text: z.string().optional()
+    }).optional()
+}).optional();
+
+const footerSchema = z.object({
+    live_indicator: z.object({
+        enabled: z.boolean().optional()
+    }).optional()
+}).optional();
+
+// Export points table with enhanced customization
 export const exportPointsTableSchema = z.object({
     format: z.enum(['PNG', 'CSV', 'BOTH'] as const)
         .optional()
@@ -102,9 +149,9 @@ export const exportPointsTableSchema = z.object({
     template: z.string()
         .min(1, 'Template name is required')
         .max(100, 'Template name must be at most 100 characters')
-        .regex(/^[\w\/-]+$/, 'Template name contains invalid characters')
+        .regex(/^[\w\-_.]+$/, 'Template name contains invalid characters')
         .optional()
-        .default('24_teams/template1'),
+        .default('tmplate_1'),
         
     formatType: z.string()
         .min(1, 'Format type is required')
@@ -116,5 +163,26 @@ export const exportPointsTableSchema = z.object({
         .min(1, 'Output filename is required')
         .max(100, 'Output filename must be at most 100 characters')
         .regex(/^[\w\-_.]+\.png$/, 'Output filename must be a valid PNG filename')
-        .optional()
+        .optional(),
+        
+    customization: z.object({
+        fonts: z.object({
+            main_font_name: z.string().optional(),
+            bold_font_name: z.string().optional()
+        }).optional(),
+        
+        font_customization: z.object({
+            global_size_multiplier: z.number().min(0.1).max(3.0).optional(),
+            override_all_fonts: z.boolean().optional(),
+            default_font_family: z.string().optional(),
+            default_font_weight: z.string().optional()
+        }).optional(),
+        
+        advanced_config: z.object({
+            header: headerConfigSchema,
+            organiser: organiserConfigSchema,
+            event_details: eventDetailsSchema,
+            footer: footerSchema
+        }).optional()
+    }).optional()
 });
