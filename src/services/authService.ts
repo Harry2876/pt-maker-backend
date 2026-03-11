@@ -415,10 +415,7 @@ export class AuthService extends BaseService {
                 registeredAt: new Date().toISOString(),
                 lastLoginAt: new Date().toISOString(),
                 status: 'pending_db_write',
-                cacheTimeStamp: Date.now(),
-                registeredAppVersion: userData.appVersion || 'unknown',
-                lastAppVersion: userData.appVersion || 'unknown',
-                lastVersionUpdate: new Date().toISOString()
+                cacheTimeStamp: Date.now()
             };
 
             //store user in redis with 1 hour expiry
@@ -717,8 +714,7 @@ export class AuthService extends BaseService {
         phoneNumber: string,
         fromCache: boolean = false,
         deviceInfo?: string,
-        ipAddress?: string,
-        appVersion?: string
+        ipAddress?: string
     ): Promise<TokenPair> {
         try {
             const sessionId = this.generateSecureSessionId();
@@ -738,7 +734,6 @@ export class AuthService extends BaseService {
                 sessionId,
                 jti: this.generateJTI(sessionId, 'access'),
                 type: 'access',
-                appVersion: appVersion || 'unknown',
                 iat: Math.floor(Date.now() / 1000),
                 exp: Math.floor(Date.now() / 1000) + (30 * 60) //30 mins
             };
@@ -749,7 +744,6 @@ export class AuthService extends BaseService {
                 phoneNumber,
                 sessionId,
                 jti: this.generateJTI(sessionId, 'refresh'),
-                appVersion: appVersion || 'unknown',
                 type: 'refresh',
                 iat: Math.floor(Date.now() / 1000),
                 exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) //30 days
@@ -1242,70 +1236,6 @@ if (currentAccessToken) {
             this.logger.info(`Cleared phone verification for ${normalizedPhone}`);
         } catch (error) {
             this.logger.error(`Failed to clear phone verification for ${normalizedPhone}:`, error);
-        }
-    }
-
-    // App version tracking methods
-    async updateUserAppVersion(userId: string, appVersion: string): Promise<void> {
-        try {
-            await this.db.user.update({
-                where: { id: userId },
-                data: {
-                    lastAppVersion: appVersion,
-                    lastVersionUpdate: new Date()
-                }
-            });
-            
-            this.logger.info(`Updated app version for user ${userId}: ${appVersion}`);
-        } catch (error) {
-            this.handleError(error, 'Update user app version');
-        }
-    }
-
-    async checkAppVersionRequirements(appVersion: string): Promise<{
-        allowed: boolean;
-        requiresUpdate: boolean;
-        message?: string;
-    }> {
-        try {
-            const minVersion = process.env.MINIMUM_APP_VERSION || '1.0.0';
-            const forceUpdate = process.env.FORCE_UPDATE_ENABLED === 'true';
-            
-            if (!forceUpdate) {
-                return { allowed: true, requiresUpdate: false };
-            }
-            
-            const isVersionValid = this.compareVersions(appVersion, minVersion);
-            
-            if (!isVersionValid) {
-                return {
-                    allowed: false,
-                    requiresUpdate: true,
-                    message: `App version ${appVersion} is no longer supported. Please update to version ${minVersion} or higher.`
-                };
-            }
-            
-            return { allowed: true, requiresUpdate: false };
-        } catch (error) {
-            this.handleError(error, 'Check app version requirements');
-            return { allowed: true, requiresUpdate: false }; // Fail open
-        }
-    }
-
-    private compareVersions(current: string, required: string): boolean {
-        try {
-            // Simple version comparison (you can enhance this)
-            const currentParts = current.split('.').map(Number);
-            const requiredParts = required.split('.').map(Number);
-            
-            for (let i = 0; i < 3; i++) {
-                if (currentParts[i] > requiredParts[i]) return true;
-                if (currentParts[i] < requiredParts[i]) return false;
-            }
-            return true; // Equal versions are allowed
-        } catch (error) {
-            this.logger.warn(`Version comparison failed: ${current} vs ${required}`, error);
-            return true; // Fail open
         }
     }
 }

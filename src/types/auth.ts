@@ -19,7 +19,6 @@ export interface AuthData {
   fullName: string;
   organization?: string;
   password: string;
-  appVersion?: string;
 }
 
 export interface OTPVerificationData {
@@ -61,7 +60,6 @@ export interface AccessTokenPayload {
     sessionId: string;
     jti: string;  //adding jwt id for uniqueness
     type: 'access';
-    appVersion?: string;
     iat: number;
     exp: number;
 }
@@ -70,7 +68,6 @@ export interface RefreshTokenPayload {
     userId: string;
     phoneNumber: string;
     sessionId: string;
-    appVersion?: string;
     jti: string;  //adding jwt id for uniqueness
     type: 'refresh';
     iat: number;
