@@ -76,6 +76,11 @@ export class QuickResultService extends BaseService {
             // 6. Queue database sync
             await this.queueDatabaseSync('CREATE', resultId, result, userId);
 
+            // 7. Update match status to COMPLETED for manual workflow
+            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                status: 'COMPLETED'
+            });
+
             this.logger.info(`Manual result created for slot ${data.slotNumber} in match ${quickMatchId}`);
             return result;
 
@@ -316,6 +321,13 @@ export class QuickResultService extends BaseService {
             // 6. Determine overall success
             if (result.errors.length > 0 && result.created.length === 0) {
                 result.success = false;
+            }
+
+            // 7. Update match status to COMPLETED if any results were created
+            if (result.created.length > 0) {
+                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                    status: 'COMPLETED'
+                });
             }
 
             this.logger.info(`Bulk result creation completed: ${result.summary.successful}/${result.summary.total} successful`);

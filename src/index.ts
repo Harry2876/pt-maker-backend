@@ -20,6 +20,7 @@ import slotManagementRouter from './routes/slotManagementRoutes';
 import leaderboardRouter from './routes/leaderboardRoutes';
 import quickPTRouter from './routes/quickPTRoutes';
 import discordRouter from './routes/discordRoutes';
+import whatsappRouter from './routes/whatsappRoutes';
 import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
 import { WorkersManager } from './workers';
@@ -181,6 +182,7 @@ app.use('/api/v1/slot-management', slotManagementRouter);
 app.use('/api/v1/leaderboards', leaderboardRouter);
 app.use('/api/v1/teams', teamEnrollmentRouter);
 app.use('/api/v1/quick-pt', quickPTRouter);
+app.use('/api/v1/whatsapp', whatsappRouter);
 
 
 // app.use('/api/v1/admin', adminRouter);
