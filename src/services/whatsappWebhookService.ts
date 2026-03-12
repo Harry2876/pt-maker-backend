@@ -139,8 +139,13 @@ export class WhatsAppWebhookService extends BaseService {
         this.logger.info('🔐 Webhook verification attempt', {
             mode,
             tokenProvided: !!token,
+            tokenLength: token?.length || 0,
+            tokenPreview: token ? `${token.slice(0, 8)}...` : 'missing',
             challengeProvided: !!challenge,
-            expectedTokenConfigured: !!expectedToken
+            expectedTokenConfigured: !!expectedToken,
+            expectedTokenLength: expectedToken?.length || 0,
+            expectedTokenPreview: expectedToken ? `${expectedToken.slice(0, 8)}...` : 'missing',
+            environmentLoaded: !!process.env.NODE_ENV
         });
 
         if (mode === 'subscribe' && token === expectedToken) {
@@ -150,7 +155,10 @@ export class WhatsAppWebhookService extends BaseService {
 
         this.logger.warn('❌ Webhook verification failed', {
             mode,
-            tokenMatch: token === expectedToken
+            modeIsSubscribe: mode === 'subscribe',
+            tokenMatch: token === expectedToken,
+            tokenExact: token,
+            expectedTokenExact: expectedToken
         });
         
         return null;

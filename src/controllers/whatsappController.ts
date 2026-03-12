@@ -18,7 +18,11 @@ export class WhatsAppController {
         console.log('🔐 WhatsApp Webhook Verification Request:', {
             mode,
             token: token ? `${token.slice(0, 8)}...` : 'missing',
-            challenge: challenge ? 'provided' : 'missing'
+            tokenLength: token?.length || 0,
+            challenge: challenge ? 'provided' : 'missing',
+            challengeLength: challenge?.length || 0,
+            allQueryParams: req.query,
+            envToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ? `${process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN.slice(0, 8)}...` : 'missing'
         });
 
         const verificationResult = whatsAppWebhookService.verifyWebhook(mode, token, challenge);
