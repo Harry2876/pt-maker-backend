@@ -14,13 +14,30 @@ export class WhatsAppWebhookService extends BaseService {
         try {
             this.logger.info('📥 WhatsApp Webhook payload received', { 
                 object: payload.object,
-                entriesCount: payload.entry.length 
+                entriesCount: payload.entry.length,
+                fullPayload: JSON.stringify(payload, null, 2)
             });
 
             for (const entry of payload.entry) {
+                this.logger.info('🔍 Processing entry', {
+                    entryId: entry.id,
+                    changesCount: entry.changes.length,
+                    changes: entry.changes.map(c => ({ field: c.field, hasValue: !!c.value }))
+                });
+
                 for (const change of entry.changes) {
+                    this.logger.info('⚡ Processing change', {
+                        field: change.field,
+                        value: JSON.stringify(change.value, null, 2)
+                    });
+
                     if (change.field === 'messages') {
                         await this.processMessageChange(change.value);
+                    } else {
+                        this.logger.info(`📋 Unhandled field: ${change.field}`, {
+                            field: change.field,
+                            value: change.value
+                        });
                     }
                 }
             }
