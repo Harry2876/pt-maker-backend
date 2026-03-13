@@ -239,10 +239,53 @@ export class QuickExportService extends BaseService {
                 throw new Error('Standings generation failed: ' + standingsResponse.status);
             }
 
+            const standingsData = standingsResponse.data as any;
+            const standingsMetadata = standingsResponse.metadata as any;
+
             // Extract R2 key from the image URL and generate signed URL
-            const imageUrl = standingsResponse.data.image_url;
+            const imageUrl =
+                standingsData.image_url ||
+                standingsData.download_url ||
+                standingsMetadata?.r2_upload_url;
+
+            if (!imageUrl) {
+                this.logger.error('Standings response missing image URL fields', {
+                    response: standingsResponse
+                });
+                throw new Error('Standings response does not contain a valid image URL');
+            }
+
             const r2Key = this.extractR2KeyFromUrl(imageUrl);
             const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+
+            const templateUsed =
+                standingsData.template_used ||
+                standingsMetadata?.template_used ||
+                template ||
+                this.DEFAULT_TEMPLATE;
+
+            const teamsProcessed =
+                standingsData.teams_processed ||
+                standingsMetadata?.processing_stats?.teams_processed ||
+                standingsTeamData.length;
+
+            const processingTimeSeconds =
+                standingsMetadata?.processing_time_seconds ||
+                standingsData.processing_time_seconds ||
+                ((standingsMetadata?.processing_stats?.processing_time_ms || 0) / 1000);
+
+            const imageDimensions =
+                standingsMetadata?.image_dimensions ||
+                standingsMetadata?.processing_stats?.template_dimensions ||
+                'unknown';
+
+            const templateSource =
+                standingsMetadata?.template_source ||
+                standingsMetadata?.template_used ||
+                templateUrls.templateUrl;
+
+            const totalTextElements = standingsMetadata?.total_text_elements || 0;
+            const r2UploadSuccess = standingsMetadata?.r2_upload_success ?? true;
 
             // 5. Create points table record
             const pointsTableId = randomUUID();
@@ -259,8 +302,8 @@ export class QuickExportService extends BaseService {
                     signed_url_expires_at: signedUrlData.expiresAt.toISOString()
                 },
                 pngGeneratedAt: new Date().toISOString(),
-                generationTimeMs: standingsResponse.metadata.processing_time_seconds * 1000,
-                template: standingsResponse.data.template_used,
+                generationTimeMs: processingTimeSeconds * 1000,
+                template: templateUsed,
                 expiresAt: this.calculateExpiryDate(),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
@@ -277,12 +320,12 @@ export class QuickExportService extends BaseService {
                     tableImageUrl: imageUrl, // Use original image URL for DB storage
                     csvData: {
                         standings_data: standingsTeamData,
-                        teams_processed: standingsResponse.data.teams_processed,
-                        template_used: standingsResponse.data.template_used
+                        teams_processed: teamsProcessed,
+                        template_used: templateUsed
                     },
                     pngGeneratedAt: new Date(),
                     generationTimeMs: generationTimeMs,
-                    template: standingsResponse.data.template_used || 'default',
+                    template: templateUsed,
                     createdAt: new Date(),
                     updatedAt: new Date()
                 }
@@ -308,14 +351,14 @@ export class QuickExportService extends BaseService {
                 manualResolutionsApplied,
                 // New: Enhanced metadata
                 formatType: finalFormatType,
-                templateUsed: standingsResponse.data.template_used,
-                teamsProcessed: standingsResponse.data.teams_processed,
+                templateUsed: templateUsed,
+                teamsProcessed: teamsProcessed,
                 standingsMetadata: {
-                    processing_time_seconds: standingsResponse.metadata.processing_time_seconds,
-                    image_dimensions: standingsResponse.metadata.image_dimensions,
-                    template_source: standingsResponse.metadata.template_source,
-                    total_text_elements: standingsResponse.metadata.total_text_elements,
-                    r2_upload_success: standingsResponse.metadata.r2_upload_success
+                    processing_time_seconds: processingTimeSeconds,
+                    image_dimensions: imageDimensions,
+                    template_source: templateSource,
+                    total_text_elements: totalTextElements,
+                    r2_upload_success: r2UploadSuccess
                 }
             };
 
@@ -359,10 +402,26 @@ export class QuickExportService extends BaseService {
             }
 
             // 4. Convert to cache format
+            let tableImageUrl = dbPointsTable.tableImageUrl || undefined;
+
+            // Always provide a signed URL to the app when possible.
+            if (tableImageUrl) {
+                try {
+                    const r2Key = this.extractR2KeyFromUrl(tableImageUrl);
+                    const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+                    tableImageUrl = signedUrlData.signedUrl;
+                } catch (error) {
+                    this.logger.warn('Failed to sign points table image URL, returning original URL', {
+                        pointsTableId: dbPointsTable.id,
+                        imageUrl: tableImageUrl
+                    });
+                }
+            }
+
             const pointsTable: QuickPointsTableCache = {
                 id: dbPointsTable.id,
                 quickMatchId: dbPointsTable.quickMatchId,
-                tableImageUrl: dbPointsTable.tableImageUrl || undefined,
+                tableImageUrl,
                 csvData: dbPointsTable.csvData,
                 pngGeneratedAt: dbPointsTable.pngGeneratedAt?.toISOString(),
                 generationTimeMs: dbPointsTable.generationTimeMs || undefined,
