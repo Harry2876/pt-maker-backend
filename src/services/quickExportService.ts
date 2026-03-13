@@ -692,7 +692,21 @@ export class QuickExportService extends BaseService {
     private extractR2KeyFromUrl(imageUrl: string): string {
         try {
             const url = new URL(imageUrl);
-            return url.pathname.substring(1); // Remove leading slash
+            let key = url.pathname.replace(/^\/+/, ''); // Remove leading slashes
+            const bucketName = process.env.R2_BUCKET_NAME;
+
+            // Python service can return path-style URLs like:
+            // https://<account>.r2.cloudflarestorage.com/<bucket>/<key>
+            // Our signer expects only <key> (without bucket prefix).
+            if (bucketName && key.startsWith(`${bucketName}/`)) {
+                key = key.substring(bucketName.length + 1);
+            }
+
+            if (!key) {
+                throw new Error('Empty R2 object key');
+            }
+
+            return key;
         } catch (error) {
             this.logger.error('Failed to extract R2 key from URL:', imageUrl);
             throw new Error('Invalid image URL format');
