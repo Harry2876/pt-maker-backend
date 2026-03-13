@@ -313,8 +313,9 @@ export class QuickExportService extends BaseService {
             const generationTimeMs = Date.now() - startTime;
 
             // 6. Store directly in database (no queue needed)
-            await this.db.quickPointsTable.create({
-                data: {
+            await this.db.quickPointsTable.upsert({
+                where: { quickMatchId: quickMatchId },
+                create: {
                     id: pointsTableId,
                     quickMatchId: quickMatchId,
                     tableImageUrl: imageUrl, // Use original image URL for DB storage
@@ -327,6 +328,18 @@ export class QuickExportService extends BaseService {
                     generationTimeMs: generationTimeMs,
                     template: templateUsed,
                     createdAt: new Date(),
+                    updatedAt: new Date()
+                },
+                update: {
+                    tableImageUrl: imageUrl,
+                    csvData: {
+                        standings_data: standingsTeamData,
+                        teams_processed: teamsProcessed,
+                        template_used: templateUsed
+                    },
+                    pngGeneratedAt: new Date(),
+                    generationTimeMs: generationTimeMs,
+                    template: templateUsed,
                     updatedAt: new Date()
                 }
             });
@@ -387,6 +400,25 @@ export class QuickExportService extends BaseService {
             if (cachedId) {
                 const cached = await redis.hgetObject<QuickPointsTableCache>(`quickPointsTable:${cachedId}`);
                 if (cached) {
+                    // Refresh signed URL on every read to avoid expired links in app.
+                    if (cached.tableImageUrl) {
+                        try {
+                            const originalImageUrl = (cached.csvData as any)?.original_image_url;
+                            const sourceUrl = originalImageUrl || cached.tableImageUrl;
+                            const r2Key = this.extractR2KeyFromUrl(sourceUrl);
+                            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+                            cached.tableImageUrl = signedUrlData.signedUrl;
+                            if (cached.csvData && typeof cached.csvData === 'object') {
+                                (cached.csvData as any).signed_url_expires_at = signedUrlData.expiresAt.toISOString();
+                            }
+                            await redis.hsetObject(`quickPointsTable:${cachedId}`, cached, this.EXPORT_CACHE_TTL);
+                        } catch (error) {
+                            this.logger.warn('Failed to refresh signed URL from cache entry, returning cached value', {
+                                pointsTableId: cachedId,
+                                tableImageUrl: cached.tableImageUrl
+                            });
+                        }
+                    }
                     return cached;
                 }
             }
