@@ -1,13 +1,20 @@
 import { z } from 'zod';
 
+const booleanQueryParam = (defaultValue: boolean) =>
+    z.preprocess((value) => {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            if (normalized === 'true') return true;
+            if (normalized === 'false') return false;
+        }
+        return value;
+    }, z.boolean().optional().default(defaultValue));
+
 export const excelExportSchema = z.object({
-    includePlayerDetails: z.boolean()
-        .optional()
-        .default(false),
+    includePlayerDetails: booleanQueryParam(false),
     
-    includePointsBreakdown: z.boolean()
-        .optional()
-        .default(true),
+    includePointsBreakdown: booleanQueryParam(true),
         
     customFilename: z.string()
         .min(1, 'Filename cannot be empty')

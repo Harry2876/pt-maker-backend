@@ -183,7 +183,6 @@ export class ExcelExportService extends BaseService {
         // Add match information
         const summaryData = [
             ['Match Name', data.matchInfo.name],
-            ['Match ID', data.matchInfo.id],
             ['Game', data.matchInfo.game],
             ['Map', data.matchInfo.map || 'Not specified'],
             ['Created At', new Date(data.matchInfo.createdAt).toLocaleString()],

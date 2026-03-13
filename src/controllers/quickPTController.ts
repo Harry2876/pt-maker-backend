@@ -878,16 +878,27 @@ static getAvailableTemplates = asyncHandler(async (req: Request, res: Response) 
 static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
     const { id: quickMatchId } = req.params;
     const userId = req.user!.id;
+    const queryData = (req as any).validatedQuery || req.query;
     const {
         includePlayerDetails,
         includePointsBreakdown,
         customFilename
-    } = req.query;
+    } = queryData;
+
+    const resolvedIncludePlayerDetails =
+        typeof includePlayerDetails === 'boolean'
+            ? includePlayerDetails
+            : includePlayerDetails === 'true';
+
+    const resolvedIncludePointsBreakdown =
+        typeof includePointsBreakdown === 'boolean'
+            ? includePointsBreakdown
+            : includePointsBreakdown !== 'false'; // Default true
 
     const exportRequest = {
         quickMatchId,
-        includePlayerDetails: includePlayerDetails === 'true',
-        includePointsBreakdown: includePointsBreakdown !== 'false', // Default true
+        includePlayerDetails: resolvedIncludePlayerDetails,
+        includePointsBreakdown: resolvedIncludePointsBreakdown,
         customFilename: customFilename as string | undefined
     };
 
