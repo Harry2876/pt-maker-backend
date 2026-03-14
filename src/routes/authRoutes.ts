@@ -4,6 +4,7 @@ import { validateRequest } from '../middleware/commonMiddleware';
 import { refreshTokenSchema, sendOTPSchema, verifyOTPSchema, loginSchema, registrationSchema, checkUsernameSchema } from '../validations/authValidation';
 import { asyncHandler } from '../middleware/commonMiddleware';
 import { authenticateUser } from '../middleware/auth';
+import { otpLimiter } from '../middleware/rateLimiting';
 
 /**
  * @swagger
@@ -153,6 +154,7 @@ const authRouter = express.Router();
  *               $ref: '#/components/schemas/ServerErrorResponse'
  */
 authRouter.post('/send-otp', 
+    otpLimiter,
     validateRequest(sendOTPSchema), 
     AuthController.sendOTP
 );
