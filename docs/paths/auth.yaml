@@ -1,0 +1,695 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTH MODULE — docs/paths/auth.yaml
+# Routes: /auth/send-otp, /auth/verify-otp, /auth/register,
+#         /auth/check-username, /auth/login, /auth/profile,
+#         /auth/refresh-token, /auth/logout, /auth/logout-all, /auth/sessions
+# ══════════════════════════════════════════════════════════════════════════════
+
+paths:
+
+  # ── POST /auth/send-otp ───────────────────────────────────────────────────
+  /auth/send-otp:
+    post:
+      tags: [Auth]
+      summary: Send OTP to phone number
+      description: |
+        Sends a 6-digit OTP via SMS. Auto-detects whether the number belongs
+        to a new or existing user.
+
+        - OTP expires in **3 minutes**
+        - Maximum **3 verification attempts** allowed
+        - Rate limited to prevent spam
+        - Supports all international formats (+91, +1 etc.)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneNumber]
+              properties:
+                phoneNumber:
+                  $ref: '#/components/schemas/PhoneNumber'
+            examples:
+              indian:
+                summary: Indian number
+                value:
+                  phoneNumber: "+919876543210"
+              us:
+                summary: US number
+                value:
+                  phoneNumber: "+1234567890"
+      responses:
+        '200':
+          description: OTP sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "OTP sent successfully for registration"
+                  data:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum: [registration, login]
+                        example: "registration"
+                        description: "Auto-detected based on whether user already exists"
+                      expiresIn:
+                        type: integer
+                        example: 180
+                        description: "Seconds until OTP expires (3 minutes)"
+                      expiresAt:
+                        type: string
+                        format: date-time
+                        example: "2024-01-15T10:33:00.000Z"
+                      attemptsAllowed:
+                        type: integer
+                        example: 3
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── POST /auth/verify-otp ─────────────────────────────────────────────────
+  /auth/verify-otp:
+    post:
+      tags: [Auth]
+      summary: Verify OTP
+      description: |
+        Verifies the 6-digit OTP. Response differs based on user existence:
+
+        - **Existing user** → Login completes, JWT tokens returned immediately
+        - **New user** → Phone marked verified, proceed to `/auth/register` within **10 minutes**
+
+        Max 3 attempts before OTP is invalidated.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneNumber, otp]
+              properties:
+                phoneNumber:
+                  $ref: '#/components/schemas/PhoneNumber'
+                otp:
+                  type: string
+                  pattern: '^\d{6}$'
+                  minLength: 6
+                  maxLength: 6
+                  example: "123456"
+                  description: "6-digit numeric OTP received via SMS"
+      responses:
+        '200':
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - title: Existing user — login complete
+                    type: object
+                    properties:
+                      success:
+                        type: boolean
+                        example: true
+                      message:
+                        type: string
+                        example: "Login successful"
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/UserObject'
+                          tokens:
+                            $ref: '#/components/schemas/TokenPair'
+                          type:
+                            type: string
+                            example: "login"
+                      meta:
+                        $ref: '#/components/schemas/MetaObject'
+                  - title: New user — registration required
+                    type: object
+                    properties:
+                      success:
+                        type: boolean
+                        example: true
+                      message:
+                        type: string
+                        example: "OTP verified successfully. Please complete registration."
+                      data:
+                        type: object
+                        properties:
+                          phoneNumber:
+                            type: string
+                            example: "+919876543210"
+                          type:
+                            type: string
+                            example: "registration"
+                          verified:
+                            type: boolean
+                            example: true
+                          nextStep:
+                            type: string
+                            example: "registration"
+                          expiresIn:
+                            type: integer
+                            example: 600
+                            description: "Seconds to complete registration (10 minutes)"
+                      meta:
+                        $ref: '#/components/schemas/MetaObject'
+        '400':
+          description: Invalid or expired OTP
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Invalid or expired OTP"
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        enum: [INVALID_OTP, EXPIRED_OTP, MAX_ATTEMPTS_EXCEEDED]
+                        example: "INVALID_OTP"
+                      details:
+                        type: string
+                      timestamp:
+                        type: string
+                        format: date-time
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── POST /auth/register ───────────────────────────────────────────────────
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Complete registration after OTP verification
+      description: |
+        Creates a new user account. Phone must be OTP-verified within the last **10 minutes**.
+
+        **Prerequisites:**
+        1. Call `/auth/send-otp` then `/auth/verify-otp` first
+        2. Optionally check username with `/auth/check-username`
+
+        On success, user is automatically logged in and tokens are returned.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneNumber, username, password, fullName]
+              properties:
+                phoneNumber:
+                  $ref: '#/components/schemas/PhoneNumber'
+                username:
+                  $ref: '#/components/schemas/Username'
+                password:
+                  type: string
+                  pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)'
+                  minLength: 8
+                  maxLength: 128
+                  example: "SecurePass123"
+                  description: "Must contain uppercase, lowercase, and a number"
+                fullName:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                  example: "Rahul Sharma"
+                organization:
+                  type: string
+                  maxLength: 100
+                  example: "Team Alpha"
+                  description: "Optional"
+      responses:
+        '201':
+          description: Registration successful — user created and logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Registration successful. You are now logged in"
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UserObject'
+                      tokens:
+                        $ref: '#/components/schemas/TokenPair'
+                      type:
+                        type: string
+                        example: "registration"
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '400':
+          description: Validation error or phone not verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Phone number not verified or verification expired"
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        enum: [PHONE_NOT_VERIFIED, VALIDATION_ERROR]
+                        example: "PHONE_NOT_VERIFIED"
+                      details:
+                        type: string
+                        example: "Please verify OTP first"
+                      timestamp:
+                        type: string
+                        format: date-time
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── POST /auth/check-username ─────────────────────────────────────────────
+  /auth/check-username:
+    post:
+      tags: [Auth]
+      summary: Check username availability
+      description: |
+        Real-time username availability check. Call this during registration
+        form filling before submitting.
+
+        - Case-sensitive (`clutch_king` and `Clutch_King` are different)
+        - Letters, numbers, underscores only
+        - 3–50 characters
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  $ref: '#/components/schemas/Username'
+            examples:
+              available:
+                summary: Available username
+                value:
+                  username: "clutch_king99"
+              invalid:
+                summary: Invalid — contains space
+                value:
+                  username: "clutch king"
+      responses:
+        '200':
+          description: Availability check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Username is available"
+                  data:
+                    type: object
+                    properties:
+                      username:
+                        type: string
+                        example: "clutch_king99"
+                      available:
+                        type: boolean
+                        example: true
+                        description: "true = available, false = already taken"
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── POST /auth/login ──────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with phone number and password
+      description: |
+        Primary login method. Faster than OTP flow.
+
+        1. Validates and normalizes phone number
+        2. Verifies bcrypt password hash
+        3. Creates session record (tracks device + IP)
+        4. Returns access token (30 min) and refresh token (30 days)
+
+        Forgot password? Use `/auth/send-otp` → `/auth/verify-otp` instead.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneNumber, password]
+              properties:
+                phoneNumber:
+                  $ref: '#/components/schemas/PhoneNumber'
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  example: "SecurePass123"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Login successful"
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UserObject'
+                      tokens:
+                        $ref: '#/components/schemas/TokenPair'
+                      type:
+                        type: string
+                        example: "login"
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Wrong phone number or password
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Invalid phone number or password"
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: "INVALID_CREDENTIALS"
+                      details:
+                        type: string
+                        example: "Password is incorrect"
+                      timestamp:
+                        type: string
+                        format: date-time
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── GET /auth/profile ─────────────────────────────────────────────────────
+  /auth/profile:
+    get:
+      tags: [Auth]
+      summary: Get current user profile
+      description: |
+        Returns the authenticated user's profile. No sensitive data returned
+        (no password hashes). Requires a valid Bearer token.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Profile retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "User profile retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UserObject'
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── POST /auth/refresh-token ──────────────────────────────────────────────
+  /auth/refresh-token:
+    post:
+      tags: [Auth]
+      summary: Refresh expired access token
+      description: |
+        Exchange a valid refresh token for a new access token.
+
+        - Access tokens expire in **30 minutes**
+        - Refresh tokens expire in **30 days**
+        - Only the access token is renewed — refresh token stays the same
+        - Optionally send current access token in `Authorization` header
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+                  minLength: 1
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  description: "Refresh token from login or registration response"
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Token refreshed successfully"
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        description: "New access token — valid for 30 minutes"
+                      expiresIn:
+                        type: integer
+                        example: 1800
+                        description: "Expiry in seconds"
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '400':
+          description: Invalid, expired, or missing refresh token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Invalid or expired refresh token"
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        enum: [INVALID_REFRESH_TOKEN, EXPIRED_REFRESH_TOKEN, MISSING_REFRESH_TOKEN]
+                        example: "INVALID_REFRESH_TOKEN"
+                      details:
+                        type: string
+                      timestamp:
+                        type: string
+                        format: date-time
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── POST /auth/logout ─────────────────────────────────────────────────────
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout from current device
+      description: |
+        Revokes the current session only. Other device sessions remain active.
+        Client should delete stored tokens after calling this.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Logged out successfully"
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── POST /auth/logout-all ─────────────────────────────────────────────────
+  /auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: Logout from all devices
+      description: |
+        Revokes ALL sessions across every device simultaneously.
+        Use this if account is compromised or after a password change.
+        Forces re-authentication on all devices including the current one.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Logged out from all devices successfully"
+                  data:
+                    type: object
+                    properties:
+                      sessionsRevoked:
+                        type: integer
+                        example: 3
+                        description: "Number of sessions that were invalidated"
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ── GET /auth/sessions ────────────────────────────────────────────────────
+  /auth/sessions:
+    get:
+      tags: [Auth]
+      summary: List all active sessions
+      description: |
+        Returns all active sessions for the authenticated user across all devices.
+        Use for a security dashboard or to identify suspicious logins.
+        IP addresses are partially masked (e.g. `192.168.1.*`) for privacy.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sessions retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "User sessions retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      sessions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SessionObject'
+                      totalSessions:
+                        type: integer
+                        example: 3
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'

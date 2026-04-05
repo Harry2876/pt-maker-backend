@@ -30,6 +30,12 @@ import { validateEnvironment } from './config/envValidator';
 import swaggerUi from 'swagger-ui-express';
 import { specs } from './config/swagger';
 import { swaggerBasicAuth } from './middleware/swaggerAuth';
+import yaml from 'js-yaml';
+import fs from 'fs';
+import { apiReference } from '@scalar/express-api-reference';
+import path from "path";
+
+import { loadSpec }  from './config/docsloader'
 
 validateEnvironment();
 
@@ -54,16 +60,16 @@ const corsOptions = {
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
-            imgSrc: ["'self'", "data:", "https:"],
-            connectSrc: ["'self'"],
-            fontSrc: ["'self'"],
-            objectSrc: ["'none'"],
-            mediaSrc: ["'self'"],
-            frameSrc: ["'none'"],
-        },
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
+      fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
     },
     crossOriginEmbedderPolicy: false, // For API compatibility
     hsts: {
@@ -164,6 +170,21 @@ app.use('/api-docs', swaggerBasicAuth, swaggerUi.serve, swaggerUi.setup(specs,
         }
     }
 ));
+
+app.get('/openapi.json', swaggerBasicAuth, (req, res) => {
+  try {
+    res.json(loadSpec());
+  } catch (err) {
+    res.status(500).json({ error: 'Could not load API spec' });
+  }
+});
+
+app.use('/api-docs-v2', swaggerBasicAuth, apiReference({
+  spec: { url: '/openapi.json' },
+  theme: 'purple',
+  layout: 'sidebar',
+  metaData: { title: 'BGMI Tournament API' }
+}));
 
 
 // API routes

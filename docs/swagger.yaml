@@ -1,0 +1,301 @@
+openapi: 3.0.0
+
+info:
+  title: BGMI Tournament Platform API
+  version: 1.0.0
+  description: |
+    ## BGMI Tournament Platform — Internal API Documentation
+
+    > 🔒 **Restricted.** Internal team access only. Do not share this URL.
+
+    ### What this platform does
+    Full-stack tournament management system for BGMI (Battlegrounds Mobile India).
+    Handles everything from player onboarding to live match results and leaderboards.
+    Production: **https://serverscrymz.me**
+
+    ### Authentication
+    All protected endpoints require a JWT Bearer token:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+    Get your token from `/auth/login` or `/auth/verify-otp`.
+    Access tokens expire in **30 minutes** — refresh using `/auth/refresh-token`.
+
+    ### Standard Response Envelope
+    ```json
+    {
+      "success": true,
+      "message": "Human readable description",
+      "data": {},
+      "error": {
+        "code": "ERROR_CODE",
+        "details": "More info",
+        "timestamp": "2024-01-15T10:30:00.000Z"
+      },
+      "meta": {
+        "timestamp": "2024-01-15T10:30:00.000Z",
+        "version": "1.0"
+      }
+    }
+    ```
+
+    ### Error Codes
+    | Code | Meaning |
+    |---|---|
+    | `VALIDATION_ERROR` | Request body or params failed validation |
+    | `UNAUTHORIZED` | Missing or invalid JWT token |
+    | `NOT_FOUND` | Resource does not exist |
+    | `CONFLICT` | Duplicate resource |
+    | `RATE_LIMIT` | Too many requests |
+    | `INTERNAL_ERROR` | Unexpected server error |
+
+    ### Modules
+    | Module | Base Path | Description |
+    |---|---|---|
+    | Auth | `/auth` | OTP login, registration, token management, sessions |
+    | Tournaments | `/tournaments` | Create and manage BGMI tournaments |
+    | Matches | `/matches` | Match scheduling and management |
+    | Match Results | `/match-results` | Submit and query match results |
+    | Teams | `/teams` | Team enrollment and management |
+    | Team Registration | `/team-registrations` | Register teams to tournaments |
+    | Team Advancement | `/team-advancement` | Advance teams between stages |
+    | Groups | `/groups` | Tournament group/pool management |
+    | Tournament Stages | `/tournament-stages` | Stage configuration and lifecycle |
+    | Slot Management | `/slot-management` | Slot allocation per match |
+    | Leaderboards | `/leaderboards` | Rankings and standings |
+    | Quick PT | `/quick-pt` | Quick point table generation |
+    | Uploads | `/uploads` | File and media upload handling |
+    | Discord | `/discord` | Discord bot integration and webhooks |
+    | WhatsApp | `/whatsapp` | WhatsApp notification integration |
+
+servers:
+  - url: https://serverscrymz.me/api/v1
+    description: Production
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COMPONENTS — defined once, reused across all path files via $ref
+# ══════════════════════════════════════════════════════════════════════════════
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT access token from `/auth/login` or `/auth/verify-otp`.
+        Expires in 30 minutes. Refresh using `/auth/refresh-token`.
+
+  schemas:
+
+    PhoneNumber:
+      type: string
+      pattern: '^\+?[1-9]\d{1,14}$'
+      minLength: 10
+      maxLength: 15
+      example: "+919876543210"
+      description: "Accepts +919876543210, 919876543210, or 9876543210"
+
+    Username:
+      type: string
+      pattern: '^[a-zA-Z0-9_]+$'
+      minLength: 3
+      maxLength: 50
+      example: "clutch_king99"
+      description: "Letters, numbers, underscores only. Case-sensitive."
+
+    UserObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        phoneNumber:
+          type: string
+          example: "+919876543210"
+        username:
+          type: string
+          example: "clutch_king99"
+        fullName:
+          type: string
+          example: "Rahul Sharma"
+        organization:
+          type: string
+          example: "Team Alpha"
+          nullable: true
+
+    TokenPair:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          description: "JWT access token — expires in 30 minutes"
+        refreshToken:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          description: "JWT refresh token — expires in 30 days"
+
+    SessionObject:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          example: "session-uuid-string"
+        deviceInfo:
+          type: string
+          example: "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6)"
+        ipAddress:
+          type: string
+          example: "192.168.1.*"
+          description: "Partially masked for privacy"
+        loginTime:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00Z"
+        lastActivity:
+          type: string
+          format: date-time
+          example: "2024-01-15T11:45:00Z"
+        isCurrent:
+          type: boolean
+          example: true
+
+    MetaObject:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00.000Z"
+        version:
+          type: string
+          example: "1.0"
+
+    ErrorObject:
+      type: object
+      properties:
+        code:
+          type: string
+          enum: [VALIDATION_ERROR, UNAUTHORIZED, NOT_FOUND, CONFLICT, RATE_LIMIT, INTERNAL_ERROR]
+          example: "VALIDATION_ERROR"
+        details:
+          type: string
+          example: "Detailed error description"
+        timestamp:
+          type: string
+          format: date-time
+
+  responses:
+
+    UnauthorizedError:
+      description: "Missing or invalid JWT token"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Auth Token Required"
+              error:
+                $ref: '#/components/schemas/ErrorObject'
+              meta:
+                $ref: '#/components/schemas/MetaObject'
+
+    NotFoundError:
+      description: "Resource not found"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Resource not found"
+              error:
+                $ref: '#/components/schemas/ErrorObject'
+              meta:
+                $ref: '#/components/schemas/MetaObject'
+
+    ValidationError:
+      description: "Request body or params failed validation"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Validation failed"
+              error:
+                $ref: '#/components/schemas/ErrorObject'
+              meta:
+                $ref: '#/components/schemas/MetaObject'
+
+    ConflictError:
+      description: "Resource already exists"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Resource already exists"
+              error:
+                $ref: '#/components/schemas/ErrorObject'
+              meta:
+                $ref: '#/components/schemas/MetaObject'
+
+    RateLimitError:
+      description: "Too many requests"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Too many requests. Please try again later."
+              error:
+                $ref: '#/components/schemas/ErrorObject'
+              meta:
+                $ref: '#/components/schemas/MetaObject'
+
+    ServerError:
+      description: "Unexpected server error"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Internal server error"
+              error:
+                $ref: '#/components/schemas/ErrorObject'
+              meta:
+                $ref: '#/components/schemas/MetaObject'
+

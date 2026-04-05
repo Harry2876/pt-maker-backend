@@ -1,0 +1,3171 @@
+# Quick PT Module — docs/paths/quickPT.yaml
+# Base: /api/v1/quick-pt
+# All routes require: Authorization: Bearer <token>
+
+paths:
+
+  # QUICK MATCHES
+
+  /quick-pt/matches:
+    post:
+      tags: [Quick-PT]
+      summary: Create a Quick Match
+      description: |
+        Creates a Quick Match with custom scoring configuration.
+        Workflow: Create match -> Upload slots -> Upload screenshots -> Process with AI -> Export points table
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [matchName]
+              properties:
+                matchName:
+                  type: string
+                  minLength: 3
+                  maxLength: 100
+                  example: "BGMI Scrims Day 1"
+                game:
+                  type: string
+                  default: "BGMI"
+                  example: "BGMI"
+                map:
+                  type: string
+                  example: "Erangel"
+                positionPointsConfig:
+                  type: array
+                  items:
+                    type: integer
+                  description: "10 integers for rank 1-10 position points"
+                  example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
+                killPointsValue:
+                  type: integer
+                  default: 1
+                  example: 1
+                scoringDescription:
+                  type: string
+                  example: "Standard BGMI scoring"
+      responses:
+        "201":
+          description: Quick Match created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Quick Match created successfully"
+                  data:
+                    $ref: "#/components/schemas/QuickMatchBasic"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    get:
+      tags: [Quick-PT]
+      summary: List all Quick Matches for current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [CREATED, SLOTS_UPLOADED, ATTENDANCE_UPLOADED, RESULTS_UPLOADED, PROCESSING, COMPLETED, ERROR]
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Matches retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Quick Matches retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      matches:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/QuickMatchBasic"
+                      pagination:
+                        $ref: "#/components/schemas/Pagination"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}:
+    get:
+      tags: [Quick-PT]
+      summary: Get Quick Match by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Match retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Quick Match retrieved successfully"
+                  data:
+                    $ref: "#/components/schemas/QuickMatchFull"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    put:
+      tags: [Quick-PT]
+      summary: Update Quick Match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                matchName:
+                  type: string
+                  minLength: 3
+                  maxLength: 100
+                map:
+                  type: string
+                positionPointsConfig:
+                  type: array
+                  items:
+                    type: integer
+                killPointsValue:
+                  type: integer
+                scoringDescription:
+                  type: string
+      responses:
+        "200":
+          description: Match updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Quick Match updated successfully"
+                  data:
+                    $ref: "#/components/schemas/QuickMatchBasic"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    delete:
+      tags: [Quick-PT]
+      summary: Delete Quick Match
+      description: Permanently deletes the match and all related data — slots, screenshots, results, points tables.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Match deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNoData"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # SLOTS
+
+  /quick-pt/matches/{id}/slots/parse:
+    post:
+      tags: [Quick-PT Slots]
+      summary: Parse slots from text
+      description: |
+        Parse multi-line text into slot assignments.
+        Supported formats: "Slot 1 - Team A", "1. Team A", "Slot 1: Team A", "Slot 1 Team A"
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slotsText]
+              properties:
+                slotsText:
+                  type: string
+                  example: "Slot 1: Team Alpha\nSlot 2: Team Beta\nSlot 3: Team Gamma"
+      responses:
+        "201":
+          description: Slots parsed and created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Slots created successfully"
+                  data:
+                    type: object
+                    properties:
+                      created:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/SlotObject"
+                      errors:
+                        type: array
+                        items:
+                          type: string
+                        example: ["Line 5: Invalid format"]
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/slots:
+    post:
+      tags: [Quick-PT Slots]
+      summary: Create a single slot
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slotNumber, teamName]
+              properties:
+                slotNumber:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  example: 1
+                teamName:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  example: "Team Alpha"
+                playerNames:
+                  type: array
+                  items:
+                    type: string
+                  example: ["Player1", "Player2", "Player3", "Player4"]
+      responses:
+        "201":
+          description: Slot created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Slot created successfully"
+                  data:
+                    $ref: "#/components/schemas/SlotObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    get:
+      tags: [Quick-PT Slots]
+      summary: List all slots for a match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [PENDING, DETECTED, MATCHED, NOT_FOUND]
+        - in: query
+          name: detectedInAttendance
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Slots retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Slots retrieved successfully"
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SlotObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    delete:
+      tags: [Quick-PT Slots]
+      summary: Delete all slots for a match
+      description: Remove all slot assignments. Useful for re-uploading corrected slots.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: All slots deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "All slots deleted successfully"
+                  data:
+                    type: object
+                    properties:
+                      deletedCount:
+                        type: integer
+                        example: 16
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/slots/{slotId}:
+    put:
+      tags: [Quick-PT Slots]
+      summary: Update a slot
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: slotId
+          required: true
+          schema:
+            type: string
+          example: "slot_xyz789"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quickMatchId]
+              properties:
+                quickMatchId:
+                  type: string
+                  example: "clx123abc456"
+                slotNumber:
+                  type: integer
+                  example: 5
+                teamName:
+                  type: string
+                  example: "Team Alpha Updated"
+                playerNames:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Slot updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Slot updated successfully"
+                  data:
+                    $ref: "#/components/schemas/SlotObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # SCREENSHOTS
+
+  /quick-pt/matches/{id}/screenshots:
+    post:
+      tags: [Quick-PT Screenshots]
+      summary: Upload screenshots
+      description: |
+        Upload attendance or result screenshots to Cloudflare R2.
+        Pass type as query param: ?type=ATTENDANCE or ?type=RESULT
+        Max 10 files, 10MB each. Supported: PNG, JPG, JPEG, WebP.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: query
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [ATTENDANCE, RESULT]
+          example: "ATTENDANCE"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [screenshots]
+              properties:
+                screenshots:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                pageNumber:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+      responses:
+        "201":
+          description: Screenshots uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Screenshots uploaded successfully"
+                  data:
+                    type: object
+                    properties:
+                      uploaded:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ScreenshotObject"
+                      errors:
+                        type: array
+                        items:
+                          type: string
+                      uploadId:
+                        type: string
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    get:
+      tags: [Quick-PT Screenshots]
+      summary: List screenshots for a match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [ATTENDANCE, RESULT]
+        - in: query
+          name: isProcessed
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Screenshots retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Screenshots retrieved successfully"
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScreenshotObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/screenshots/{screenshotId}:
+    delete:
+      tags: [Quick-PT Screenshots]
+      summary: Delete a screenshot
+      description: Deletes screenshot from database and Cloudflare R2 storage.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: screenshotId
+          required: true
+          schema:
+            type: string
+          example: "screenshot_abc123"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quickMatchId]
+              properties:
+                quickMatchId:
+                  type: string
+                  example: "clx123abc456"
+      responses:
+        "200":
+          description: Screenshot deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNoData"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # AI PROCESSING
+
+  /quick-pt/matches/{id}/process/attendance:
+    post:
+      tags: [Quick-PT Processing]
+      summary: Process attendance screenshots with AI
+      description: Sends attendance screenshots to Python AI for player detection and slot matching.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Attendance processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Attendance processed successfully"
+                  data:
+                    type: object
+                    properties:
+                      teamsDetected:
+                        type: integer
+                        example: 16
+                      teamsMatched:
+                        type: integer
+                        example: 15
+                      teamsNotFound:
+                        type: integer
+                        example: 1
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/process/results:
+    post:
+      tags: [Quick-PT Processing]
+      summary: Process result screenshots with AI
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                useGeminiFallback:
+                  type: boolean
+                  example: false
+      responses:
+        "200":
+          description: Results processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Results processed successfully"
+                  data:
+                    type: object
+                    properties:
+                      resultsCount:
+                        type: integer
+                        example: 16
+                      results:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MatchResultItem"
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/process/complete:
+    post:
+      tags: [Quick-PT Processing]
+      summary: Run complete processing workflow (attendance + results)
+      description: Processes attendance and results in sequence, then sets match status to COMPLETED.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                skipAttendance:
+                  type: boolean
+                  example: false
+      responses:
+        "200":
+          description: Processing complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Match processing completed successfully"
+                  data:
+                    type: object
+                    properties:
+                      matchId:
+                        type: string
+                      status:
+                        type: string
+                        example: "COMPLETED"
+                      attendance:
+                        type: object
+                        properties:
+                          teamsDetected:
+                            type: integer
+                          teamsMatched:
+                            type: integer
+                          warnings:
+                            type: array
+                            items:
+                              type: string
+                      results:
+                        type: object
+                        properties:
+                          resultsCount:
+                            type: integer
+                          warnings:
+                            type: array
+                            items:
+                              type: string
+                      processingTime:
+                        type: number
+                        example: 45.3
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # RESULTS
+
+  /quick-pt/matches/{id}/results:
+    get:
+      tags: [Quick-PT Results]
+      summary: Get all results for a match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Results retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Match results retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      results:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MatchResultItem"
+                      count:
+                        type: integer
+                        example: 16
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/results/manual:
+    post:
+      tags: [Quick-PT Results]
+      summary: Create manual result entry
+      description: Manually enter a team result without AI processing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slotNumber, teamName, position, totalKills]
+              properties:
+                slotNumber:
+                  type: integer
+                  minimum: 1
+                  maximum: 25
+                  example: 1
+                teamName:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  example: "Team Alpha"
+                position:
+                  type: integer
+                  minimum: 1
+                  maximum: 25
+                  example: 1
+                totalKills:
+                  type: integer
+                  minimum: 0
+                  maximum: 99
+                  example: 12
+                playerResults:
+                  type: array
+                  maxItems: 4
+                  items:
+                    type: object
+                    required: [playerName, kills]
+                    properties:
+                      playerName:
+                        type: string
+                        example: "Player1"
+                      kills:
+                        type: integer
+                        minimum: 0
+                        example: 5
+                entryNotes:
+                  type: string
+                  maxLength: 500
+      responses:
+        "201":
+          description: Manual result created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Manual result created successfully"
+                  data:
+                    $ref: "#/components/schemas/MatchResultItem"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/results/bulk:
+    post:
+      tags: [Quick-PT Results]
+      summary: Create multiple results in bulk (up to 25)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [results]
+              properties:
+                results:
+                  type: array
+                  minItems: 1
+                  maxItems: 25
+                  items:
+                    type: object
+                    required: [slotNumber, teamName, position, totalKills]
+                    properties:
+                      slotNumber:
+                        type: integer
+                        minimum: 1
+                        maximum: 25
+                      teamName:
+                        type: string
+                      position:
+                        type: integer
+                        minimum: 1
+                        maximum: 25
+                      totalKills:
+                        type: integer
+                        minimum: 0
+                        maximum: 99
+                      playerResults:
+                        type: array
+                        maxItems: 4
+                        items:
+                          type: object
+                          properties:
+                            playerName:
+                              type: string
+                            kills:
+                              type: integer
+                      entryNotes:
+                        type: string
+                        maxLength: 500
+                replaceExisting:
+                  type: boolean
+                  default: false
+                validateConstraints:
+                  type: boolean
+                  default: true
+      responses:
+        "201":
+          description: Bulk results created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResponse"
+        "207":
+          description: Partial success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    put:
+      tags: [Quick-PT Results]
+      summary: Update multiple results in bulk (up to 25)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [updates]
+              properties:
+                updates:
+                  type: array
+                  minItems: 1
+                  maxItems: 25
+                  items:
+                    type: object
+                    required: [resultId, data]
+                    properties:
+                      resultId:
+                        type: string
+                        format: uuid
+                        example: "result_abc123"
+                      data:
+                        type: object
+                        properties:
+                          teamName:
+                            type: string
+                          position:
+                            type: integer
+                            minimum: 1
+                            maximum: 25
+                          totalKills:
+                            type: integer
+                            minimum: 0
+                            maximum: 99
+                          playerResults:
+                            type: array
+                            maxItems: 4
+                            items:
+                              type: object
+                              properties:
+                                playerName:
+                                  type: string
+                                kills:
+                                  type: integer
+                          entryNotes:
+                            type: string
+      responses:
+        "200":
+          description: Bulk results updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResponse"
+        "207":
+          description: Partial success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    delete:
+      tags: [Quick-PT Results]
+      summary: Delete multiple results in bulk (up to 25)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resultIds]
+              properties:
+                resultIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 25
+                  items:
+                    type: string
+                    format: uuid
+                  example: ["result_abc123", "result_xyz789"]
+      responses:
+        "200":
+          description: Bulk results deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{quickMatchId}/results/{resultId}:
+    put:
+      tags: [Quick-PT Results]
+      summary: Update a single result
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: quickMatchId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "clx123abc456"
+        - in: path
+          name: resultId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "result_xyz789"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                teamName:
+                  type: string
+                position:
+                  type: integer
+                  minimum: 1
+                  maximum: 25
+                totalKills:
+                  type: integer
+                  minimum: 0
+                  maximum: 99
+                playerResults:
+                  type: array
+                  maxItems: 4
+                  items:
+                    type: object
+                    properties:
+                      playerName:
+                        type: string
+                      kills:
+                        type: integer
+                entryNotes:
+                  type: string
+      responses:
+        "200":
+          description: Result updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Result updated successfully"
+                  data:
+                    $ref: "#/components/schemas/MatchResultItem"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    delete:
+      tags: [Quick-PT Results]
+      summary: Delete a single result
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: quickMatchId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: resultId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Result deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNoData"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # EXPORT
+
+  /quick-pt/matches/{id}/export:
+    post:
+      tags: [Quick-PT Export]
+      summary: Export standings table image
+      description: |
+        Generate a professional standings table image. Returns a signed URL valid for 30 minutes.
+        Template formats: 16_teams/template1, 24_teams/template1, 24_teams/template2, 32_teams/template1
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template:
+                  type: string
+                  example: "24_teams/template1"
+                formatType:
+                  type: string
+                  example: "24_teams"
+                outputFilename:
+                  type: string
+                  example: "tournament_standings.png"
+      responses:
+        "200":
+          description: Standings table exported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Standings table exported successfully"
+                  data:
+                    type: object
+                    properties:
+                      pointsTableId:
+                        type: string
+                      signedImageUrl:
+                        type: string
+                        description: "Signed URL valid for 30 minutes"
+                      originalImageUrl:
+                        type: string
+                      templateUsed:
+                        type: string
+                        example: "24_teams/template1"
+                      formatType:
+                        type: string
+                        example: "24_teams"
+                      teamsProcessed:
+                        type: integer
+                        example: 24
+                      quickMatchId:
+                        type: string
+                      createdAt:
+                        type: string
+                        format: date-time
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/export/excel:
+    get:
+      tags: [Quick-PT Export]
+      summary: Export match results to Excel
+      description: |
+        Generate Excel report with sheets: Match Summary, Final Standings, Detailed Results,
+        Points Breakdown (optional), Player Statistics (optional).
+        Returns signed download URL valid for 30 minutes. File auto-deleted after 1 hour.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: query
+          name: includePlayerDetails
+          schema:
+            type: boolean
+            default: false
+        - in: query
+          name: includePointsBreakdown
+          schema:
+            type: boolean
+            default: true
+        - in: query
+          name: customFilename
+          schema:
+            type: string
+            maxLength: 100
+          example: "BGMI_Tournament_Finals"
+      responses:
+        "200":
+          description: Excel exported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Excel export completed successfully"
+                  data:
+                    type: object
+                    properties:
+                      downloadUrl:
+                        type: string
+                        format: uri
+                        description: "Signed download URL — expires in 30 minutes"
+                      filename:
+                        type: string
+                        example: "BGMI_Match_2026-02-10.xlsx"
+                      expiresAt:
+                        type: string
+                        format: date-time
+                      generationTimeMs:
+                        type: integer
+                        example: 1250
+                      sheetsGenerated:
+                        type: integer
+                        example: 4
+                      totalRows:
+                        type: integer
+                        example: 156
+                      fileSize:
+                        type: integer
+                        example: 45678
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/points-table:
+    get:
+      tags: [Quick-PT Export]
+      summary: Get points table for a match
+      description: Retrieve generated points table with image URL. Run /export first if not generated.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Points table retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Points table retrieved successfully"
+                  data:
+                    $ref: "#/components/schemas/PointsTableObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/points-table/regenerate:
+    post:
+      tags: [Quick-PT Export]
+      summary: Regenerate points table
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template:
+                  type: string
+                  example: "24_teams/template2"
+                formatType:
+                  type: string
+                  example: "24_teams"
+      responses:
+        "200":
+          description: Points table regenerated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Points table regenerated successfully"
+                  data:
+                    $ref: "#/components/schemas/PointsTableObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/points-table/{pointsTableId}:
+    delete:
+      tags: [Quick-PT Export]
+      summary: Delete points table
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: pointsTableId
+          required: true
+          schema:
+            type: string
+          example: "table_xyz789"
+      responses:
+        "200":
+          description: Points table deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNoData"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # CROPS
+
+  /quick-pt/matches/{id}/crops:
+    get:
+      tags: [Quick-PT Crops]
+      summary: Get all crops (auto-processes unprocessed screenshots)
+      description: |
+        Auto-processes unprocessed screenshots via Python AI and returns organized crops.
+        Crops returned with signed URLs (30-min expiry). Redis-cached for 10 minutes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Crops retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Crops retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      crops:
+                        type: object
+                        properties:
+                          attendance:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/CropObject"
+                          result:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/CropObject"
+                          all:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/CropObject"
+                      totalCrops:
+                        type: integer
+                        example: 15
+                      attendanceCount:
+                        type: integer
+                        example: 5
+                      resultCount:
+                        type: integer
+                        example: 10
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          description: "Access denied - you do not own this match"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/crops/download:
+    get:
+      tags: [Quick-PT Crops]
+      summary: Get bulk download URLs for all crops
+      description: Returns signed download URLs organized by attendance/result. Valid for 30 minutes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Crop download URLs retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Crop download URLs retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      downloads:
+                        type: object
+                        properties:
+                          attendance:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/CropDownloadObject"
+                          result:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/CropDownloadObject"
+                          all:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/CropDownloadObject"
+                      totalCrops:
+                        type: integer
+                        example: 15
+                      attendanceCount:
+                        type: integer
+                        example: 5
+                      resultCount:
+                        type: integer
+                        example: 10
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          description: "Access denied - you do not own this match"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # TIE-BREAKING (MATCH)
+
+  /quick-pt/matches/{id}/conflicts/detect:
+    post:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Detect points conflicts in match results
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                forceRefresh:
+                  type: boolean
+                  default: false
+                includeResolved:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Conflicts detected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Conflicts detection completed"
+                  data:
+                    type: object
+                    properties:
+                      hasConflicts:
+                        type: boolean
+                        example: true
+                      conflictGroups:
+                        type: array
+                        items:
+                          type: object
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/conflicts/resolve:
+    post:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Resolve points conflicts manually
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conflictGroupId, userDefinedOrder]
+              properties:
+                conflictGroupId:
+                  type: string
+                  format: uuid
+                userDefinedOrder:
+                  type: array
+                  minItems: 2
+                  items:
+                    type: string
+                    format: uuid
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Conflicts resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Conflicts resolved successfully"
+                  data:
+                    type: object
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/tie-breaking/rules:
+    post:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Set tie-breaking rules for a match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TieBreakingRulesBody"
+      responses:
+        "200":
+          description: Tie-breaking rules set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Tie-breaking rules set successfully"
+                  data:
+                    type: object
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/matches/{id}/tie-breaking/config:
+    get:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Get tie-breaking config for a match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Config retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Tie-breaking config retrieved"
+                  data:
+                    $ref: "#/components/schemas/TieBreakingConfig"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # SERIES
+
+  /quick-pt/series:
+    post:
+      tags: [Quick-PT Series]
+      summary: Create Tournament Series
+      description: Group multiple matches and track overall standings across a multi-match tournament.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seriesName, totalMatches]
+              properties:
+                seriesName:
+                  type: string
+                  minLength: 3
+                  maxLength: 100
+                  example: "BGMI Championship Series"
+                game:
+                  type: string
+                  default: "BGMI"
+                totalMatches:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                  example: 5
+                positionPointsConfig:
+                  type: array
+                  minItems: 10
+                  maxItems: 10
+                  items:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                  example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
+                killPointsValue:
+                  type: integer
+                  minimum: 0
+                  maximum: 10
+                  default: 1
+                scoringDescription:
+                  type: string
+                  maxLength: 200
+      responses:
+        "201":
+          description: Series created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Tournament Series created successfully"
+                  data:
+                    $ref: "#/components/schemas/SeriesObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    get:
+      tags: [Quick-PT Series]
+      summary: List all Tournament Series for current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        "200":
+          description: Series list retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Tournament Series retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      series:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/SeriesObject"
+                      total:
+                        type: integer
+                        example: 25
+                      page:
+                        type: integer
+                        example: 1
+                      limit:
+                        type: integer
+                        example: 10
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}:
+    get:
+      tags: [Quick-PT Series]
+      summary: Get Tournament Series by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      responses:
+        "200":
+          description: Series retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Tournament series retrieved successfully"
+                  data:
+                    $ref: "#/components/schemas/SeriesObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    put:
+      tags: [Quick-PT Series]
+      summary: Update Tournament Series
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                seriesName:
+                  type: string
+                  minLength: 3
+                  maxLength: 100
+                game:
+                  type: string
+                totalMatches:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                status:
+                  type: string
+                  enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+                positionPointsConfig:
+                  type: array
+                  minItems: 10
+                  maxItems: 10
+                  items:
+                    type: integer
+                killPointsValue:
+                  type: integer
+                  minimum: 0
+                  maximum: 10
+                scoringDescription:
+                  type: string
+      responses:
+        "200":
+          description: Series updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Tournament Series updated successfully"
+                  data:
+                    $ref: "#/components/schemas/SeriesObject"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    delete:
+      tags: [Quick-PT Series]
+      summary: Delete Tournament Series
+      description: Permanently deletes series and all related data — matches, leaderboards.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      responses:
+        "200":
+          description: Series deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNoData"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/matches:
+    post:
+      tags: [Quick-PT Series]
+      summary: Add completed match to series
+      description: Match must be in COMPLETED status before adding to series.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quickMatchId]
+              properties:
+                quickMatchId:
+                  type: string
+                  format: uuid
+                  example: "clx123abc456"
+      responses:
+        "201":
+          description: Match added to series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Match added to series successfully"
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      seriesId:
+                        type: string
+                        format: uuid
+                      quickMatchId:
+                        type: string
+                        format: uuid
+                      matchOrder:
+                        type: integer
+                        example: 1
+                      isCompleted:
+                        type: boolean
+                        example: true
+                      matchWeight:
+                        type: number
+                        example: 1.0
+                      bonusPoints:
+                        type: number
+                        example: 0
+                      createdAt:
+                        type: string
+                        format: date-time
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          description: "Match already in series or not completed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+    get:
+      tags: [Quick-PT Series]
+      summary: Get matches in a series
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      responses:
+        "200":
+          description: Series matches retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Series matches retrieved successfully"
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        seriesId:
+                          type: string
+                          format: uuid
+                        quickMatchId:
+                          type: string
+                          format: uuid
+                        matchOrder:
+                          type: integer
+                          example: 1
+                        isCompleted:
+                          type: boolean
+                        matchWeight:
+                          type: number
+                          example: 1.0
+                        bonusPoints:
+                          type: number
+                          example: 0
+                        quickMatch:
+                          type: object
+                          properties:
+                            matchName:
+                              type: string
+                              example: "BGMI Scrims Match 1"
+                            status:
+                              type: string
+                              example: "COMPLETED"
+                            teamsDetected:
+                              type: integer
+                              example: 16
+                        createdAt:
+                          type: string
+                          format: date-time
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/leaderboard:
+    get:
+      tags: [Quick-PT Series]
+      summary: Get series leaderboard
+      description: Aggregated standings across all completed matches in the series.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      responses:
+        "200":
+          description: Leaderboard retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Series leaderboard retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      seriesId:
+                        type: string
+                      leaderboardData:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            teamName:
+                              type: string
+                              example: "Team Alpha"
+                            totalPoints:
+                              type: number
+                              example: 85
+                            matchesPlayed:
+                              type: integer
+                              example: 3
+                            bestPosition:
+                              type: integer
+                              example: 1
+                            worstPosition:
+                              type: integer
+                              example: 5
+                            totalKills:
+                              type: integer
+                              example: 45
+                            averagePosition:
+                              type: number
+                              example: 2.3
+                            matchResults:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  matchOrder:
+                                    type: integer
+                                  quickMatchId:
+                                    type: string
+                                  position:
+                                    type: integer
+                                  kills:
+                                    type: integer
+                                  points:
+                                    type: integer
+                                  bonusPoints:
+                                    type: integer
+                      lastUpdatedMatch:
+                        type: integer
+                        example: 3
+                      generatedAt:
+                        type: string
+                        format: date-time
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # TIE-BREAKING (SERIES)
+
+  /quick-pt/series/{id}/conflicts/detect:
+    post:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Detect conflicts in series standings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      responses:
+        "200":
+          description: Series conflicts detected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/tie-breaking/rules:
+    post:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Set tie-breaking rules for a series
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/TieBreakingRulesBody"
+                - type: object
+                  properties:
+                    applyToAllMatches:
+                      type: boolean
+                      default: false
+      responses:
+        "200":
+          description: Series tie-breaking rules set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Series tie-breaking rules set successfully"
+                  data:
+                    type: object
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/tie-breaking/config:
+    get:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Get tie-breaking config for a series
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      responses:
+        "200":
+          description: Series tie-breaking config retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Series tie-breaking config retrieved"
+                  data:
+                    $ref: "#/components/schemas/TieBreakingConfig"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  # SYSTEM
+
+  /quick-pt/engines:
+    get:
+      tags: [Quick-PT System]
+      summary: Get available OCR engines
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Engines retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Available engines retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      engines:
+                        type: array
+                        items:
+                          type: string
+                        example: ["paddleocr", "easyocr", "tesseract"]
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/engines/status:
+    get:
+      tags: [Quick-PT System]
+      summary: Get OCR engine health status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Engine status retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Engine status retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: "healthy"
+                      engines:
+                        type: object
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/health:
+    get:
+      tags: [Quick-PT System]
+      summary: Quick PT system health check
+      description: |
+        Checks: Python AI API, database, Cloudflare R2 storage, background job queue, system resources.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: System healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Health status retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [healthy, degraded, unhealthy]
+                        example: "healthy"
+                      message:
+                        type: string
+                        example: "All systems operational"
+                      timestamp:
+                        type: string
+                        format: date-time
+                      services:
+                        type: object
+                        properties:
+                          aiProcessing:
+                            type: object
+                            properties:
+                              status:
+                                type: string
+                                enum: [up, down, limited]
+                              responseTime:
+                                type: number
+                                example: 250.5
+                              queueLength:
+                                type: integer
+                                example: 2
+                          database:
+                            type: object
+                            properties:
+                              status:
+                                type: string
+                                enum: [up, down]
+                              responseTime:
+                                type: number
+                                example: 45.2
+                          storage:
+                            type: object
+                            properties:
+                              status:
+                                type: string
+                                enum: [up, down]
+                              responseTime:
+                                type: number
+                              uploadsToday:
+                                type: integer
+                                example: 48
+                          backgroundJobs:
+                            type: object
+                            properties:
+                              status:
+                                type: string
+                                enum: [up, down]
+                              activeWorkers:
+                                type: integer
+                                example: 3
+                              pendingJobs:
+                                type: integer
+                                example: 1
+                      systemMetrics:
+                        type: object
+                        properties:
+                          uptime:
+                            type: number
+                            example: 86400
+                          memoryUsage:
+                            type: object
+                            properties:
+                              used:
+                                type: number
+                                example: 512.5
+                              total:
+                                type: number
+                                example: 2048
+                              percentage:
+                                type: number
+                                example: 25.02
+                          cpuUsage:
+                            type: number
+                            example: 15.6
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "503":
+          description: System unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "System is unhealthy"
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: "unhealthy"
+                      errors:
+                        type: array
+                        items:
+                          type: string
+                        example: ["AI service unavailable"]
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+
+  /quick-pt/templates:
+    get:
+      tags: [Quick-PT System]
+      summary: Get all available template images
+      description: |
+        Templates organized by format: 16_teams, 24_teams, 32_teams.
+        Cached (10-min TTL). Returned with signed URLs (30-min expiry).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Templates retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Templates retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      templates:
+                        type: object
+                        properties:
+                          16_teams:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/TemplateInfo"
+                          24_teams:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/TemplateInfo"
+                          32_teams:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/TemplateInfo"
+                      totalTemplates:
+                        type: integer
+                        example: 15
+                      cacheExpiry:
+                        type: integer
+                        example: 1733323200000
+                        description: "Unix timestamp when cache expires"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+# LOCAL SCHEMAS AND PARAMETERS
+
+components:
+  parameters:
+    MatchId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: "Quick Match ID"
+      example: "clx123abc456"
+
+    SeriesId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: "Tournament Series ID"
+      example: "series_clx123abc456"
+
+  schemas:
+
+    QuickMatchBasic:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "clx123abc456"
+        matchName:
+          type: string
+          example: "BGMI Scrims Day 1"
+        game:
+          type: string
+          example: "BGMI"
+        map:
+          type: string
+          example: "Erangel"
+        status:
+          type: string
+          enum: [CREATED, SLOTS_UPLOADED, ATTENDANCE_UPLOADED, RESULTS_UPLOADED, PROCESSING, COMPLETED, ERROR]
+          example: "COMPLETED"
+        teamsDetected:
+          type: integer
+          example: 16
+        warningsCount:
+          type: integer
+          example: 2
+        positionPointsConfig:
+          type: array
+          items:
+            type: integer
+          example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
+        killPointsValue:
+          type: integer
+          example: 1
+        userId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    QuickMatchFull:
+      allOf:
+        - $ref: "#/components/schemas/QuickMatchBasic"
+        - type: object
+          properties:
+            processingStep:
+              type: string
+              example: "Waiting for screenshots"
+            scoringDescription:
+              type: string
+              example: "Standard BGMI scoring"
+
+    SlotObject:
+      type: object
+      properties:
+        id:
+          type: string
+        slotNumber:
+          type: integer
+          example: 1
+        teamName:
+          type: string
+          example: "Team Alpha"
+        playerNames:
+          type: array
+          items:
+            type: string
+          example: ["Player1", "Player2", "Player3", "Player4"]
+        status:
+          type: string
+          enum: [PENDING, DETECTED, MATCHED, NOT_FOUND]
+          example: "MATCHED"
+        detectedInAttendance:
+          type: boolean
+          example: true
+        matchQuality:
+          type: number
+          description: "Match confidence 0-100"
+          example: 95.5
+        quickMatchId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ScreenshotObject:
+      type: object
+      properties:
+        id:
+          type: string
+        r2Key:
+          type: string
+          example: "quick-pt/clx123/attendance_1733312400.png"
+        r2Url:
+          type: string
+        type:
+          type: string
+          enum: [ATTENDANCE, RESULT]
+        pageNumber:
+          type: integer
+          nullable: true
+        isProcessed:
+          type: boolean
+          example: false
+        processingError:
+          type: string
+          nullable: true
+        quickMatchId:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+
+    MatchResultItem:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "result_abc123"
+        slotNumber:
+          type: integer
+          example: 1
+        teamName:
+          type: string
+          example: "Team Alpha"
+        position:
+          type: integer
+          example: 1
+        kills:
+          type: integer
+          example: 12
+        positionPoints:
+          type: integer
+          example: 15
+        killPoints:
+          type: integer
+          example: 12
+        totalPoints:
+          type: integer
+          example: 27
+        source:
+          type: string
+          enum: [MANUAL_ENTRY, AI_PROCESSED]
+          example: "AI_PROCESSED"
+        playerResults:
+          type: array
+          items:
+            type: object
+            properties:
+              playerName:
+                type: string
+                example: "Player1"
+              kills:
+                type: integer
+                example: 5
+        matchQuality:
+          type: number
+          example: 95.5
+        quickMatchId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    PointsTableObject:
+      type: object
+      properties:
+        id:
+          type: string
+        r2Key:
+          type: string
+        r2Url:
+          type: string
+        template:
+          type: string
+          example: "24_teams/template1"
+        tableData:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+                example: 1
+              teamName:
+                type: string
+                example: "Team Alpha"
+              slotNumber:
+                type: integer
+              position:
+                type: integer
+              kills:
+                type: integer
+              positionPoints:
+                type: integer
+              killPoints:
+                type: integer
+              totalPoints:
+                type: integer
+        quickMatchId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    SeriesObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seriesName:
+          type: string
+          example: "BGMI Championship Series"
+        game:
+          type: string
+          example: "BGMI"
+        totalMatches:
+          type: integer
+          example: 5
+        matchesCompleted:
+          type: integer
+          example: 3
+        status:
+          type: string
+          enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+          example: "IN_PROGRESS"
+        positionPointsConfig:
+          type: array
+          items:
+            type: integer
+          example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
+        killPointsValue:
+          type: integer
+          example: 1
+        scoringDescription:
+          type: string
+        currentMatchNumber:
+          type: integer
+          example: 4
+        isFinished:
+          type: boolean
+          example: false
+        winnerTeamName:
+          type: string
+          nullable: true
+        userId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CropObject:
+      type: object
+      properties:
+        id:
+          type: string
+        cropType:
+          type: string
+          example: "attendance"
+        signedUrl:
+          type: string
+          format: uri
+          description: "Valid for 30 minutes"
+        expiresAt:
+          type: string
+          format: date-time
+        cropMetadata:
+          type: object
+
+    CropDownloadObject:
+      allOf:
+        - $ref: "#/components/schemas/CropObject"
+        - type: object
+          properties:
+            downloadUrl:
+              type: string
+              format: uri
+            filename:
+              type: string
+              example: "attendance_crop123.jpg"
+
+    TemplateInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "template1"
+        signedUrl:
+          type: string
+        previewUrl:
+          type: string
+        category:
+          type: string
+          example: "24_teams"
+        fullPath:
+          type: string
+          example: "24_teams/template1"
+
+    TieBreakingRulesBody:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            type: object
+            required: [type, priority]
+            properties:
+              type:
+                type: string
+                enum: [KILL_POINTS, PLACEMENT_POINTS, TOTAL_POINTS, CUSTOM_FIELD, MANUAL]
+              priority:
+                type: integer
+                minimum: 1
+                maximum: 10
+              ascending:
+                type: boolean
+                default: false
+              fieldName:
+                type: string
+              description:
+                type: string
+        autoResolveEnabled:
+          type: boolean
+          default: true
+
+    TieBreakingConfig:
+      type: object
+      properties:
+        entityId:
+          type: string
+          format: uuid
+        entityType:
+          type: string
+          enum: [match, series]
+        rules:
+          type: array
+          items:
+            type: object
+        autoResolveEnabled:
+          type: boolean
+
+    BulkOperationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            success:
+              type: boolean
+            created:
+              type: array
+              items:
+                type: object
+            updated:
+              type: array
+              items:
+                type: object
+            errors:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  code:
+                    type: string
+                  message:
+                    type: string
+            summary:
+              type: object
+              properties:
+                total:
+                  type: integer
+                  example: 16
+                successful:
+                  type: integer
+                  example: 16
+                failed:
+                  type: integer
+                  example: 0
+        meta:
+          $ref: "#/components/schemas/MetaObject"
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 45
+        totalPages:
+          type: integer
+          example: 3
+
+    SuccessNoData:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed successfully"
+        meta:
+          $ref: "#/components/schemas/MetaObject"
+
+    ErrorBody:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        error:
+          $ref: "#/components/schemas/ErrorObject"
+        meta:
+          $ref: "#/components/schemas/MetaObject"
