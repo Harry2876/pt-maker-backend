@@ -14,7 +14,7 @@ import {
     SessionMetrics,
     QueuePosition
 } from "../types/discordRegistration";
-import { GetObjectAttributesRequestFilterSensitiveLog } from "@aws-sdk/client-s3";
+
 
 export class DiscordRegistrationService extends BaseService {
     private CACHE_TTL = 300; // 5 minutes (following your patterns)
