@@ -30,10 +30,7 @@ import { validateEnvironment } from './config/envValidator';
 import swaggerUi from 'swagger-ui-express';
 import { specs } from './config/swagger';
 import { swaggerBasicAuth } from './middleware/swaggerAuth';
-import yaml from 'js-yaml';
-import fs from 'fs';
-import { apiReference } from '@scalar/express-api-reference';
-import path from "path";
+
 
 import { loadSpec }  from './config/docsloader'
 
@@ -179,12 +176,22 @@ app.get('/openapi.json', swaggerBasicAuth, (req, res) => {
   }
 });
 
-app.use('/api-docs-v2', swaggerBasicAuth, apiReference({
-  spec: { url: '/openapi.json' },
-  theme: 'purple',
-  layout: 'sidebar',
-  metaData: { title: 'BGMI Tournament API' }
-}));
+const setupScalarDocs = async () => {
+    const scalar = await import('@scalar/express-api-reference');
+
+    app.use(
+        '/api-docs-v2',
+        swaggerBasicAuth,
+        scalar.apiReference({
+            spec: { url: '/openapi.json' },
+            theme: 'purple',
+            layout: 'sidebar',
+            metaData: { title: 'BGMI Tournament API' }
+        })
+    );
+};
+
+setupScalarDocs();
 
 
 // API routes
