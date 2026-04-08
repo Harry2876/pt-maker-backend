@@ -190,8 +190,8 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
 
                     scalarHandler = scalar.apiReference({
                         spec: { url: '/openapi.json' },
-                        theme: 'purple',
-                        layout: 'sidebar',
+                        theme: 'deepSpace',
+                        layout: 'modern',
                         metaData: { title: 'BGMI Tournament API' }
                     });
                 })();
