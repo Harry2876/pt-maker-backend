@@ -60,7 +60,7 @@ tests/
 
 # Documentation
 README.md
-docs/
+
 
 # Build artifacts (we build inside container)
 dist/
