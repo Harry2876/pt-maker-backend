@@ -176,23 +176,35 @@ app.get('/openapi.json', swaggerBasicAuth, (req, res) => {
   }
 });
 
-const setupScalarDocs = async () => {
-    const scalar = await import('@scalar/express-api-reference');
+let scalarHandler: any = null;
+let scalarInitPromise: Promise<void> | null = null;
 
-    app.use(
-        '/api-docs-v2',
-        swaggerBasicAuth,
-        scalar.apiReference({
-            spec: { url: '/openapi.json' },
-            theme: 'purple',
-            layout: 'sidebar',
-            metaData: { title: 'BGMI Tournament API' }
-        })
-    );
-};
+app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
+    try {
+        if (!scalarHandler) {
+            if (!scalarInitPromise) {
+                scalarInitPromise = (async () => {
+                    const scalar = await (new Function(
+                        "return import('@scalar/express-api-reference')"
+                    ))();
 
-setupScalarDocs();
+                    scalarHandler = scalar.apiReference({
+                        spec: { url: '/openapi.json' },
+                        theme: 'purple',
+                        layout: 'sidebar',
+                        metaData: { title: 'BGMI Tournament API' }
+                    });
+                })();
+            }
 
+            await scalarInitPromise;
+        }
+
+        return scalarHandler(req, res, next);
+    } catch (error) {
+        return next(error);
+    }
+});
 
 // API routes
 app.use('/api/v1/discord', discordRouter);
