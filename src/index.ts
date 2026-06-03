@@ -27,9 +27,10 @@ import { validateEnvironment } from './config/envValidator';
 import swaggerUi from 'swagger-ui-express';
 import { specs } from './config/swagger';
 import { swaggerBasicAuth } from './middleware/swaggerAuth';
-
+import devRouter from './routes/devRoutes';
 
 import { loadSpec }  from './config/docsloader'
+import { env } from './config/env';
 
 validateEnvironment();
 
@@ -190,6 +191,15 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
                         theme: 'bluePlanet',
                         layout: 'modern',
                         pageTitle: 'BGMI Tournament API',
+                        darkMode: true,
+                        authentication: {
+                            preferredSecurityScheme: 'bearerAuth',
+                            http: {
+                                bearer: {
+                                    token: env.DOCS_TEST_TOKEN ?? '',
+                                },
+                            },
+                        },
                     });
                 })();
             }
@@ -203,6 +213,11 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
     }
 });
 
+
+// Dev-only route — blocked at the router level in production
+if (env.NODE_ENV !== 'production') {
+    app.use('/api/v1/dev', devRouter);
+}
 
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/tournaments', tournamentRouter);

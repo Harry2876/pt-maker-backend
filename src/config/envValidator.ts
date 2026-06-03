@@ -57,6 +57,9 @@ const envSchema = z.object({
   WHATSAPP_BUSINESS_PHONE_NUMBER_ID: z.string().min(10, 'WHATSAPP_BUSINESS_PHONE_NUMBER_ID is required'),
   WHATSAPP_API_VERSION: z.string().optional().default('v22.0'),
   WHATSAPP_API_BASE_URL: z.string().url('Invalid WHATSAPP_API_BASE_URL').optional().default('https://graph.facebook.com'),
+  // Dev / docs helpers (non-production only, optional)
+  DEV_SECRET: z.string().min(16, 'DEV_SECRET must be at least 16 characters').optional(),
+  DOCS_TEST_TOKEN: z.string().optional(),
 });
 
 export function validateEnvironment() {
