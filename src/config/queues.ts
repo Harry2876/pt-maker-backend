@@ -40,7 +40,6 @@ export const Queues = {
     BATCH_SYNC: 'batch-sync',
     CACHE_CLEANUP: 'cache-cleanup',
     ADVANCED_ENGINE: 'advanced-engine',
-    DISCORD_SYNC: 'discord-sync',
     QUICK_PT_SYNC: 'quick-pt-sync',
 } as const;
 
@@ -94,17 +93,6 @@ export const advancedEngineQueue = new Queue(Queues.ADVANCED_ENGINE, {
             type:'exponential',
             delay:5000, //5 seconds initial delay
         }
-    }
-});
-
-export const discordSyncQueue = new Queue(Queues.DISCORD_SYNC, {
-    ...defaultQueueOptions,
-    defaultJobOptions: {
-        ...defaultQueueOptions.defaultJobOptions,
-        priority: 4,
-        removeOnComplete: 50,
-        removeOnFail: 10,
-        attempts: 3,
     }
 });
 

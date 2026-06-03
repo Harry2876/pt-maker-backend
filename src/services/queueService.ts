@@ -1,5 +1,5 @@
-import { otpQueue, screenshotQueue, emailQueue, userSyncQueue, databaseSyncQueue, batchSyncQueue, advancedEngineQueue, discordSyncQueue, quickPtSyncQueue } from "../config/queues";
-import { OTPSendingJob, ScreenshotProcessingJob, EmailNotificationJob, DatabaseSyncJob, EntityType, AdvancedEngineJob, DiscordSyncJob } from "../types/queue";
+import { otpQueue, screenshotQueue, emailQueue, userSyncQueue, databaseSyncQueue, batchSyncQueue, advancedEngineQueue, quickPtSyncQueue } from "../config/queues";
+import { OTPSendingJob, ScreenshotProcessingJob, EmailNotificationJob, DatabaseSyncJob, EntityType, AdvancedEngineJob } from "../types/queue";
 import logger from "../utils/logger";
 import { Job } from 'bullmq';
 
@@ -211,44 +211,6 @@ export class QueueService {
             throw error;
         }
     }
-    static async syncDiscordImmediately(
-        entityType: 'DISCORD_GUILD' | 'DISCORD_USER' | 'DISCORD_GUILD_MEMBER' | 'BOT_STATE' | 'TEAM_ENROLLMENT' | 'USER_RATE_LIMIT' | 'TEAM_NAME_CHANGE' | 'TEAM_ACTIVITY_LOG' | 'REGISTRATION_SESSION' | 'REGISTRATION_QUEUE' | 'TEAM_MERIT' | 'REGISTRATION_DELAY' | 'REGISTRATION_TOGGLE' | 'TEAM_BAN',
-        entityId: string,
-        data: any,
-        userId: string
-    ): Promise<void> {
-        try {
-            await discordSyncQueue.add('discord-sync-to-db', {
-                type: `${entityType}_CREATE`,
-                entityId,
-                data,
-                userId,
-                priority: 'NORMAL',
-                timestamp: new Date().toISOString()
-            }, {
-                priority: 2,
-                delay: 0,
-            });
-
-            logger.info(`Immediate Discord sync queued for ${entityType} ${entityId}`);
-        } catch (error) {
-            logger.error(`Failed to queue immediate Discord sync for ${entityType} ${entityId}:`, error);
-            throw error;
-        }
-    }
-    static async queueDiscordSync(data: DiscordSyncJob): Promise<void> {
-        try {
-            await discordSyncQueue.add('discord-sync-to-db', data, {
-                priority: this.getPriorityValue(data.priority),
-                delay: data.priority === 'CRITICAL' ? 0 : 2000, // Immediate for critical
-            });
-            logger.info(`Discord sync job added to queue for entity ${data.entityId} with priority ${data.priority}`);
-        } catch (error) {
-            logger.error(`Failed to add Discord sync job to queue for entity ${data.entityId} with priority ${data.priority}`, error);
-            throw error;
-        }
-    }
-
     private static getPriorityValue(priority: string): number {
         switch (priority) {
             case 'CRITICAL':

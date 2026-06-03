@@ -25,6 +25,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*", "src/utils/loggerValidation.ts"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]
 }

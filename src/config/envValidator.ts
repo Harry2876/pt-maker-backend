@@ -15,17 +15,6 @@ const envSchema = z.object({
   REDIS_HOST: z.string().min(1, 'REDIS_HOST is required'),
   REDIS_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)),
   REDIS_PASSWORD: z.string().optional(),
-  // Discord (optional)
-  DISCORD_WEBHOOK_URL: z.string().url().optional(),
-  DISCORD_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional(),
-  DISCORD_DEV_WEBHOOK_URL: z.string().url().optional(),
-  DISCORD_DEV_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional(),
-
-  // Discord OAuth Configuration
-  DISCORD_CLIENT_ID: z.string().min(10, 'DISCORD_CLIENT_ID is required'),
-  DISCORD_CLIENT_SECRET: z.string().min(10, 'DISCORD_CLIENT_SECRET is required'),
-  DISCORD_REDIRECT_URI: z.string().url('Invalid DISCORD_REDIRECT_URI'),
-  FRONTEND_URL: z.string().url('Invalid FRONTEND_URL'),
 
   // Encryption
   LOG_ENCRYPTION_KEY: z.string().min(16, 'LOG_ENCRYPTION_KEY must be at least 16 characters'),

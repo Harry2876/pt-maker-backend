@@ -32,7 +32,6 @@
     "bullmq": "^5.56.9",
     "cors": "^2.8.5",
     "crypto-js": "^4.2.0",
-    "discord.js": "^14.23.2",
     "dotenv": "^17.2.1",
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
