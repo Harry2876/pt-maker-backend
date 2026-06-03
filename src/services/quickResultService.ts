@@ -81,6 +81,10 @@ export class QuickResultService extends BaseService {
                 status: 'COMPLETED'
             });
 
+            // 8. Update series progression if this match belongs to a series
+            const { quickSeriesService } = await import('./quickSeriesService');
+            await quickSeriesService.onMatchCompleted(quickMatchId, userId);
+
             this.logger.info(`Manual result created for slot ${data.slotNumber} in match ${quickMatchId}`);
             return result;
 
@@ -328,6 +332,10 @@ export class QuickResultService extends BaseService {
                 await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                     status: 'COMPLETED'
                 });
+
+                // Update series progression if this match belongs to a series
+                const { quickSeriesService } = await import('./quickSeriesService');
+                await quickSeriesService.onMatchCompleted(quickMatchId, userId);
             }
 
             this.logger.info(`Bulk result creation completed: ${result.summary.successful}/${result.summary.total} successful`);

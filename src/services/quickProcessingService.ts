@@ -517,31 +517,7 @@ export class QuickProcessingService extends BaseService {
             });
 
             // 10. Handle series progression (if match belongs to a series)
-            try {
-                const series = await quickSeriesService.getSeriesByMatchId(quickMatchId, userId);
-                if (series) {
-                    this.logger.info(`Match ${quickMatchId} belongs to series ${series.id}, updating series progression`);
-
-                    // Mark this match as completed in series
-                    await this.db.quickSeriesMatch.update({
-                        where: { quickMatchId },
-                        data: {
-                            isCompleted: true,
-                            completedAt: new Date()
-                        }
-                    });
-
-                    // Update series leaderboard with new results
-                    await quickSeriesService.updateSeriesLeaderboard(series.id, userId);
-
-                    this.logger.info(`Series ${series.id} progression completed for match ${quickMatchId}`);
-                }
-            } catch (seriesError) {
-                // Don't fail the entire operation if series update fails
-                this.logger.warn(`Failed to update series progression for match ${quickMatchId}`, {
-                    error: (seriesError as Error).message
-                });
-            }
+            await quickSeriesService.onMatchCompleted(quickMatchId, userId);
 
             const processingTimeMs = Date.now() - startTime;
 

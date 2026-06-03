@@ -85,8 +85,9 @@ export class QuickSeriesService extends BaseService {
                 throw new Error('Tournament series not found');
             }
 
-            // 2. Validate series can accept more matches
-            if (series.matchesCompleted >= series.totalMatches) {
+            // 2. Validate series can accept more matches.
+            // currentMatchNumber is 1-indexed and starts at 1, so (currentMatchNumber - 1) == matches already added.
+            if ((series.currentMatchNumber - 1) >= series.totalMatches) {
                 throw new Error('Series already has maximum number of matches');
             }
 
@@ -111,15 +112,20 @@ export class QuickSeriesService extends BaseService {
                 dbStatus: 'PENDING_SYNC'
             };
 
-            // 5. Cache the series match
+            // 5. Cache the series match and track its ID in the series match set
             await redis.hsetObject(`quick_series_match:${seriesMatchId}`, seriesMatch, this.CACHE_TTL);
+            await redis.sadd(`quick_series:${seriesId}:matches`, seriesMatchId);
 
-            // 6. Update series status if it's the first match
+            // 6. Increment currentMatchNumber and update status in a single update
+            const seriesUpdates: UpdateQuickSeriesData = {
+                currentMatchNumber: series.currentMatchNumber + 1
+            };
             if (series.status === 'CREATED') {
-                await this.updateTournamentSeries(seriesId, userId, { status: 'IN_PROGRESS' });
+                seriesUpdates.status = 'IN_PROGRESS';
             }
+            await this.updateTournamentSeries(seriesId, userId, seriesUpdates);
 
-            // 7. Queue database sync
+            // 7. Queue database sync for the series match
             await QueueService.syncQuickPtImmediately('QUICK_SERIES_MATCH', 'CREATE', seriesMatchId, seriesMatch, userId);
 
             this.logger.info(`Match ${quickMatchId} added to series ${seriesId} at position ${seriesMatch.matchOrder}`);
@@ -128,6 +134,59 @@ export class QuickSeriesService extends BaseService {
         } catch (error) {
             this.handleError(error, 'Add Match to Series');
             throw error;
+        }
+    }
+
+    /**
+     * Called when a quick match finishes (AI pipeline or manual results).
+     * Marks the series match as completed, increments matchesCompleted, and rebuilds the leaderboard.
+     * Errors are swallowed so the caller's primary operation is never blocked.
+     */
+    async onMatchCompleted(quickMatchId: string, userId: string): Promise<void> {
+        try {
+            const series = await this.getSeriesByMatchId(quickMatchId, userId);
+            if (!series) return;
+
+            this.logger.info(`Match ${quickMatchId} belongs to series ${series.id} — updating progression`);
+
+            // Mark the series match as completed in DB and update Redis cache
+            await this.db.quickSeriesMatch.update({
+                where: { quickMatchId },
+                data: { isCompleted: true, completedAt: new Date() }
+            });
+
+            // Refresh the Redis cache entry for this series match
+            const updatedDbMatch = await this.db.quickSeriesMatch.findUnique({
+                where: { quickMatchId }
+            });
+            if (updatedDbMatch) {
+                const updatedCache: QuickSeriesMatchCache = {
+                    id: updatedDbMatch.id,
+                    seriesId: updatedDbMatch.seriesId,
+                    quickMatchId: updatedDbMatch.quickMatchId,
+                    matchOrder: updatedDbMatch.matchOrder,
+                    isCompleted: true,
+                    completedAt: updatedDbMatch.completedAt?.toISOString(),
+                    matchWeight: updatedDbMatch.matchWeight,
+                    bonusPoints: updatedDbMatch.bonusPoints,
+                    createdAt: updatedDbMatch.createdAt.toISOString(),
+                    updatedAt: updatedDbMatch.updatedAt.toISOString(),
+                    dbStatus: 'SYNCED'
+                };
+                await redis.hsetObject(`quick_series_match:${updatedDbMatch.id}`, updatedCache, this.CACHE_TTL);
+            }
+
+            // Increment matchesCompleted on the series
+            await this.updateTournamentSeries(series.id, userId, {
+                matchesCompleted: series.matchesCompleted + 1
+            });
+
+            // Rebuild leaderboard with updated completed matches
+            await this.updateSeriesLeaderboard(series.id, userId);
+
+            this.logger.info(`Series ${series.id} progression updated — matchesCompleted: ${series.matchesCompleted + 1}`);
+        } catch (error) {
+            this.logger.warn(`Failed to update series progression for match ${quickMatchId}:`, error);
         }
     }
 
@@ -364,7 +423,8 @@ export class QuickSeriesService extends BaseService {
     }
 
     /**
-     * Get all matches in a series
+     * Get all matches in a series.
+     * Tries the Redis set first (populated when matches are added), falls back to DB.
      */
     async getSeriesMatches(seriesId: string, userId: string): Promise<QuickSeriesMatchCache[]> {
         try {
@@ -374,13 +434,26 @@ export class QuickSeriesService extends BaseService {
                 throw new Error('Tournament series not found or access denied');
             }
 
-            // Get matches from database (as Redis pattern for lists is more complex)
+            // 1. Try Redis set of match IDs added to this series
+            const cachedIds = await redis.smembers(`quick_series:${seriesId}:matches`);
+            if (cachedIds.length > 0) {
+                const cachedMatches = await Promise.all(
+                    cachedIds.map(id => redis.hgetObject<QuickSeriesMatchCache>(`quick_series_match:${id}`))
+                );
+                const validCached = cachedMatches.filter(Boolean) as QuickSeriesMatchCache[];
+                // Only trust cache if every ID resolved (no evictions)
+                if (validCached.length === cachedIds.length) {
+                    return validCached.sort((a, b) => a.matchOrder - b.matchOrder);
+                }
+            }
+
+            // 2. Fallback to database
             const dbMatches = await this.db.quickSeriesMatch.findMany({
                 where: { seriesId },
                 orderBy: { matchOrder: 'asc' }
             });
 
-            return dbMatches.map(dbMatch => ({
+            const result = dbMatches.map(dbMatch => ({
                 id: dbMatch.id,
                 seriesId: dbMatch.seriesId,
                 quickMatchId: dbMatch.quickMatchId,
@@ -391,8 +464,16 @@ export class QuickSeriesService extends BaseService {
                 bonusPoints: dbMatch.bonusPoints,
                 createdAt: dbMatch.createdAt.toISOString(),
                 updatedAt: dbMatch.updatedAt.toISOString(),
-                dbStatus: 'SYNCED'
+                dbStatus: 'SYNCED' as const
             }));
+
+            // Warm the Redis set and individual caches from DB data
+            for (const match of result) {
+                await redis.hsetObject(`quick_series_match:${match.id}`, match, this.CACHE_TTL);
+                await redis.sadd(`quick_series:${seriesId}:matches`, match.id);
+            }
+
+            return result;
 
         } catch (error) {
             this.handleError(error, 'Get Series Matches');
@@ -452,8 +533,9 @@ export class QuickSeriesService extends BaseService {
         userId: string
     ): Promise<ConflictDetectionResult> {
         try {
-            // 1. Get series standings - need to get completed matches first
-            const completedMatches = await this.getSeriesMatches(seriesId, userId);
+            // 1. Get only completed matches (incomplete matches have no results to aggregate)
+            const allMatches = await this.getSeriesMatches(seriesId, userId);
+            const completedMatches = allMatches.filter(m => m.isCompleted);
             const standings = await this.calculateSeriesStandings(completedMatches, userId);
             
             if (standings.length === 0) {
@@ -702,6 +784,7 @@ async deleteTournamentSeries(seriesId: string, userId: string): Promise<void> {
 
         // 4. Clean up related cache keys
         await redis.delete(`quick_series_leaderboard:${seriesId}`);
+        await redis.delete(`quick_series:${seriesId}:matches`);
 
         this.logger.info(`Tournament Series ${seriesId} deleted by user ${userId}`);
 

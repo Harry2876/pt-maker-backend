@@ -19,7 +19,6 @@ import slotManagementRouter from './routes/slotManagementRoutes';
 import leaderboardRouter from './routes/leaderboardRoutes';
 import quickPTRouter from './routes/quickPTRoutes';
 import whatsappRouter from './routes/whatsappRoutes';
-import adminRouter from './routes/adminRoutes';
 import redis from './config/redis';
 import { WorkersManager } from './workers';
 import { QueueService } from './services/queueService';
@@ -188,11 +187,9 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
 
                     scalarHandler = scalar.apiReference({
                         spec: { url: '/openapi.json' },
-                        siteConfig: {
-                            theme: 'deepSpace',
-                            layout: 'modern',
-                        },
-                        metaData: { title: 'BGMI Tournament API' }
+                        theme: 'bluePlanet',
+                        layout: 'modern',
+                        pageTitle: 'BGMI Tournament API',
                     });
                 })();
             }
@@ -206,7 +203,7 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
     }
 });
 
-// API routes
+
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/tournaments', tournamentRouter);
 app.use('/api/v1/matches', matchRouter);

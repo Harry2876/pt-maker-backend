@@ -34,6 +34,7 @@ export interface UpdateQuickSeriesData {
     seriesName?: string;
     game?: string;
     totalMatches?: number;
+    matchesCompleted?: number;
     status?: QuickSeriesStatus;
     positionPointsConfig?: number[];
     killPointsValue?: number;

@@ -1,26 +1,14 @@
 import { z } from 'zod';
 
 /**
- * Validation schema for tie-breaking rule
+ * Validation schema for tie-breaking rule.
+ * Matches the TieBreakingRule interface exactly so validated data can be used directly.
  */
 export const tieBreakingRuleSchema = z.object({
-    type: z.enum(['KILL_POINTS', 'PLACEMENT_POINTS', 'TOTAL_POINTS', 'CUSTOM_FIELD', 'MANUAL']),
+    method: z.enum(['KILLS', 'BEST_POSITION', 'MANUAL_ORDER']),
     priority: z.number().min(1).max(10),
-    ascending: z.boolean().optional().default(false),
-    fieldName: z.string().optional(),
+    isActive: z.boolean().default(true),
     description: z.string().optional()
-}).refine((data) => {
-    // For CUSTOM_FIELD type, fieldName is required
-    if (data.type === 'CUSTOM_FIELD' && !data.fieldName) {
-        return false;
-    }
-    // For other types, fieldName should not be present
-    if (data.type !== 'CUSTOM_FIELD' && data.fieldName) {
-        return false;
-    }
-    return true;
-}, {
-    message: 'fieldName is required for CUSTOM_FIELD type and should not be present for other types'
 });
 
 /**
@@ -110,3 +98,4 @@ export type DetectConflictsInput = z.infer<typeof detectConflictsSchema>;
 export type SetSeriesTieBreakingRulesInput = z.infer<typeof setSeriesTieBreakingRulesSchema>;
 export type MatchIdParam = z.infer<typeof matchIdParamSchema>;
 export type SeriesIdParam = z.infer<typeof seriesIdParamSchema>;
+export type ConflictGroupIdParam = z.infer<typeof conflictGroupIdParamSchema>;
