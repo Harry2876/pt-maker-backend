@@ -1,4 +1,9 @@
+// Sentry MUST be imported before everything else
+import { Sentry } from './utils/instrument';
+import crypto from 'crypto';
+
 import express from 'express';
+
 import cors from 'cors';
 import helmet from 'helmet';
 import logger from './utils/logger';
@@ -11,7 +16,7 @@ import matchRouter from './routes/matchRoutes';
 import uploadRouter from './routes/uploadRoutes';
 import { matchResultRouter } from './routes/matchResultRoutes';
 import groupRouter from './routes/groupRoutes';
-import tournamentStageRouter from './routes/tournamentStageRoutes';                   // Add this
+import tournamentStageRouter from './routes/tournamentStageRoutes'; // Add this
 import teamRegistrationRouter from './routes/teamRegistrationRoutes';
 import teamAdvancementRouter from './routes/teamAdvancementRoutes';
 import advancedEngineRouter from './routes/advancedEngineRoutes';
@@ -29,7 +34,7 @@ import { specs } from './config/swagger';
 import { swaggerBasicAuth } from './middleware/swaggerAuth';
 import devRouter from './routes/devRoutes';
 
-import { loadSpec }  from './config/docsloader'
+import { loadSpec } from './config/docsloader';
 import { env } from './config/env';
 
 validateEnvironment();
@@ -41,40 +46,46 @@ const PORT = process.env.PORT || 3000;
 
 // Configure CORS securely
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production'
-        ? ['https://serverscrymz.me', 'https://www.serverscrymz.me']  // Replace with your frontend domains
-        : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'], // Dev domains
+    origin:
+        process.env.NODE_ENV === 'production'
+            ? ['https://serverscrymz.me', 'https://www.serverscrymz.me'] // Replace with your frontend domains
+            : [
+                'http://localhost:3000',
+                'http://localhost:3001',
+                'http://127.0.0.1:3000',
+            ], // Dev domains
     credentials: true, // Allow cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining'],
-    maxAge: 86400 // 24 hours preflight cache
+    maxAge: 86400, // 24 hours preflight cache
 };
 
 // Middleware
-app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
-      fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
-    },
-    },
-    crossOriginEmbedderPolicy: false, // For API compatibility
-    hsts: {
-        maxAge: 31536000,
-        includeSubDomains: true,
-        preload: true
-    }
-}));
+app.use(
+    helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+                scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],
+                imgSrc: ["'self'", 'data:', 'https:'],
+                connectSrc: ["'self'", 'https://cdn.jsdelivr.net'],
+                fontSrc: ["'self'", 'https://cdn.jsdelivr.net'],
+                objectSrc: ["'none'"],
+                mediaSrc: ["'self'"],
+                frameSrc: ["'none'"],
+            },
+        },
+        crossOriginEmbedderPolicy: false, // For API compatibility
+        hsts: {
+            maxAge: 31536000,
+            includeSubDomains: true,
+            preload: true,
+        },
+    })
+);
 app.use(cors(corsOptions)); // Enable CORS
-
 
 // Add after CORS middleware
 app.use((req, res, next) => {
@@ -82,21 +93,11 @@ app.use((req, res, next) => {
     res.header('X-Frame-Options', 'DENY');
     res.header('X-XSS-Protection', '1; mode=block');
     res.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-
-    // Log request details for security monitoring
-    logger.http(`Security Check: ${req.method} ${req.url} from ${req.ip}`, {
-        userAgent: req.get('User-Agent'),
-        referer: req.get('Referer'),
-        origin: req.get('Origin')
-    });
-
     next();
 });
 
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies
-app.use(globalErrorHandler);
-
 
 // Start Redis and Workers
 async function initializeServices() {
@@ -116,7 +117,6 @@ async function initializeServices() {
 
         await QueueService.scheduleUserSync();
         await QueueService.scheduleBatchSync(); // Runs every 10 minutes as safety net
-
     } catch (error) {
         logger.error('❌ Failed to initialize services:', error);
         process.exit(1);
@@ -135,43 +135,50 @@ process.on('SIGTERM', async () => {
     await redis.disconnect();
     process.exit(0);
 });
+
 app.use((req, res, next) => {
     const startTime = Date.now();
+    const requestId = crypto.randomUUID().slice(0, 8);
 
-    // Log request start
-    logger.http(`📥 ${req.method} ${req.url} - ${req.ip}`);
+    req.headers['x-request-id'] = requestId;
+    res.setHeader('x-request-id', requestId);
 
-
-    // Override res.end to capture response time
     const originalEnd = res.end.bind(res);
     res.end = function (chunk?: any, encoding?: any) {
         const duration = Date.now() - startTime;
-        logger.http(`📤 Method ${req.method} ${req.url} ,Status :${res.statusCode} Latency : ${duration}ms`);
+
+        if (!req.url.startsWith('/health') && !req.url.startsWith('/api-docs')) {
+            logger.http(
+                `${req.method} ${req.url} ${res.statusCode} ${duration}ms [${requestId}]`
+            );
+        }
         return originalEnd(chunk, encoding);
     };
-
     next();
 });
 // Health check route
 app.use('/', healthRoutes);
 
-app.use('/api-docs', swaggerBasicAuth, swaggerUi.serve, swaggerUi.setup(specs,
-    {
+app.use(
+    '/api-docs',
+    swaggerBasicAuth,
+    swaggerUi.serve,
+    swaggerUi.setup(specs, {
         explorer: true,
         customCss: '.swagger-ui .topbar { display: none }',
         customSiteTitle: 'BGMI Tournament API Docs - Secure Access',
         swaggerOptions: {
-            persistAuthorization: true
-        }
-    }
-));
+            persistAuthorization: true,
+        },
+    })
+);
 
 app.get('/openapi.json', swaggerBasicAuth, (req, res) => {
-  try {
-    res.json(loadSpec());
-  } catch (err) {
-    res.status(500).json({ error: 'Could not load API spec' });
-  }
+    try {
+        res.json(loadSpec());
+    } catch (err) {
+        res.status(500).json({ error: 'Could not load API spec' });
+    }
 });
 
 let scalarHandler: any = null;
@@ -182,9 +189,9 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
         if (!scalarHandler) {
             if (!scalarInitPromise) {
                 scalarInitPromise = (async () => {
-                    const scalar = await (new Function(
+                    const scalar = await new Function(
                         "return import('@scalar/express-api-reference')"
-                    ))();
+                    )();
 
                     scalarHandler = scalar.apiReference({
                         spec: { url: '/openapi.json' },
@@ -213,7 +220,6 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
     }
 });
 
-
 // Dev routes — only when ENABLE_DEV_ROUTES=true in .env
 if (env.ENABLE_DEV_ROUTES) {
     app.use('/api/v1/dev', devRouter);
@@ -234,19 +240,15 @@ app.use('/api/v1/leaderboards', leaderboardRouter);
 app.use('/api/v1/quick-pt', quickPTRouter);
 app.use('/api/v1/whatsapp', whatsappRouter);
 
-
 // app.use('/api/v1/admin', adminRouter);
+
+// Sentry error handler — must be before globalErrorHandler
+Sentry.setupExpressErrorHandler(app);
 
 
 
 // Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    logger.error(err.stack);
-    res.status(500).json({
-        error: 'Something went wrong!',
-        message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
-    });
-});
+app.use(globalErrorHandler);
 
 // 404 handler
 app.use((req, res) => {
@@ -256,21 +258,19 @@ app.use((req, res) => {
     });
 });
 
-
 // Start server with database connection
 async function startServer() {
     try {
-        // Connect to database
         await dbManager.connect();
 
-        // Start Express server
         app.listen(PORT, () => {
             logger.info(`🚀 Server running on port ${PORT}`);
             logger.info(`💾 Database connected successfully`);
         });
-
     } catch (error) {
         logger.error('❌ Failed to start server:', error);
+        Sentry.captureException(error, { tags: { phase: 'startup' } });
+        Sentry.flush(2000).catch(() => {});
         process.exit(1);
     }
 }

@@ -61,6 +61,8 @@ const envSchema = z.object({
   DEV_SECRET: z.string().min(16, 'DEV_SECRET must be at least 16 characters').optional(),
   DOCS_TEST_TOKEN: z.string().optional(),
   ENABLE_DEV_ROUTES: z.string().optional(),
+  // Sentry
+  SENTRY_DSN: z.string().url('Invalid SENTRY_DSN').optional(),
 });
 
 export function validateEnvironment() {

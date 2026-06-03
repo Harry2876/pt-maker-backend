@@ -38,6 +38,8 @@ export const env = {
   DEV_SECRET: process.env.DEV_SECRET,
   DOCS_TEST_TOKEN: process.env.DOCS_TEST_TOKEN,
   ENABLE_DEV_ROUTES: process.env.ENABLE_DEV_ROUTES === 'true',
+  // Sentry
+  SENTRY_DSN: process.env.SENTRY_DSN,
 };
 
 export default env;

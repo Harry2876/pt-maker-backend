@@ -1,5 +1,6 @@
 import winston from 'winston';
 import path from 'path';
+import { SentryTransport } from './sentryTransport';
 
 // Create logs directory path
 const logsDir = path.join(process.cwd(), 'logs');
@@ -50,6 +51,11 @@ const transports: any[] = [
     ),
   }),
 ];
+
+// Add Sentry transport only when DSN is configured
+if (process.env.SENTRY_DSN) {
+  transports.push(new SentryTransport());
+}
 
 const logger = winston.createLogger({
   level: process.env.NODE_ENV === 'development' ? 'debug' : 'warn',

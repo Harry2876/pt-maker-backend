@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError, ZodType } from 'zod';
 import logger from '../utils/logger';
+import { Sentry } from '../utils/instrument';
+import { ResponseHelper } from '../utils/responseHelper';
 
 declare global {
     namespace Express {
@@ -110,11 +112,18 @@ export const globalErrorHandler = (
     res: Response,
     _next: NextFunction
 ) => {
-    logger.error('Global error handler:', error);
+    logger.error('Unhandled error:', error);
 
-    return res.status(500).json({
-        success: false,
-        message: 'Something went wrong',
-        ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
-    });
+    // Send to Sentry — only real server errors, not expected client errors
+    if (!error.status || error.status >= 500) {
+        Sentry.captureException(error);
+        // Flush so the event is sent before the response is returned
+        Sentry.flush(2000).catch(() => {});
+    }
+
+    return res.status(error.status ?? 500).json(
+        ResponseHelper.serverError(
+            process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+        )
+    );
 };

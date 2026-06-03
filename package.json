@@ -21,7 +21,7 @@
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.15.0",
     "@scalar/express-api-reference": "^0.9.6",
-    "@sentry/node": "^10.22.0",
+    "@sentry/node": "^10.56.0",
     "@tsoa/runtime": "^7.0.0-alpha.0",
     "@types/axios": "^0.9.36",
     "@types/exceljs": "^0.5.3",
