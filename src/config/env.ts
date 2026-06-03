@@ -34,9 +34,10 @@ export const env = {
   WHATSAPP_BUSINESS_PHONE_NUMBER_ID: process.env.WHATSAPP_BUSINESS_PHONE_NUMBER_ID!,
   WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION || 'v22.0',
   WHATSAPP_API_BASE_URL: process.env.WHATSAPP_API_BASE_URL || 'https://graph.facebook.com',
-  // Dev / docs helpers (non-production only)
+  // Dev / docs helpers
   DEV_SECRET: process.env.DEV_SECRET,
   DOCS_TEST_TOKEN: process.env.DOCS_TEST_TOKEN,
+  ENABLE_DEV_ROUTES: process.env.ENABLE_DEV_ROUTES === 'true',
 };
 
 export default env;

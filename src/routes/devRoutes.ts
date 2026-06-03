@@ -4,9 +4,9 @@ import { env } from '../config/env';
 
 const devRouter = express.Router();
 
-// Middleware 1: hard-block in production
+// Middleware 1: hard-block if flag is off (belt-and-suspenders on top of index.ts guard)
 devRouter.use((_req: Request, res: Response, next: NextFunction) => {
-    if (env.NODE_ENV === 'production') {
+    if (!env.ENABLE_DEV_ROUTES) {
         return res.status(404).json({ error: 'Not found' });
     }
     return next();

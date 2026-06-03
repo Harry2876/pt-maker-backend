@@ -13,8 +13,8 @@ const DEV_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 export class DevAuthController {
     static getDevToken = async (req: Request, res: Response) => {
-        // Hard block in production — belt-and-suspenders on top of the route guard
-        if (env.NODE_ENV === 'production') {
+        // Hard block if flag is off — belt-and-suspenders on top of the route guard
+        if (!env.ENABLE_DEV_ROUTES) {
             return res.status(404).json({ error: 'Not found' });
         }
 

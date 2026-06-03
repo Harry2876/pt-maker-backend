@@ -214,8 +214,8 @@ app.use('/api-docs-v2', swaggerBasicAuth, async (req, res, next) => {
 });
 
 
-// Dev-only route — blocked at the router level in production
-if (env.NODE_ENV !== 'production') {
+// Dev routes — only when ENABLE_DEV_ROUTES=true in .env
+if (env.ENABLE_DEV_ROUTES) {
     app.use('/api/v1/dev', devRouter);
 }
 
