@@ -16,35 +16,32 @@ export class UserSyncWorker extends BaseWorker<any> {
     }
 
     protected async processJob(job: Job<any>): Promise<void> {
-        logger.info(`Processing user sync job at ${new Date().toISOString()}`);
+        logger.debug(`Processing user sync job at ${new Date().toISOString()}`);
 
         try {
-            await this.syncPendingUsersToDb();
+            // Users must sync before sessions (sessions reference user IDs)
+            const usersSynced = await this.syncPendingUsersToDb();
+            const sessionsSynced = await this.syncPendingSessionsToDb();
 
-
-            await this.syncPendingSessionsToDb();
-            logger.info(`✅ Data sync job completed successfully at ${new Date().toISOString()}`);
+            if (usersSynced > 0 || sessionsSynced > 0) {
+                logger.info(`✅ Sync complete — users: ${usersSynced}, sessions: ${sessionsSynced}`);
+            }
         } catch (error) {
             logger.error(`❌ Failed to process user sync job:`, error);
             throw error;
         }
     }
 
-    private async syncPendingUsersToDb(): Promise<void> {
+    private async syncPendingUsersToDb(): Promise<number> {
         try {
-            //get all pending users
             const pendingUsers = await this.getPendingUsers();
+            if (pendingUsers.length === 0) return 0;
 
-            if (pendingUsers.length === 0) {
-                logger.info(`No pending users found for sync top database`);
-                return;
-            }
-            logger.info(`Found ${pendingUsers.length} pending users for sync to database`);
-
-            //process each user
+            logger.info(`Syncing ${pendingUsers.length} pending users to database`);
             for (const phoneNumber of pendingUsers) {
                 await this.syncSingleUser(phoneNumber);
             }
+            return pendingUsers.length;
         } catch (error) {
             logger.error(`Error in sync Pending Users To Database`, error);
             throw error;
@@ -167,7 +164,6 @@ export class UserSyncWorker extends BaseWorker<any> {
         try {
             const pattern = 'pending_sessions_list_for_dbWrite:*';
             const keys = await redis.keys(pattern);
-            logger.info(`Found ${keys.length} pending sessions for sync to database`);
             return keys.map(key => key.replace('pending_sessions_list_for_dbWrite:', ''));
         } catch (error) {
             logger.error(`Error getting pending sessions from Redis:`, error);
@@ -175,22 +171,16 @@ export class UserSyncWorker extends BaseWorker<any> {
         }
     }
 
-    private async syncPendingSessionsToDb(): Promise<void> {
+    private async syncPendingSessionsToDb(): Promise<number> {
         try {
-            //get all pending sessions
             const pendingSessions = await this.getPendingSessions();
+            if (pendingSessions.length === 0) return 0;
 
-            if (pendingSessions.length === 0) {
-                logger.info(`No pending sessions found for sync to database`);
-                return;
-            }
-
-            logger.info(`Found ${pendingSessions.length} pending sessions for sync to database`);
-
-            //process each session
+            logger.info(`Syncing ${pendingSessions.length} pending sessions to database`);
             for (const sessionId of pendingSessions) {
                 await this.syncSingleSession(sessionId);
             }
+            return pendingSessions.length;
         } catch (error) {
             logger.error(`Error in sync Pending Sessions To Database`, error);
             throw error;

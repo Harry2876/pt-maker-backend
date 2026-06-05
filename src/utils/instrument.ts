@@ -22,6 +22,7 @@ if (env.SENTRY_DSN) {
             }
             return event;
         },
+
     });
     console.log(`[Sentry] Initialized — env=${env.NODE_ENV}`);
 } else {
