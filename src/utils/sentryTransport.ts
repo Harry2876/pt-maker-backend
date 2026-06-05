@@ -30,12 +30,14 @@ export class SentryTransport extends Transport {
             Sentry.flush(10000).catch(() => {});
             return;
         }
-        // Always reset the debounce timer so the flush happens 2s after the LAST log
-        if (this.flushTimer) clearTimeout(this.flushTimer);
-        this.flushTimer = setTimeout(() => {
-            this.flushTimer = null;
-            Sentry.flush(10000).catch(() => {});
-        }, 2000);
+        // Fire once 2s after the FIRST log in a batch — don't reset for subsequent logs.
+        // This guarantees delivery within 2s even under continuous traffic.
+        if (!this.flushTimer) {
+            this.flushTimer = setTimeout(() => {
+                this.flushTimer = null;
+                Sentry.flush(10000).catch(() => {});
+            }, 2000);
+        }
     }
 
     log(info: any, callback: () => void): void {
