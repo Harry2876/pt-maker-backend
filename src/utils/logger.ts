@@ -31,8 +31,8 @@ const format = winston.format.combine(
   winston.format.printf((info) => `${info.timestamp} ${info.level}: ${info.message}`)
 );
 
-// In production: console/file show info+, Sentry gets everything (debug+)
-// In development: console shows debug+, Sentry gets everything (debug+)
+// In production: console/file show info+, Sentry gets info+ (no debug noise)
+// In development: console shows debug+, Sentry still gets info+ only
 const isProd = process.env.NODE_ENV !== 'development';
 
 const transports: any[] = [

@@ -15,7 +15,7 @@ export class SentryTransport extends Transport {
     private static initialized = false;
 
     constructor() {
-        super({ level: 'debug' });
+        super({ level: 'info' });
         if (!SentryTransport.initialized) {
             SentryTransport.initialized = true;
             console.log('[SentryTransport] Transport registered — Sentry.logger available:', typeof Sentry.logger !== 'undefined');

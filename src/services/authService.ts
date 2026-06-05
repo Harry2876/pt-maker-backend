@@ -423,7 +423,7 @@ export class AuthService extends BaseService {
             await redis.expire(userCacheKey, 3600);
 
             if (success) {
-                this.logger.info(`User data stored in Redis cache successfully for ${phoneNumber}`);
+                this.logger.debug(`User data stored in Redis cache successfully for ${phoneNumber}`);
 
                 //add to pending users list for batch db write
                 await this.addToPendingNewUsersList(phoneNumber);
@@ -448,7 +448,7 @@ export class AuthService extends BaseService {
             //add to redis list it will be processed by background job
             await redis.set(`${pendingUsersListKey}:${phoneNumber}`, JSON.stringify(userData), 7200); //2 hours expiry
 
-            this.logger.info(`Added ${phoneNumber} to pending users list for DB write`);
+            this.logger.debug(`Added ${phoneNumber} to pending users list for DB write`);
         } catch (error) {
             this.logger.error(`Failed to add ${phoneNumber} to pending users list for DB write:`, error);
         }
@@ -491,7 +491,7 @@ export class AuthService extends BaseService {
                 const cachedUser = await redis.hgetObject<CachedUser>(cacheKey);
 
                 if (cachedUser) {
-                    this.logger.info(`User ${normalizedPhone} found in Redis cache`);
+                    this.logger.debug(`User ${normalizedPhone} found in Redis cache`);
                     return {
                         id: cachedUser.id || this.generateSecureCacheId(),
                         phoneNumber: cachedUser.phoneNumber,
@@ -663,7 +663,7 @@ export class AuthService extends BaseService {
         try {
             const saltRounds = 12;
             const hash = await bcrypt.hash(refreshToken, saltRounds);
-            this.logger.info(`Hashed refresh token successfully`);
+            this.logger.debug(`Hashed refresh token successfully`);
             return hash;
         } catch (error) {
             this.logger.error(`Failed to hash refresh token:`, error);
@@ -675,7 +675,8 @@ export class AuthService extends BaseService {
     private async verifyRefreshTokenHash(refreshToken: string, hash: string): Promise<boolean> {
         try {
             const isValid = await bcrypt.compare(refreshToken, hash);
-            this.logger.info(`Refresh token verification result: ${isValid ? 'SUCCESS' : 'FAILED'}`);
+            if (!isValid) this.logger.warn(`Refresh token hash verification FAILED`);
+            else this.logger.debug(`Refresh token hash verified successfully`);
             return isValid;
         } catch (error) {
             this.logger.error(`Failed to verify refresh token:`, error);
@@ -800,7 +801,7 @@ export class AuthService extends BaseService {
                 addedAt: Date.now()
             };
             await redis.set(`${pendingUpdatesKey}:${sessionId}`, JSON.stringify(updateData), 3600); //1 hour expiry
-            this.logger.info(`Added session ${sessionId} to pending session updates list for DB write`);
+            this.logger.debug(`Added session ${sessionId} to pending session updates list for DB write`);
         } catch (error) {
             this.logger.error(`Failed to add session ${sessionId} to pending session updates list for DB write:`, error);
         }
@@ -815,7 +816,7 @@ export class AuthService extends BaseService {
                 addedAt: Date.now()
             };
             await redis.set(`${pendingSessionsKey}:${sessionId}`, JSON.stringify(sessionsData), 7200); //2 hours expiry
-            this.logger.info(`Added session ${sessionId} to pending sessions list for DB write`);
+            this.logger.debug(`Added session ${sessionId} to pending sessions list for DB write`);
         } catch (error) {
             this.logger.error(`Failed to add session ${sessionId} to pending sessions list for DB write:`, error);
         }
@@ -869,7 +870,7 @@ export class AuthService extends BaseService {
 
             if (cachedTokenData) {
                 if (cachedTokenData.exp > Math.floor(Date.now() / 1000)) {
-                    this.logger.info(`Refresh Token verified from Redis Cache`);
+                    this.logger.debug(`Refresh Token verified from Redis Cache`);
                     return cachedTokenData;
                 } else {
                     //token expired, remove from cache
@@ -973,7 +974,7 @@ export class AuthService extends BaseService {
                         wasExpired: false
                     };
                 } catch (error) {
-                    this.logger.info(`Current access token is expired or invalid, proceeding to refresh`);
+                    this.logger.debug(`Current access token is expired or invalid, proceeding to refresh`);
                     wasExpired = true;
                 }
             }
@@ -994,7 +995,7 @@ export class AuthService extends BaseService {
             // Clean up old access token to prevent multiple valid tokens
 if (currentAccessToken) {
     await redis.delete(`access_token:${currentAccessToken}`);
-    this.logger.info(`Cleaned up expired access token for session ${refreshPayload.sessionId}`);
+    this.logger.debug(`Cleaned up expired access token for session ${refreshPayload.sessionId}`);
 }
 
             //store new access token in the redis with 30 min ttl
@@ -1192,7 +1193,7 @@ if (currentAccessToken) {
             };
 
             await redis.setObject(key, verificationData, ttl);
-            this.logger.info(`Phone number ${normalizedPhone} marked as OTP-verified in Redis`);
+            this.logger.debug(`Phone number ${normalizedPhone} marked as OTP-verified in Redis`);
         } catch (error) {
             this.logger.error(`Failed to mark phone number ${normalizedPhone} as OTP-verified:`, error);
             throw error;
@@ -1233,7 +1234,7 @@ if (currentAccessToken) {
         try {
             const key = `phone_verified:${normalizedPhone}`;
             await redis.delete(key);
-            this.logger.info(`Cleared phone verification for ${normalizedPhone}`);
+            this.logger.debug(`Cleared phone verification for ${normalizedPhone}`);
         } catch (error) {
             this.logger.error(`Failed to clear phone verification for ${normalizedPhone}:`, error);
         }
