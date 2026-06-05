@@ -518,7 +518,7 @@ export class AuthService extends BaseService {
             });
 
             if (dbUser) {
-                this.logger.info(`User ${phoneNumber} found in database`);
+                this.logger.debug(`User ${phoneNumber} found in database`);
                 return {
                     id: dbUser.id,
                     phoneNumber: dbUser.phoneNumber,
@@ -830,7 +830,7 @@ export class AuthService extends BaseService {
                 if (cachedTokenData.exp > Math.floor(Date.now() / 1000)) {
                     //track activity
                     await CacheManager.trackActivity(cachedTokenData.sessionId);
-                    this.logger.info(`Access Token verified from Redis Cache`);
+                    this.logger.debug(`Access Token verified from Redis Cache`);
                     return cachedTokenData;
                 } else {
                     //token expired, remove from cache
@@ -854,7 +854,7 @@ export class AuthService extends BaseService {
                 throw new Error(`Access Token Expired`);
             }
 
-            this.logger.info(`Access Token verified from JWT Fallback ( Redis Cache Miss)`);
+            this.logger.debug(`Access Token verified from JWT Fallback ( Redis Cache Miss)`);
             return payload;
         } catch (error) {
             this.logger.error('Failed to verify access token:', error);

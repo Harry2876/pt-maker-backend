@@ -94,7 +94,7 @@ export const optionalAuth = async (
           organization: user.organization || undefined,
           fromCache: user.fromCache,
         };
-        logger.info(`Optional auth successful for ${user.username}`);
+        logger.debug(`Optional auth successful for ${user.username}`);
       }
     }
 
