@@ -12,26 +12,30 @@ const LEVEL_MAP: Record<string, keyof typeof Sentry.logger> = {
 
 export class SentryTransport extends Transport {
     private flushTimer: ReturnType<typeof setTimeout> | null = null;
+    private static initialized = false;
 
     constructor() {
         super({ level: 'debug' });
+        if (!SentryTransport.initialized) {
+            SentryTransport.initialized = true;
+            console.log('[SentryTransport] Transport registered — Sentry.logger available:', typeof Sentry.logger !== 'undefined');
+        }
     }
 
-    // Debounced flush — waits 800ms after last log, then flushes the whole batch
-    // Warn/error bypass the debounce and flush immediately
+    // Immediate for warn/error; 2s debounce for everything else
     private scheduleFlush(immediate = false): void {
         if (immediate) {
             if (this.flushTimer) clearTimeout(this.flushTimer);
             this.flushTimer = null;
-            Sentry.flush(2000).catch(() => {});
+            Sentry.flush(10000).catch(() => {});
             return;
         }
-        if (!this.flushTimer) {
-            this.flushTimer = setTimeout(() => {
-                this.flushTimer = null;
-                Sentry.flush(2000).catch(() => {});
-            }, 800);
-        }
+        // Always reset the debounce timer so the flush happens 2s after the LAST log
+        if (this.flushTimer) clearTimeout(this.flushTimer);
+        this.flushTimer = setTimeout(() => {
+            this.flushTimer = null;
+            Sentry.flush(10000).catch(() => {});
+        }, 2000);
     }
 
     log(info: any, callback: () => void): void {
@@ -43,12 +47,17 @@ export class SentryTransport extends Transport {
         const sentryMethod = LEVEL_MAP[rawLevel] ?? 'info';
         const sentryLog = Sentry.logger[sentryMethod] as (...args: any[]) => void;
 
+        if (!sentryLog || typeof sentryLog !== 'function') {
+            console.error('[SentryTransport] sentryLog is not a function for level:', rawLevel);
+            callback();
+            return;
+        }
+
         // Strip Winston internal Symbol keys and non-serializable values from metadata
         const cleanMeta: Record<string, unknown> = {};
         for (const key of Object.keys(info)) {
             if (key !== 'level' && key !== 'message') {
                 const val = info[key];
-                // Skip Error objects and functions — Sentry attributes must be primitives
                 if (val instanceof Error) {
                     cleanMeta[key] = val.message;
                 } else if (typeof val !== 'function') {
@@ -67,7 +76,7 @@ export class SentryTransport extends Transport {
             console.error('[SentryTransport] sentryLog threw:', e);
         }
 
-        // Warn/error flush immediately; info/debug/http batch and flush after 800ms
+        // Warn/error flush immediately; all others batch with 2s debounce
         this.scheduleFlush(rawLevel === 'warn' || rawLevel === 'error');
 
         callback();

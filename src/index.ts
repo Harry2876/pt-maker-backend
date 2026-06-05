@@ -266,6 +266,8 @@ async function startServer() {
         app.listen(PORT, () => {
             logger.info(`🚀 Server running on port ${PORT}`);
             logger.info(`💾 Database connected successfully`);
+            // Force-flush all startup logs to Sentry after they've had time to queue
+            setTimeout(() => Sentry.flush(10000).catch(() => {}), 3000);
         });
     } catch (error) {
         logger.error('❌ Failed to start server:', error);
