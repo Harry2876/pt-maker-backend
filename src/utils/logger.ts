@@ -31,12 +31,18 @@ const format = winston.format.combine(
   winston.format.printf((info) => `${info.timestamp} ${info.level}: ${info.message}`)
 );
 
+// In production: console/file show info+, Sentry gets everything (debug+)
+// In development: console shows debug+, Sentry gets everything (debug+)
+const isProd = process.env.NODE_ENV !== 'development';
+
 const transports: any[] = [
   new winston.transports.Console({
+    level: isProd ? 'info' : 'debug',
     format: format,
   }),
   new winston.transports.File({
     filename: path.join(logsDir, 'all.log'),
+    level: isProd ? 'info' : 'debug',
     format: winston.format.combine(
       winston.format.timestamp(),
       winston.format.json()
@@ -52,13 +58,15 @@ const transports: any[] = [
   }),
 ];
 
-// Add Sentry transport only when DSN is configured
+// Sentry transport receives ALL levels — filtered independently
 if (process.env.SENTRY_DSN) {
   transports.push(new SentryTransport());
 }
 
+// Global level must be 'debug' so all logs reach transports
+// Each transport applies its own level filter above
 const logger = winston.createLogger({
-  level: process.env.NODE_ENV === 'development' ? 'debug' : 'warn',
+  level: 'debug',
   levels,
   format,
   transports,

@@ -15,28 +15,19 @@ export class WorkersManager {
     private workerCount = 0;
 
     async startAllWorkers(): Promise<void> {
-        logger.info('🚀 Starting Queue Workers Manager...');
-
         try {
-            // Start OTP worker
             await this.startWorker('OTP', () => new OTPWorker());
             await this.startWorker('User Sync', () => new UserSyncWorker());
             await this.startWorker('Database Sync', () => new DatabaseSyncWorker());
             await this.startWorker('ResultProcessing', () => new ResultProcessingWorker());
-
-            // Start scalable workers
             await this.startWorker('Scalable Advanced Engine', () => new ScalableAdvancedEngineWorker());
             await this.startWorker('Batch Processing', () => new BatchProcessingWorker());
             await this.startWorker('Leaderboard Batch', () => new LeaderboardBatchWorker());
             await this.startWorker('Quick-PT Sync', () => new QuickPTWorker());
 
-            // TODO: Add other workers when ready
-            // await this.startWorker('Screenshot', () => new ScreenshotWorker());
-            // await this.startWorker('Email', () => new EmailWorker());
-
-            logger.info(`✅ All queue workers started successfully! Total active workers: ${this.workerCount}`);
-            this.logWorkerStatus();
-
+            logger.info(`✅ ${this.workerCount} queue workers started`, {
+                workers: Array.from(this.workers.keys()),
+            });
         } catch (error) {
             logger.error('❌ Failed to start some workers:', error);
             throw error;
@@ -45,28 +36,14 @@ export class WorkersManager {
 
     private async startWorker(name: string, workerFactory: () => any): Promise<void> {
         try {
-            logger.info(`🔄 Creating ${name} worker...`);
-
             const worker = workerFactory();
             this.workers.set(name, worker);
             this.workerCount++;
-
-            logger.info(`✅ ${name} worker created successfully! Worker ID: ${this.workerCount}`);
-            logger.info(`📊 Total active workers: ${this.workerCount}`);
-
+            logger.debug(`✅ ${name} worker created (ID: ${this.workerCount})`);
         } catch (error) {
             logger.error(`❌ Failed to create ${name} worker:`, error);
             throw error;
         }
-    }
-
-    private logWorkerStatus(): void {
-        const workerNames = Array.from(this.workers.keys());
-        logger.info('📋 Active Workers Summary:', {
-            totalWorkers: this.workerCount,
-            workerTypes: workerNames,
-            status: 'All workers running successfully'
-        });
     }
 
     async stopAllWorkers(): Promise<void> {

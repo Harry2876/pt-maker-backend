@@ -94,7 +94,7 @@ class RedisManager {
         try {
             const result = await this.redisClient.get(key);
             if (result) {
-                logger.info(`Cache hit for key: ${key}`);
+                logger.debug(`Cache hit for key: ${key}`);
             }
             return result;
         } catch (error) {
@@ -107,10 +107,10 @@ class RedisManager {
     public async set(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
         try {
             if (ttlSeconds) {
-                logger.info(`Setting key ${this.sanitizeKeyForLogging(key)} with TTL of ${ttlSeconds} seconds`);
+                logger.debug(`Setting key ${this.sanitizeKeyForLogging(key)} with TTL of ${ttlSeconds} seconds`);
                 await this.redisClient.setex(key, ttlSeconds, value);
             } else {
-                logger.info(`Setting key ${this.sanitizeKeyForLogging(key)} without TTL`);
+                logger.debug(`Setting key ${this.sanitizeKeyForLogging(key)} without TTL`);
                 await this.redisClient.set(key, value);
             }
             return true;
@@ -124,10 +124,10 @@ class RedisManager {
         try {
             const jsonString = JSON.stringify(obj);
             if (ttlSeconds) {
-                logger.info(`Setting key ${this.sanitizeKeyForLogging(key)} with TTL of ${ttlSeconds} seconds`);
+                logger.debug(`Setting key ${this.sanitizeKeyForLogging(key)} with TTL of ${ttlSeconds} seconds`);
                 await this.redisClient.setex(key, ttlSeconds, jsonString);
             } else {
-                logger.info(`Setting object key ${this.sanitizeKeyForLogging(key)} without TTL`);
+                logger.debug(`Setting object key ${this.sanitizeKeyForLogging(key)} without TTL`);
                 await this.redisClient.set(key, jsonString);
             }
             return true;
@@ -180,7 +180,7 @@ class RedisManager {
     public async incr(key: string): Promise<number> {
         try {
             const result = await this.redisClient.incr(key);
-            logger.info(`Incremented key ${key}, new value: ${result}`);
+            logger.debug(`Incremented key ${key}, new value: ${result}`);
             return result;
         } catch (error) {
             logger.error(`Error incrementing key ${key} for Redis`, error);
@@ -192,7 +192,7 @@ class RedisManager {
     public async decr(key: string): Promise<number> {
         try {
             const result = await this.redisClient.decr(key);
-            logger.info(`Decremented key ${key}, new value: ${result}`);
+            logger.debug(`Decremented key ${key}, new value: ${result}`);
             return result;
         } catch (error) {
             logger.error(`Error decrementing key ${key} for Redis`, error);
@@ -204,7 +204,7 @@ class RedisManager {
     public async incrBy(key: string, increment: number): Promise<number> {
         try {
             const result = await this.redisClient.incrby(key, increment);
-            logger.info(`Incremented key ${key} by ${increment}, new value: ${result}`);
+            logger.debug(`Incremented key ${key} by ${increment}, new value: ${result}`);
             return result;
         } catch (error) {
             logger.error(`Error incrementing key ${key} by ${increment} for Redis`, error);
@@ -234,13 +234,13 @@ class RedisManager {
                 // Case 1: Single field-value pair
                 // Example: hset('user:123', 'name', 'John')
                 result = await this.redisClient.hset(key, fieldOrMap, value);
-                logger.info(`Hash set key ${key}, field ${fieldOrMap}`);
+                logger.debug(`Hash set key ${key}, field ${fieldOrMap}`);
 
             } else if (typeof fieldOrMap === 'object') {
                 // Case 2: Multiple field-value pairs
                 // Example: hset('user:123', { name: 'John', age: '25' })
                 result = await this.redisClient.hset(key, fieldOrMap);
-                logger.info(`Hash set key ${key} with ${Object.keys(fieldOrMap).length} fields`);
+                logger.debug(`Hash set key ${key} with ${Object.keys(fieldOrMap).length} fields`);
 
             } else {
                 throw new Error('Invalid arguments for hset');
@@ -276,7 +276,7 @@ class RedisManager {
     public async hdel(key: string, ...fields: string[]): Promise<number> {
         try {
             const result = await this.redisClient.hdel(key, ...fields);
-            logger.info(`Deleted hash fields ${fields.join(", ")} for key ${key} in Redis`, result);
+            logger.debug(`Deleted hash fields ${fields.join(", ")} for key ${key} in Redis`, result);
             return result;
         } catch (error) {
             logger.error(`Error deleting hash fields ${fields.join(", ")} for key ${key} in Redis`, error);
@@ -288,7 +288,7 @@ class RedisManager {
     public async sadd(key: string, ...members: string[]): Promise<number> {
         try {
             const result = await this.redisClient.sadd(key, ...members);
-            logger.info(`Added members ${members.join(", ")} to set ${key} in Redis`, result);
+            logger.debug(`Added members ${members.join(", ")} to set ${key} in Redis`, result);
             return result;
         } catch (error) {
             logger.error(`Error adding members ${members.join(", ")} to set ${key} in Redis`, error);
@@ -309,7 +309,7 @@ class RedisManager {
     public async srem(key: string, ...members: string[]): Promise<number> {
         try {
             const result = await this.redisClient.srem(key, ...members);
-            logger.info(`Removed members ${members.join(", ")} from set ${key} in Redis`, result);
+            logger.debug(`Removed members ${members.join(", ")} from set ${key} in Redis`, result);
             return result;
         } catch (error) {
             logger.error(`Error removing members ${members.join(", ")} from set ${key} in Redis`, error);
@@ -330,7 +330,7 @@ class RedisManager {
     public async lpush(key: string, ...values: string[]): Promise<number> {
         try {
             const result = await this.redisClient.lpush(key, ...values);
-            logger.info(`Added values ${values.join(", ")} to list ${key} in Redis`, result);
+            logger.debug(`Added values ${values.join(", ")} to list ${key} in Redis`, result);
             return result;
         } catch (error) {
             logger.error(`Error adding values ${values.join(", ")} to list ${key} in Redis`, error);
@@ -341,7 +341,7 @@ class RedisManager {
     public async rpop(key: string): Promise<string | null> {
         try {
             const result = await this.redisClient.rpop(key);
-            logger.info(`Removed value from list ${key} in Redis`, result);
+            logger.debug(`Removed value from list ${key} in Redis`, result);
             return result;
         } catch (error) {
             logger.error(`Error removing value from list ${key} in Redis`, error);
@@ -371,9 +371,9 @@ class RedisManager {
             // Set TTL if provided
             if (ttlSeconds) {
                 await this.redisClient.expire(key, ttlSeconds);
-                logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis with TTL ${ttlSeconds}s`);
+                logger.debug(`Set object ${this.sanitizeKeyForLogging(key)} in Redis with TTL ${ttlSeconds}s`);
             } else {
-                logger.info(`Set object ${this.sanitizeKeyForLogging(key)} in Redis without TTL`);
+                logger.debug(`Set object ${this.sanitizeKeyForLogging(key)} in Redis without TTL`);
             }
 
             return result >= 0;
@@ -419,7 +419,7 @@ class RedisManager {
     public async zadd(key: string, score: number, member: string): Promise<number> {
         try {
             const result = await this.redisClient.zadd(key, score, member);
-            logger.info(`Added member ${member} with score ${score} to sorted set ${key} in Redis`);
+            logger.debug(`Added member ${member} with score ${score} to sorted set ${key} in Redis`);
             return result;
         } catch (error) {
             logger.error(`Error adding member ${member} to sorted set ${key} in Redis`, error);
@@ -455,7 +455,7 @@ class RedisManager {
     public async zrem(key: string, ...members: string[]): Promise<number> {
         try {
             const result = await this.redisClient.zrem(key, ...members);
-            logger.info(`Removed members ${members.join(", ")} from sorted set ${key} in Redis`);
+            logger.debug(`Removed members ${members.join(", ")} from sorted set ${key} in Redis`);
             return result;
         } catch (error) {
             logger.error(`Error removing members from sorted set ${key} in Redis`, error);

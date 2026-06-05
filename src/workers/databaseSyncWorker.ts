@@ -15,7 +15,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     protected async processJob(job: Job<DatabaseSyncJob>): Promise<any> {
         const { type, entityId, data, userId } = job.data;
 
-        logger.info(`Processing database sync job: ${type} for entity: ${entityId}`);
+        logger.debug(`Processing database sync job: ${type} for entity: ${entityId}`);
 
         try {
             switch (type) {
@@ -105,7 +105,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             await redis.hset(`tournament:${tournament.id}`, 'dbStatus', 'SYNCED');
             await redis.hset(`tournament:${tournament.id}`, 'dbSyncedAt', new Date().toISOString());
 
-            logger.info(`Tournament ${tournament.id} created and synced to database successfully`);
+            logger.debug(`Tournament ${tournament.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Tournament ${tournamentData.id} already exists in database`);
@@ -127,7 +127,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`tournament:${tournamentId}`, 'dbStatus', 'SYNCED');
-            logger.info(`Tournament ${tournamentId} updated successfully in database`);
+            logger.debug(`Tournament ${tournamentId} updated successfully in database`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Tournament ${tournamentId} update conflict:`, error);
@@ -146,7 +146,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             //clean up redis cache
             await redis.delete(`tournament:${tournamentId}`);
-            logger.info(`Tournament ${tournamentId} deleted successfully from database`);
+            logger.debug(`Tournament ${tournamentId} deleted successfully from database`);
         } catch (error) {
             logger.error(`Error deleting tournament ${tournamentId}:`, error);
             throw error;
@@ -168,7 +168,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`match:${match.id}`, 'dbStatus', 'SYNCED');
-            logger.info(`Match ${match.id} created and synced to database successfully`);
+            logger.debug(`Match ${match.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Match ${matchData.id} already exists in database`);
@@ -191,7 +191,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`match:${matchId}`, 'dbStatus', 'SYNCED');
-            logger.info(`Match ${matchId} updated successfully in database`);
+            logger.debug(`Match ${matchId} updated successfully in database`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Match ${matchId} update conflict:`, error);
@@ -219,7 +219,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`screenshot:${screenshot.id}`, 'dbStatus', 'SYNCED');
-            logger.info(`Screenshot ${screenshot.id} created and synced to database successfully`);
+            logger.debug(`Screenshot ${screenshot.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Screenshot ${screenshotData.id} already exists in database`);
@@ -250,7 +250,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             //cleanup redis cache
             await redis.delete(`screenshot:${screenshotId}`);
-            logger.info(`Screenshot ${screenshotId} deleted successfully from database`);
+            logger.debug(`Screenshot ${screenshotId} deleted successfully from database`);
         } catch (error) {
             logger.error(`Error deleting screenshot ${screenshotId}:`, error);
             throw error;
@@ -272,7 +272,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`group:${group.id}`, 'dbStatus', 'SYNCED');
-            logger.info(`Group ${group.id} created and synced to database successfully`);
+            logger.debug(`Group ${group.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Group ${groupData.id} already exists in database`);
@@ -295,7 +295,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`group:${groupId}`, 'dbStatus', 'SYNCED');
-            logger.info(`Group ${groupId} updated successfully in database`);
+            logger.debug(`Group ${groupId} updated successfully in database`);
         } catch (error) {
             logger.error(`Error updating group ${groupId}:`, error);
             throw error;
@@ -309,7 +309,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.delete(`group:${groupId}`);
-            logger.info(`Group ${groupId} deleted successfully from database`);
+            logger.debug(`Group ${groupId} deleted successfully from database`);
         } catch (error) {
             logger.error(`Error deleting group ${groupId}:`, error);
             throw error;
@@ -334,7 +334,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`teamRegistration:${registration.id}`, 'dbStatus', 'SYNCED');
-            logger.info(`Team registration ${registration.id} created and synced to database successfully`);
+            logger.debug(`Team registration ${registration.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Team registration ${registrationData.id} already exists in database`);
@@ -357,7 +357,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`teamRegistration:${registrationId}`, 'dbStatus', 'SYNCED');
-            logger.info(`Team registration ${registrationId} updated successfully in database`);
+            logger.debug(`Team registration ${registrationId} updated successfully in database`);
         } catch (error) {
             logger.error(`Error updating team registration ${registrationId}:`, error);
             throw error;
@@ -365,7 +365,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     }
 
     private async processBatchSync(): Promise<void> {
-        logger.info('Starting batch sync process');
+        logger.debug('Starting batch sync process');
 
         //get all pending items from the redis
         const tournamentKeys = await redis.keys('tournaments:*');
@@ -399,7 +399,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             }
         }
 
-        logger.info(`Batch sync process completed. Total items synced to database: ${syncCount}`);
+        logger.debug(`Batch sync process completed. Total items synced to database: ${syncCount}`);
     }
     private async syncScoringRuleCreate(scoringRuleData: any): Promise<void> {
         try {
@@ -422,7 +422,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`scoringRule:${scoringRule.id}`, 'dbStatus', 'SYNCED');
-            logger.info(`Scoring rule ${scoringRule.id} created and synced to database successfully`);
+            logger.debug(`Scoring rule ${scoringRule.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Scoring rule ${scoringRuleData.id} already exists in database`);
@@ -445,7 +445,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`scoringRule:${ruleId}`, 'dbStatus', 'SYNCED');
-            logger.info(`Scoring rule ${ruleId} updated successfully in database`);
+            logger.debug(`Scoring rule ${ruleId} updated successfully in database`);
         } catch (error) {
             logger.error(`Error updating scoring rule ${ruleId}:`, error);
             throw error;
@@ -459,7 +459,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.delete(`scoringRule:${ruleId}`);
-            logger.info(`Scoring rule ${ruleId} deleted from database successfully`);
+            logger.debug(`Scoring rule ${ruleId} deleted from database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2025') {
                 logger.warn(`Scoring rule ${ruleId} not found in database, considering as deleted`);
@@ -500,7 +500,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             }
 
             await redis.hset(`matchResult:${matchResultData.id}`, 'dbStatus', 'SYNCED');
-            logger.info(`Match result ${matchResultData.id} synced to database successfully`);
+            logger.debug(`Match result ${matchResultData.id} synced to database successfully`);
 
         } catch (error) {
             if ((error as any).code === 'P2002') {
@@ -544,7 +544,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             }
 
             await redis.hset(`matchResult:${resultId}`, 'dbStatus', 'SYNCED');
-            logger.info(`Match result ${resultId} updated successfully in database`);
+            logger.debug(`Match result ${resultId} updated successfully in database`);
 
         } catch (error) {
             logger.error(`Error updating match result ${resultId}:`, error);
@@ -564,7 +564,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.delete(`matchResult:${resultId}`);
-            logger.info(`Match result ${resultId} deleted from database successfully`);
+            logger.debug(`Match result ${resultId} deleted from database successfully`);
 
         } catch (error) {
             if ((error as any).code === 'P2025') {
@@ -591,7 +591,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`slotAssignment:${slotAssignment.id}`, 'dbStatus', 'SYNCED');
-            logger.info(`Slot assignment ${slotAssignment.id} created and synced to database successfully`);
+            logger.debug(`Slot assignment ${slotAssignment.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.warn(`Slot assignment ${slotData.id} already exists in database`);
@@ -613,7 +613,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.hset(`slotAssignment:${slotId}`, 'dbStatus', 'SYNCED');
-            logger.info(`Slot assignment ${slotId} updated successfully in database`);
+            logger.debug(`Slot assignment ${slotId} updated successfully in database`);
         } catch (error) {
             logger.error(`Error updating slot assignment ${slotId}:`, error);
             throw error;
@@ -626,7 +626,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
             });
 
             await redis.delete(`slotAssignment:${slotId}`);
-            logger.info(`Slot assignment ${slotId} deleted from database successfully`);
+            logger.debug(`Slot assignment ${slotId} deleted from database successfully`);
         } catch (error) {
             logger.error(`Error deleting slot assignment ${slotId}:`, error);
             throw error;
@@ -652,7 +652,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             await redis.hset(`stage:${tournamentStage.id}`, 'dbStatus', 'SYNCED');
             await redis.hset(`stage:${tournamentStage.id}`, 'dbSyncedAt', new Date().toISOString());
-            logger.info(`Tournament stage ${tournamentStage.id} created and synced to database successfully`);
+            logger.debug(`Tournament stage ${tournamentStage.id} created and synced to database successfully`);
         } catch (error) {
             if ((error as any).code === 'P2002') {
                 logger.error(`Tournament stage ${data.id} already exists in database`);
@@ -684,7 +684,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             await redis.hset(`stage:${entityId}`, 'dbStatus', 'SYNCED');
             await redis.hset(`stage:${entityId}`, 'dbSyncedAt', new Date().toISOString());
-            logger.info(`Tournament stage ${entityId} updated successfully in database`);
+            logger.debug(`Tournament stage ${entityId} updated successfully in database`);
         } catch (error) {
             logger.error(`Error updating tournament stage ${entityId}:`, error);
             await redis.hset(`stage:${entityId}`, 'dbStatus', 'ERROR');
@@ -700,7 +700,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
             // Clean up Redis cache
             await redis.delete(`stage:${entityId}`);
-            logger.info(`Tournament stage ${entityId} deleted from database successfully`);
+            logger.debug(`Tournament stage ${entityId} deleted from database successfully`);
         } catch (error) {
             logger.error(`Error deleting tournament stage ${entityId}:`, error);
             throw error;

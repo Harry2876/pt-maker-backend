@@ -16,7 +16,7 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
     protected async processJob(job: Job<OTPSendingJob>): Promise<void> {
         const { phoneNumber, otp, type, userId } = job.data;
 
-        logger.info(`Processing OTP job for user ${userId} with phone ${phoneNumber} and type ${type}`);
+        logger.debug(`Processing OTP job for user ${userId} type=${type}`);
 
         try {
             //store otp in redis for verification
@@ -51,9 +51,7 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
         };
         const success = await redis.setObject(key, otpData, ttl);
 
-        if (success) {
-            logger.info(`✅ OTP stored in Redis for phone ${normalizedPhone}`);
-        } else {
+        if (!success) {
             logger.error(`❌ Failed to store OTP in Redis for phone ${normalizedPhone}`);
         }
     }
@@ -64,19 +62,16 @@ export class OTPWorker extends BaseWorker<OTPSendingJob> {
             const success = await whatsappService.sendOTP(phoneNumber, otp);
 
             if (success) {
-                logger.info(`✅ WhatsApp OTP sent successfully to ${phoneNumber} for ${type}`);
+                logger.debug(`✅ WhatsApp OTP sent to ${phoneNumber} for ${type}`);
                 return true;
             }
 
-            // Fallback: Log for development (keep your existing log)
-            logger.info(`🔧 Fallback: OTP ${otp} for ${type} to phone ${phoneNumber} is Valid for 3 Mins`);
+            // WhatsApp failed — log a warn so we know the fallback fired, but never expose OTP
+            logger.warn(`WhatsApp OTP delivery failed for ${phoneNumber} (type=${type}), fallback triggered`);
             return true;
 
         } catch (error) {
             logger.error(`❌ Failed to send OTP via WhatsApp to ${phoneNumber}`, error);
-
-            // Still return true so registration continues
-            logger.info(`📱 Development mode: OTP ${otp} for ${type} to ${phoneNumber}`);
             return true;
         }
     }

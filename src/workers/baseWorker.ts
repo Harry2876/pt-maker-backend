@@ -28,14 +28,14 @@ export abstract class BaseWorker<T = any> {
             ...options,
         };
 
-        logger.info(`🔧 Initializing ${this.workerName} with concurrency: ${workerOptions.concurrency}`);
+        logger.debug(`🔧 Initializing ${this.workerName} with concurrency: ${workerOptions.concurrency}`);
 
 
         try {
             this.worker = new Worker(queueName, this.processJob.bind(this), workerOptions);
             this.setupEventHandlers();
             this.setupConnectionRetry();
-            logger.info(`✅ ${this.workerName} initialized and ready to process jobs`);
+            logger.debug(`✅ ${this.workerName} initialized and ready to process jobs`);
         } catch (error) {
             logger.error(`❌ ${this.workerName} failed to initialize:`, error);
             throw error;
@@ -81,19 +81,19 @@ export abstract class BaseWorker<T = any> {
             logger.info(`🔌 ${this.workerName} connection closed`);
         });
 
-        logger.info(`🔌 ${this.workerName} connection monitoring setup complete`);
+        logger.debug(`🔌 ${this.workerName} connection monitoring setup complete`);
     }
 
     private setupEventHandlers(): void {
         this.worker.on('ready', () => {
-            logger.info(`🟢 ${this.workerName} is ready and waiting for jobs`);
+            logger.debug(`🟢 ${this.workerName} is ready and waiting for jobs`);
         });
 
         this.worker.on('completed', (job) => {
             try {
                 if (job) {
                     this.jobsProcessed++;
-                    logger.info(`✅ ${this.workerName} completed job ${job.id} in queue ${job.queueName} | Total processed: ${this.jobsProcessed}`);
+                    logger.debug(`✅ ${this.workerName} completed job ${job.id} in queue ${job.queueName} | Total processed: ${this.jobsProcessed}`);
                 }
             } catch (error) {
                 logger.error(`Error in completed handler:`, error);
@@ -131,7 +131,7 @@ export abstract class BaseWorker<T = any> {
                     });
 
                     // Don't let the worker die, just log the error
-                    logger.info(`🔄 ${this.workerName} continuing operation after error...`);
+                    logger.debug(`🔄 ${this.workerName} continuing operation after error...`);
                 }
             } catch (handlerError) {
                 console.error(`Critical error in error handler:`, handlerError);
