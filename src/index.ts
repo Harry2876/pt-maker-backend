@@ -128,7 +128,21 @@ async function initializeServices() {
     await initializeServices();
 })();
 
-// Add graceful shutdown
+// Capture unhandled crashes before the process dies
+process.on('uncaughtException', (error) => {
+    logger.error('💥 Uncaught Exception — process will exit', error);
+    Sentry.captureException(error, { tags: { type: 'uncaughtException' } });
+    Sentry.flush(10000).finally(() => process.exit(1));
+});
+
+process.on('unhandledRejection', (reason) => {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    logger.error('💥 Unhandled Promise Rejection', error);
+    Sentry.captureException(error, { tags: { type: 'unhandledRejection' } });
+    Sentry.flush(10000).finally(() => process.exit(1));
+});
+
+// Graceful shutdown
 process.on('SIGTERM', async () => {
     logger.info('🛑 Received SIGTERM, shutting down gracefully');
     await workersManager.stopAllWorkers();

@@ -58,7 +58,7 @@ const transports: any[] = [
   }),
 ];
 
-// Sentry transport receives ALL levels — filtered independently
+// Sentry transport receives info+ only — debug stays local
 if (process.env.SENTRY_DSN) {
   transports.push(new SentryTransport());
 }

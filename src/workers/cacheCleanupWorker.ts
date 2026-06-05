@@ -39,24 +39,21 @@ export class CacheCleanupWorker extends BaseWorker<CacheCleanupData> {
     private async performLRUCleanup(options: { maxSessions?: number } = {}): Promise<void> {
         try {
             const maxSessions = options.maxSessions || 10000;
-            
-            // Get memory usage using the queue connection
-            const memoryInfo = await redis.getQueueConnection().info('memory');
-            logger.info(`Redis memory usage before cleanup: ${memoryInfo}`);
 
-            // Get sessions to evict
             const sessionsToEvict = await CacheManager.getSessionsToEvict(maxSessions);
-            
-            if (sessionsToEvict.length > 0) {
-                await CacheManager.evictSessions(sessionsToEvict);
-                logger.info(`LRU cleanup completed: evicted ${sessionsToEvict.length} sessions`);
-            } else {
-                logger.info('LRU cleanup: no sessions need eviction');
-            }
 
-            // Log memory usage after cleanup
-            const memoryAfter = await redis.getQueueConnection().info('memory');
-            logger.info(`Redis memory usage after cleanup: ${memoryAfter}`);
+            if (sessionsToEvict.length > 0) {
+                // Extract just used_memory_human from the raw Redis INFO output
+                const extractMemory = (info: string) =>
+                    info.match(/used_memory_human:(\S+)/)?.[1] ?? 'unknown';
+
+                const memBefore = extractMemory(await redis.getQueueConnection().info('memory'));
+                await CacheManager.evictSessions(sessionsToEvict);
+                const memAfter = extractMemory(await redis.getQueueConnection().info('memory'));
+
+                logger.info(`LRU cleanup: evicted ${sessionsToEvict.length} sessions | memory ${memBefore} → ${memAfter}`);
+            }
+            // No log when nothing to evict — it's the normal/expected case
 
         } catch (error) {
             logger.error('LRU cleanup failed:', error);
@@ -76,7 +73,7 @@ export class CacheCleanupWorker extends BaseWorker<CacheCleanupData> {
                     for (const key of keys) {
                         await redis.delete(key);
                     }
-                    logger.info(`Cleaned up ${keys.length} expired keys for pattern ${pattern}`);
+                    logger.debug(`Cleaned up ${keys.length} expired keys for pattern ${pattern}`);
                 }
             }
         } catch (error) {
@@ -86,12 +83,12 @@ export class CacheCleanupWorker extends BaseWorker<CacheCleanupData> {
     }
 
     public async start(): Promise<void> {
-        logger.info('🧹 Cache Cleanup Worker started');
+        logger.debug('🧹 Cache Cleanup Worker started');
     }
 
     public async stop(): Promise<void> {
         await this.worker.close();
-        logger.info('🧹 Cache Cleanup Worker stopped');
+        logger.debug('🧹 Cache Cleanup Worker stopped');
     }
 }
 

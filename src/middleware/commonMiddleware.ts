@@ -92,10 +92,12 @@ export const handleControllerError = (
     const errorMessage = error instanceof Error ? error.message : `Failed to ${operation}`;
     logger.error(`${operation} Error:`, error);
 
-    return res.status(500).json({
-        success: false,
-        message: errorMessage
-    });
+    Sentry.captureException(error, { tags: { operation } });
+    Sentry.flush(10000).catch(() => {});
+
+    return res.status(500).json(ResponseHelper.serverError(
+        process.env.NODE_ENV === 'development' ? errorMessage : 'Something went wrong'
+    ));
 };
 
 // Async wrapper to catch errors automatically
@@ -117,8 +119,7 @@ export const globalErrorHandler = (
     // Send to Sentry — only real server errors, not expected client errors
     if (!error.status || error.status >= 500) {
         Sentry.captureException(error);
-        // Flush so the event is sent before the response is returned
-        Sentry.flush(2000).catch(() => {});
+        Sentry.flush(10000).catch(() => {});
     }
 
     return res.status(error.status ?? 500).json(
