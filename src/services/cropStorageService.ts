@@ -84,7 +84,7 @@ export class CropStorageService extends BaseService {
             }
 
             // STEP 1: Auto-process any unprocessed screenshots first
-            await this.autoProcessMatchScreenshots(quickMatchId);
+            await this.autoProcessMatchScreenshots(quickMatchId, userId);
 
             // STEP 2: Get existing crops from cache/database
             const cacheKey = `crops:match:${quickMatchId}`;
@@ -181,7 +181,7 @@ export class CropStorageService extends BaseService {
      * Auto-process all unprocessed screenshots for a match.
      * Batches attendance and result screenshots separately and uploads crops to R2.
      */
-    private async autoProcessMatchScreenshots(quickMatchId: string): Promise<void> {
+    private async autoProcessMatchScreenshots(quickMatchId: string, userId: string): Promise<void> {
         try {
             // Check if any crops already exist to avoid re-processing
             const existingCrops = await this.db.quickMatchCrop.count({
@@ -189,13 +189,13 @@ export class CropStorageService extends BaseService {
             });
             if (existingCrops > 0) return;
 
-            // Fetch all screenshots regardless of processed status — crops are independent of OCR
+            // Fetch all screenshots — pass userId so ownership check passes
             const attendanceShots = await unifiedScreenshotService.listScreenshots(
-                'quick-pt', quickMatchId, '', { type: 'ATTENDANCE' }
+                'quick-pt', quickMatchId, userId, { type: 'ATTENDANCE' }
             ).catch(() => []);
 
             const resultShots = await unifiedScreenshotService.listScreenshots(
-                'quick-pt', quickMatchId, '', { type: 'RESULT' }
+                'quick-pt', quickMatchId, userId, { type: 'RESULT' }
             ).catch(() => []);
 
             const processGroup = async (
@@ -338,7 +338,7 @@ export class CropStorageService extends BaseService {
             }
 
             // STEP 1: Auto-process any unprocessed screenshots first
-            await this.autoProcessMatchScreenshots(quickMatchId);
+            await this.autoProcessMatchScreenshots(quickMatchId, userId);
 
             // STEP 2: Get existing crops from cache/database
             const cacheKey = `crops:match:${quickMatchId}`;
