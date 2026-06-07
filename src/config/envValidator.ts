@@ -34,6 +34,9 @@ const envSchema = z.object({
   PRODUCTION_DOMAIN: z.string().optional(),
 
 
+  // Python AI Service
+  PYTHON_AI_BASE_URL: z.string().url('Invalid PYTHON_AI_BASE_URL').optional().default('http://localhost:8000'),
+
   // Security settings
   ALLOWED_ORIGINS: z.string().optional(),
   PRODUCTION_ORIGINS: z.string().optional(),

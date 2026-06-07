@@ -46,6 +46,9 @@ export class QuickSlotService extends BaseService {
             // 4. Generate slot ID
             const slotId = randomUUID();
 
+            // Whether this slot is being created from an attendance scan
+            const fromAttendance = !!(data.playerNames && data.playerNames.length > 0);
+
             // 5. Create slot object
             const slot: QuickSlotCache = {
                 id: slotId,
@@ -53,11 +56,11 @@ export class QuickSlotService extends BaseService {
                 slotNumber: data.slotNumber,
                 teamName: data.teamName,
                 playerNames: data.playerNames,
-                status: 'PENDING',
-                detectedInAttendance: false,
+                status: fromAttendance ? 'DETECTED' : 'PENDING',
+                detectedInAttendance: fromAttendance,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                dbStatus: 'SYNCED' // Direct DB write, so it's synced
+                dbStatus: 'SYNCED'
             };
 
             // 6. Store directly in database (no queue needed)
@@ -67,7 +70,9 @@ export class QuickSlotService extends BaseService {
                     quickMatchId,
                     slotNumber: data.slotNumber,
                     teamName: data.teamName,
-                    status: 'DETECTED',
+                    ...(data.playerNames?.length && { playerNames: data.playerNames as any }),
+                    status: fromAttendance ? 'DETECTED' : 'PENDING',
+                    detectedInAttendance: fromAttendance,
                     createdAt: new Date(),
                     updatedAt: new Date()
                 }
@@ -314,8 +319,11 @@ export class QuickSlotService extends BaseService {
             await this.db.quickSlotAssignment.update({
                 where: { id: slotId },
                 data: {
-                    teamName: data.teamName,
-                    status: 'DETECTED',
+                    ...(data.teamName !== undefined && { teamName: data.teamName }),
+                    ...(data.status !== undefined && { status: data.status }),
+                    ...(data.detectedInAttendance !== undefined && { detectedInAttendance: data.detectedInAttendance }),
+                    ...(data.playerNames !== undefined && { playerNames: data.playerNames as any }),
+                    status: data.status ?? 'DETECTED',
                     updatedAt: new Date()
                 }
             });

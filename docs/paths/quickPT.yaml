@@ -13,12 +13,21 @@ paths:
       tags: [Quick-PT]
       summary: Create a Quick Match
       description: |
-        Creates a Quick Match with custom scoring configuration.
+        Creates a Quick Match with a custom scoring configuration.
+        This is always **Step 1** of the Quick PT flow.
 
-        **Typical workflow:**
-        1. Create match → 2. Upload slots (text parse or manual) → 3. Upload screenshots
-        → 4. Process with AI (`/process/attendance` then `/process/results`)
-        → 5. Export points table (`/export`)
+        **Complete flow (all steps):**
+        1. **Create match** ← you are here
+        2. *(Optional)* `POST /slots/parse` — pre-set team names by slot number
+        3. `POST /screenshots?type=ATTENDANCE` — upload attendance images (≤ 3)
+        4. `POST /screenshots?type=RESULT` — upload result images (≤ 9)
+        5. `POST /process` with `{ "type": "ATTENDANCE" }` — OCR attendance
+        6. `POST /process` with `{ "type": "RESULT" }` — OCR results + calculate points
+        7. `GET /results` — verify final standings
+        8. `GET /templates` → `POST /export` — generate standings PNG
+        9. Receive `signedImageUrl` — valid 30 minutes
+        → 5. Process results (`/process` with `type: "RESULT"`)
+        → 6. Export points table (`/export`)
       security:
         - bearerAuth: []
       requestBody:
@@ -704,22 +713,62 @@ paths:
   # AI PROCESSING
   # ══════════════════════════════════════════════════════════
 
-  /quick-pt/matches/{id}/process/attendance:
+  /quick-pt/matches/{id}/process:
     post:
       tags: [Quick-PT Processing]
-      summary: Process attendance screenshots with AI
+      summary: Process match screenshots with Python AI
       description: |
-        Sends uploaded attendance screenshots to the Python AI service for player/team detection.
-        Detected teams are automatically created as slots (or update existing ones).
+        Unified endpoint for all screenshot processing steps. Forwards uploaded screenshots
+        to the Python AI service and writes the extracted data back to the database.
 
-        **Prerequisites:** At least one ATTENDANCE screenshot must be uploaded first.
+        ### Processing types
+
+        | `type` | Description |
+        |---|---|
+        | `ATTENDANCE` | Sends attendance screenshots to Python AI OCR. Detects slot numbers and full player rosters. Creates slot records in the DB with `playerNames` stored for later matching. |
+        | `RESULT` | Sends result screenshots to Python AI OCR. Extracts team rankings and kill counts. Matches result teams to attendance slots using **fuzzy roster comparison** (see below). Calculates points. Writes results to DB. |
+        | `COMPLETE` *(default)* | Runs `ATTENDANCE` then `RESULT` sequentially in one request. |
+
+        ### Image types
+        - **Attendance screenshots** (`expanded_layout`) — taken before the match. Each image shows
+          ~6 teams with their slot numbers and full player lists.
+        - **Result screenshots** (`compact_layout`) — taken after the match ends. Each image shows
+          ~2–3 teams with their final rank and per-player kill count.
+
+        Python AI auto-detects layout type from the screenshot — no need to specify.
+
+        ### Roster-based team matching (RESULT step)
+        Because OCR can vary between image types, teams are matched by comparing **all player names**
+        across the result screenshot against the player names stored during the attendance step.
+        The algorithm uses:
+        - Exact normalised match
+        - Prefix match (≥ 4 chars)
+        - Levenshtein distance ≤ 2 (for names > 5 chars)
+
+        The slot with the highest number of matched players wins. Unmatched teams appear in `warnings`.
+
+        ### Prerequisites
+        - Screenshots must be uploaded before processing (`POST /quick-pt/matches/{id}/screenshots`).
+        - Attendance must be processed before results — slot records must exist for team matching.
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [ATTENDANCE, RESULT, COMPLETE]
+                  default: COMPLETE
+                  description: "Which processing step to run"
+                  example: "ATTENDANCE"
       responses:
         "200":
-          description: Attendance processed
+          description: Processing completed successfully
           content:
             application/json:
               schema:
@@ -733,201 +782,53 @@ paths:
                     example: "Attendance processed successfully"
                   data:
                     type: object
-                    properties:
-                      slotsDetected:
-                        type: integer
-                        description: "Total unique slots detected across all screenshots"
-                        example: 16
-                      slotsCreated:
-                        type: integer
-                        description: "New slots created in database"
-                        example: 14
-                      warnings:
-                        type: array
-                        description: "Non-fatal issues encountered during processing"
-                        items:
-                          $ref: "#/components/schemas/ProcessingWarning"
-                      processingTimeMs:
-                        type: integer
-                        description: "Total processing time in milliseconds"
-                        example: 4250
-                      confidence:
-                        type: object
-                        properties:
-                          overall:
-                            type: number
-                            format: float
-                            minimum: 0
-                            maximum: 1
-                            description: "Fraction of screenshots processed successfully"
-                            example: 0.95
-                          slotExtraction:
-                            type: number
-                            format: float
-                            minimum: 0
-                            maximum: 1
-                            example: 0.95
-                  meta:
-                    $ref: "#/components/schemas/MetaObject"
-        "400":
-          description: "No attendance screenshots found or match not found"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "500":
-          $ref: "#/components/responses/ServerError"
-
-  /quick-pt/matches/{id}/process/results:
-    post:
-      tags: [Quick-PT Processing]
-      summary: Process result screenshots with AI
-      description: |
-        Sends uploaded result screenshots to the Python AI service for rank and kill extraction.
-        Results are matched against existing slots and points are calculated automatically.
-
-        **Prerequisites:** Attendance must be processed first (slots must exist).
-        At least one RESULT screenshot must be uploaded.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/MatchId"
-      responses:
-        "200":
-          description: Results processed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Results processed successfully"
-                  data:
-                    type: object
-                    properties:
-                      resultsCreated:
-                        type: integer
-                        description: "Number of result records successfully created"
-                        example: 16
-                      resultsProcessed:
-                        type: integer
-                        description: "Total unique results extracted from screenshots"
-                        example: 16
-                      warnings:
-                        type: array
-                        description: "Non-fatal issues — unmatched teams, low confidence, etc."
-                        items:
-                          $ref: "#/components/schemas/ProcessingWarning"
-                      processingTimeMs:
-                        type: integer
-                        description: "Total processing time in milliseconds"
-                        example: 6800
-                      confidence:
-                        type: object
-                        properties:
-                          overall:
-                            type: number
-                            format: float
-                            minimum: 0
-                            maximum: 1
-                            example: 0.88
-                          resultExtraction:
-                            type: number
-                            format: float
-                            minimum: 0
-                            maximum: 1
-                            example: 0.88
-                  meta:
-                    $ref: "#/components/schemas/MetaObject"
-        "400":
-          description: "No result screenshots found or no teams detected yet"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "500":
-          $ref: "#/components/responses/ServerError"
-
-  /quick-pt/matches/{id}/process/complete:
-    post:
-      tags: [Quick-PT Processing]
-      summary: Run full pipeline — attendance then results in sequence
-      description: |
-        Convenience endpoint that runs attendance processing followed by result processing in sequence.
-        Match status is set to `COMPLETED` on success.
-
-        **Prerequisites:** Both ATTENDANCE and RESULT screenshots must be uploaded.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/MatchId"
-      responses:
-        "200":
-          description: Processing complete
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Match processing completed successfully"
-                  data:
-                    type: object
-                    properties:
-                      attendanceResult:
-                        type: object
-                        description: "Output from attendance processing step"
+                    description: "Shape varies by type. See examples below."
+                    oneOf:
+                      - title: ATTENDANCE response
                         properties:
                           slotsDetected:
                             type: integer
+                            description: "Teams detected by Python AI across all screenshots"
                             example: 16
                           slotsCreated:
                             type: integer
-                            example: 16
+                            description: "New slot records created in the database"
+                            example: 14
                           warnings:
                             type: array
+                            description: "Non-fatal issues (e.g. slot already exists, low confidence)"
                             items:
                               $ref: "#/components/schemas/ProcessingWarning"
                           processingTimeMs:
                             type: integer
-                            example: 4200
+                            example: 4250
                           confidence:
                             type: object
                             properties:
                               overall:
                                 type: number
+                                format: float
+                                minimum: 0
+                                maximum: 1
+                                description: "Fraction of screenshots successfully processed"
                                 example: 1.0
                               slotExtraction:
                                 type: number
+                                format: float
                                 example: 1.0
-                      resultProcessingResult:
-                        type: object
-                        description: "Output from result processing step"
+                      - title: RESULT response
                         properties:
                           resultsCreated:
                             type: integer
+                            description: "Result records written to database"
                             example: 16
                           resultsProcessed:
                             type: integer
+                            description: "Teams extracted from all result screenshots"
                             example: 16
                           warnings:
                             type: array
+                            description: "Non-fatal issues (e.g. team not matched to an existing slot)"
                             items:
                               $ref: "#/components/schemas/ProcessingWarning"
                           processingTimeMs:
@@ -938,18 +839,66 @@ paths:
                             properties:
                               overall:
                                 type: number
+                                format: float
+                                minimum: 0
+                                maximum: 1
                                 example: 0.88
                               resultExtraction:
                                 type: number
+                                format: float
                                 example: 0.88
-                      totalProcessingTimeMs:
-                        type: integer
-                        description: "Total wall-clock time for both steps combined"
-                        example: 11000
+                      - title: COMPLETE response
+                        properties:
+                          attendanceResult:
+                            type: object
+                            description: "Output from ATTENDANCE step"
+                            properties:
+                              slotsDetected:
+                                type: integer
+                                example: 16
+                              slotsCreated:
+                                type: integer
+                                example: 16
+                              warnings:
+                                type: array
+                                items:
+                                  $ref: "#/components/schemas/ProcessingWarning"
+                              processingTimeMs:
+                                type: integer
+                                example: 4200
+                          resultProcessingResult:
+                            type: object
+                            description: "Output from RESULT step"
+                            properties:
+                              resultsCreated:
+                                type: integer
+                                example: 16
+                              resultsProcessed:
+                                type: integer
+                                example: 16
+                              warnings:
+                                type: array
+                                items:
+                                  $ref: "#/components/schemas/ProcessingWarning"
+                              processingTimeMs:
+                                type: integer
+                                example: 6800
+                          totalProcessingTimeMs:
+                            type: integer
+                            description: "Total wall-clock time for both steps"
+                            example: 11000
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "400":
-          $ref: "#/components/responses/ValidationError"
+          description: |
+            - No screenshots found for the requested type
+            - Wrong image type (e.g. attendance screenshot sent for `RESULT` step)
+            - Invalid `type` value
+            - No slots found when trying to process results (attendance not done yet)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           $ref: "#/components/responses/UnauthorizedError"
         "404":
@@ -1412,14 +1361,36 @@ paths:
   /quick-pt/matches/{id}/export:
     post:
       tags: [Quick-PT Export]
-      summary: Generate standings table image
+      summary: Generate standings table image (Python AI)
       description: |
-        Calls the Python AI service to render a professional standings table image.
-        Returns a signed URL valid for 30 minutes.
+        Generates a professional tournament standings PNG using the Python AI image service.
+        Returns a **signed Cloudflare R2 URL valid for 30 minutes**.
 
-        **Available templates:** `16_teams/template1`, `24_teams/template1`, `24_teams/template2`, `32_teams/template1`
+        ### How it works internally
+        1. Node.js loads match results from the DB and ranks them.
+        2. Node.js looks up the requested template in R2 and fetches its raw URL + config URL.
+        3. Both URLs (plus team data and all overrides) are forwarded to the Python AI service.
+        4. Python AI renders the image, uploads it to R2, and returns the raw R2 URL.
+        5. Node.js signs the URL and returns it to the client.
 
-        **Prerequisites:** Match must have results.
+        > The client never talks to Python AI directly. Node.js is the only entry point.
+
+        ### Step-by-step for integrators
+        1. **Get templates:** `GET /quick-pt/templates` → note the `name` and category key.
+        2. **Choose template:** e.g. `name = "tmplate_2"`, category = `"16_teams"`.
+        3. **POST here** with `{ "template": "tmplate_2", "formatType": "16_teams" }`.
+        4. **Receive** `data.signedImageUrl` — render this directly in the app.
+        5. **Re-export** any time to regenerate (overwrites the previous record).
+
+        > **Field name note:** The body field is `template`, not `templateName`.
+
+        ### Appearance customization
+        All fields after `formatType` are optional. Use `elementOverrides` to change
+        the text/colour of overlaid labels (event name, organiser, etc.) and `columnOverrides`
+        to tweak individual column colours or weights. See the request schema for exact key names.
+
+        ### Prerequisites
+        - Match must have processed results (`POST /process` with `RESULT` or `COMPLETE`).
       security:
         - bearerAuth: []
       parameters:
@@ -1428,21 +1399,10 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                template:
-                  type: string
-                  example: "24_teams/template1"
-                formatType:
-                  type: string
-                  enum: [16_teams, 24_teams, 32_teams]
-                  example: "24_teams"
-                outputFilename:
-                  type: string
-                  example: "tournament_standings.png"
+              $ref: "#/components/schemas/ExportRequest"
       responses:
         "200":
-          description: Standings table generated
+          description: Standings image generated and uploaded to R2
           content:
             application/json:
               schema:
@@ -1455,38 +1415,15 @@ paths:
                     type: string
                     example: "Standings table exported successfully"
                   data:
-                    type: object
-                    properties:
-                      pointsTableId:
-                        type: string
-                        format: uuid
-                      signedImageUrl:
-                        type: string
-                        format: uri
-                        description: "Signed URL valid for 30 minutes"
-                      originalImageUrl:
-                        type: string
-                        format: uri
-                        description: "Permanent R2 URL (unsigned)"
-                      templateUsed:
-                        type: string
-                        example: "24_teams/template1"
-                      formatType:
-                        type: string
-                        example: "24_teams"
-                      teamsProcessed:
-                        type: integer
-                        example: 24
-                      quickMatchId:
-                        type: string
-                        format: uuid
-                      createdAt:
-                        type: string
-                        format: date-time
+                    $ref: "#/components/schemas/ExportResponse"
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "400":
-          $ref: "#/components/responses/ValidationError"
+          description: "No results found or template not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           $ref: "#/components/responses/UnauthorizedError"
         "404":
@@ -1615,7 +1552,10 @@ paths:
   /quick-pt/matches/{id}/points-table/regenerate:
     post:
       tags: [Quick-PT Export]
-      summary: Regenerate points table with a new template
+      summary: Regenerate standings image (clear cache + re-export)
+      description: |
+        Deletes the cached export and regenerates the standings image. Accepts the same fields as `POST /export`.
+        Use this when you want a different template or updated customisation without creating a new match.
       security:
         - bearerAuth: []
       parameters:
@@ -1624,15 +1564,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                template:
-                  type: string
-                  example: "24_teams/template2"
-                formatType:
-                  type: string
-                  enum: [16_teams, 24_teams, 32_teams]
-                  example: "24_teams"
+              $ref: "#/components/schemas/ExportRequest"
       responses:
         "200":
           description: Points table regenerated
@@ -1648,7 +1580,7 @@ paths:
                     type: string
                     example: "Points table regenerated successfully"
                   data:
-                    $ref: "#/components/schemas/PointsTableObject"
+                    $ref: "#/components/schemas/ExportResponse"
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "400":
@@ -2564,225 +2496,19 @@ paths:
           $ref: "#/components/responses/ServerError"
 
   # ══════════════════════════════════════════════════════════
-  # SYSTEM
+  # TEMPLATES
   # ══════════════════════════════════════════════════════════
-
-  /quick-pt/engines:
-    get:
-      tags: [Quick-PT System]
-      summary: Get available OCR engines
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Engines retrieved
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Available engines retrieved successfully"
-                  data:
-                    type: object
-                    properties:
-                      engines:
-                        type: array
-                        items:
-                          type: string
-                        example: ["paddleocr", "easyocr", "tesseract"]
-                  meta:
-                    $ref: "#/components/schemas/MetaObject"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "500":
-          $ref: "#/components/responses/ServerError"
-
-  /quick-pt/engines/status:
-    get:
-      tags: [Quick-PT System]
-      summary: Get OCR engine health status
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Engine status retrieved
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Engine status retrieved successfully"
-                  data:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum: [healthy, degraded, unhealthy]
-                        example: "healthy"
-                      engines:
-                        type: object
-                        additionalProperties:
-                          type: string
-                          enum: [up, down, limited]
-                  meta:
-                    $ref: "#/components/schemas/MetaObject"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "500":
-          $ref: "#/components/responses/ServerError"
-
-  /quick-pt/health:
-    get:
-      tags: [Quick-PT System]
-      summary: Quick PT system health check
-      description: |
-        Checks all downstream dependencies: Python AI API, PostgreSQL, Cloudflare R2, BullMQ workers.
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: System healthy or degraded
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Health status retrieved successfully"
-                  data:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum: [healthy, degraded, unhealthy]
-                        example: "healthy"
-                      message:
-                        type: string
-                        example: "All systems operational"
-                      timestamp:
-                        type: string
-                        format: date-time
-                      services:
-                        type: object
-                        properties:
-                          aiProcessing:
-                            type: object
-                            properties:
-                              status:
-                                type: string
-                                enum: [up, down, limited]
-                              responseTime:
-                                type: number
-                                example: 250.5
-                              queueLength:
-                                type: integer
-                                example: 2
-                          database:
-                            type: object
-                            properties:
-                              status:
-                                type: string
-                                enum: [up, down]
-                              responseTime:
-                                type: number
-                                example: 45.2
-                          storage:
-                            type: object
-                            properties:
-                              status:
-                                type: string
-                                enum: [up, down]
-                              responseTime:
-                                type: number
-                              uploadsToday:
-                                type: integer
-                                example: 48
-                          backgroundJobs:
-                            type: object
-                            properties:
-                              status:
-                                type: string
-                                enum: [up, down]
-                              activeWorkers:
-                                type: integer
-                                example: 3
-                              pendingJobs:
-                                type: integer
-                                example: 1
-                      systemMetrics:
-                        type: object
-                        properties:
-                          uptime:
-                            type: number
-                            description: "Server uptime in seconds"
-                            example: 86400
-                          memoryUsage:
-                            type: object
-                            properties:
-                              used:
-                                type: number
-                                example: 512.5
-                              total:
-                                type: number
-                                example: 2048
-                              percentage:
-                                type: number
-                                example: 25.02
-                          cpuUsage:
-                            type: number
-                            example: 15.6
-                  meta:
-                    $ref: "#/components/schemas/MetaObject"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "503":
-          description: System unhealthy
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: false
-                  message:
-                    type: string
-                    example: "System is unhealthy"
-                  data:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        example: "unhealthy"
-                      errors:
-                        type: array
-                        items:
-                          type: string
-                        example: ["AI service unavailable"]
-                  meta:
-                    $ref: "#/components/schemas/MetaObject"
 
   /quick-pt/templates:
     get:
       tags: [Quick-PT System]
       summary: Get all available PT template images
       description: |
-        Templates are organized by format category: `16_teams`, `24_teams`, `32_teams`.
-        Returned with signed URLs (30-min expiry). Results are Redis-cached for 10 minutes.
+        Templates are organized by format category: `8_teams`, `16_teams`, `24_teams`.
+        Each template has a `name` (e.g. `tmplate_1`) and `signedUrl`/`previewUrl` for display.
+        Pass the `name` and the category key as `formatType` when calling `/export`.
+
+        Signed URLs expire in 30 minutes. Results are Redis-cached for 1 hour.
       security:
         - bearerAuth: []
       responses:
@@ -2804,25 +2530,26 @@ paths:
                     properties:
                       templates:
                         type: object
-                        properties:
-                          16_teams:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/TemplateInfo"
-                          24_teams:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/TemplateInfo"
-                          32_teams:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/TemplateInfo"
+                        description: "Keys are format categories (e.g. '8_teams', '16_teams', '24_teams')"
+                        additionalProperties:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/TemplateInfo"
+                        example:
+                          "16_teams":
+                            - name: "tmplate_1"
+                              signedUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800..."
+                              previewUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800..."
+                              configUrl: "https://pub-xxx.r2.dev/templates/16_teams/templateConfig_1.json?X-Amz-Expires=1800..."
+                              category: "16_teams"
+                              fullPath: "16_teams/tmplate_1"
+                              originalExtension: "jpeg"
                       totalTemplates:
                         type: integer
-                        example: 15
+                        example: 6
                       cacheExpiry:
                         type: integer
-                        description: "Unix timestamp (ms) when the cached list expires"
+                        description: "Unix timestamp (ms) when the template cache expires"
                         example: 1733323200000
                   meta:
                     $ref: "#/components/schemas/MetaObject"
@@ -2858,6 +2585,188 @@ components:
       example: "550e8400-e29b-41d4-a716-446655440002"
 
   schemas:
+
+    # ── Export ───────────────────────────────────────────────
+
+    ExportRequest:
+      type: object
+      description: |
+        Request body for generating a standings table image via Python AI.
+
+        **Required:** `template` + `formatType` (both come from `GET /quick-pt/templates`).
+        All other fields are optional styling overrides.
+
+        > **Important:** Use the field name `template` (not `templateName`) when sending the request body.
+      properties:
+        template:
+          type: string
+          description: |
+            Template name from `GET /quick-pt/templates`.
+            Must be the exact `name` field of a template object (e.g. `tmplate_2`).
+          example: "tmplate_2"
+        formatType:
+          type: string
+          enum: [8_teams, 16_teams, 24_teams]
+          description: |
+            Category key from `GET /quick-pt/templates` (top-level key of the `templates` object).
+            Must match the category the chosen template belongs to.
+          example: "16_teams"
+        outputFilename:
+          type: string
+          description: "Custom filename for the generated PNG stored in R2. Defaults to a timestamp-based name."
+          example: "scrims_day1_standings.png"
+        tableFontSize:
+          type: number
+          nullable: true
+          description: "Global font size (px) for all table data rows. Leave null to use the template default."
+          example: 75
+        tableHeaderFontSize:
+          type: number
+          nullable: true
+          description: "Global font size (px) for the table header row."
+          example: 65
+        tableHeaderLabelMode:
+          type: string
+          nullable: true
+          enum: [full, abbr, initial]
+          description: |
+            Controls how column headers are labelled:
+            - `full` — full text (e.g. "Total Points")
+            - `abbr` — abbreviated (e.g. "Pts")
+            - `initial` — first letter only (e.g. "P")
+          example: "abbr"
+        rowHeightAdjust:
+          type: number
+          nullable: true
+          description: "Pixels to add (positive) or subtract (negative) from each table row height."
+          example: 0
+        elementOverrides:
+          type: object
+          nullable: true
+          description: |
+            Override rendering of named template elements (text overlays defined in the template config).
+
+            **Common element keys:** `event_name`, `organiser_name`, `sponsor_name`, `week_info`, `day_info`
+
+            Each value is a flat object — supported sub-keys depend on the element, but typical ones are:
+            - `size` — font size in px
+            - `color` — hex color string (`"#FFFFFF"`)
+            - `weight` — `"bold"` or `"normal"`
+            - `text` — override the displayed text
+            - `enabled` — `false` to hide the element entirely
+          additionalProperties:
+            type: object
+            additionalProperties: true
+          example:
+            event_name:
+              size: 85
+              color: "#FFFFFF"
+            sponsor_name:
+              size: 55
+              color: "#FFD700"
+            organiser_name:
+              size: 65
+              color: "#FFFFFF"
+        columnOverrides:
+          type: object
+          nullable: true
+          description: |
+            Override the appearance of individual table columns.
+
+            **Column keys** (defined in the template config — common ones):
+            `rank`, `team_name`, `slot_number`, `matches`, `position`, `kills`,
+            `total`, `chicken_dinner` (WWCD icon column)
+
+            Each value is a flat object with optional sub-keys:
+            - `color` — hex text color
+            - `weight` — `"bold"` or `"normal"`
+            - `size` — font size override for this column only
+          additionalProperties:
+            type: object
+            additionalProperties: true
+          example:
+            rank:
+              color: "#E0E0E0"
+            team_name:
+              color: "#FFFFFF"
+            chicken_dinner:
+              color: "#FFD700"
+            matches:
+              color: "#E0E0E0"
+            position:
+              color: "#87CEEB"
+            kills:
+              color: "#FF6B6B"
+            total:
+              color: "#FFD700"
+              weight: "bold"
+        advancedConfig:
+          type: object
+          nullable: true
+          description: |
+            Free-form config object passed directly to the Python AI service.
+            Use for fine-grained layout tweaks not covered by the above fields.
+            Shape is template-specific — inspect the `templateConfig_N.json` file for available keys.
+          additionalProperties: true
+          example:
+            footer:
+              live_indicator:
+                enabled: false
+
+    ExportResponse:
+      type: object
+      properties:
+        pointsTableId:
+          type: string
+          format: uuid
+          description: "DB ID for this export record"
+        signedImageUrl:
+          type: string
+          format: uri
+          description: "Signed Cloudflare R2 URL — valid for 30 minutes. Display this in the app."
+          example: "https://pub-xxx.r2.dev/pt-maker-screenshots/standings/match-abc.png?X-Amz-Expires=1800..."
+        originalImageUrl:
+          type: string
+          format: uri
+          description: "Raw (unsigned) R2 URL — permanent storage location"
+        r2Key:
+          type: string
+          description: "R2 object key for the generated image"
+        pngUrl:
+          type: string
+          format: uri
+          description: "Alias for signedImageUrl (backward compat)"
+        generationTimeMs:
+          type: integer
+          description: "Total time to generate and upload the image (ms)"
+          example: 8400
+        formatType:
+          type: string
+          example: "16_teams"
+        templateUsed:
+          type: string
+          description: "The template name that was used (echoes the `template` field from the request)"
+          example: "tmplate_2"
+        teamsProcessed:
+          type: integer
+          example: 16
+        standingsMetadata:
+          type: object
+          properties:
+            processing_time_seconds:
+              type: number
+              example: 8.4
+            image_dimensions:
+              type: string
+              example: "1920x1080"
+            template_source:
+              type: string
+            total_text_elements:
+              type: integer
+              example: 16
+            r2_upload_success:
+              type: boolean
+              example: true
 
     # ── Match ────────────────────────────────────────────────
 

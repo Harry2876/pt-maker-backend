@@ -23,7 +23,6 @@ import {
 } from '../validations/quickScreenshotValidation';
 import {
     quickResultParamsSchema,
-    processResultsSchema,
     exportPointsTableSchema
 } from '../validations/quickResultValidation';
 import {
@@ -1141,86 +1140,15 @@ quickPTRouter.delete(
 
 /**
  * @swagger
- * /api/v1/quick-pt/matches/{id}/process/attendance:
+ * /api/v1/quick-pt/matches/{id}/process:
  *   post:
  *     tags: [Quick-PT]
- *     summary: Process attendance screenshots with AI
- *     description: Send attendance screenshots to Python AI for player name detection and match with slots
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         example: "clx123abc456"
- *     responses:
- *       200:
- *         description: Attendance processed successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Attendance processed successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     teamsDetected:
- *                       type: integer
- *                       example: 16
- *                     teamsMatched:
- *                       type: integer
- *                       example: 15
- *                     teamsNotFound:
- *                       type: integer
- *                       example: 1
- *                     warnings:
- *                       type: array
- *                       items:
- *                         type: string
- *                       example: ["Slot 5: 60% player match (below 100%)"]
- *                     detectedPlayers:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           teamName:
- *                             type: string
- *                           players:
- *                             type: array
- *                             items:
- *                               type: string
- *                           slotNumber:
- *                             type: integer
- *                           matchQuality:
- *                             type: number
- *       400:
- *         description: No attendance screenshots found or processing error
- *       404:
- *         description: Match not found
- *       401:
- *         description: Unauthorized
- */
-quickPTRouter.post(
-    '/matches/:id/process/attendance',
-    validateRequest(quickMatchParamsSchema, 'params'),
-    QuickPTController.processAttendance
-);
-
-/**
- * @swagger
- * /api/v1/quick-pt/matches/{id}/process/results:
- *   post:
- *     tags: [Quick-PT]
- *     summary: Process result screenshots with AI
- *     description: Send result screenshots to Python AI for rankings, kills, and player name extraction
+ *     summary: Process match screenshots with Python AI
+ *     description: |
+ *       Unified endpoint for all screenshot processing.
+ *       - **ATTENDANCE** — Sends attendance screenshots (≤3) to Python AI; detects slot numbers and player names.
+ *       - **RESULT** — Sends result screenshots (≤9) to Python AI; extracts rankings, kills, and calculates points.
+ *       - **COMPLETE** (default) — Runs ATTENDANCE then RESULT in sequence.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1236,13 +1164,15 @@ quickPTRouter.post(
  *           schema:
  *             type: object
  *             properties:
- *               useGeminiFallback:
- *                 type: boolean
- *                 description: Use Google Gemini if primary AI fails
- *                 example: false
+ *               type:
+ *                 type: string
+ *                 enum: [ATTENDANCE, RESULT, COMPLETE]
+ *                 default: COMPLETE
+ *                 description: Which processing step to run
+ *                 example: "ATTENDANCE"
  *     responses:
  *       200:
- *         description: Results processed successfully
+ *         description: Processing completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1253,139 +1183,35 @@ quickPTRouter.post(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Results processed successfully"
  *                 data:
  *                   type: object
  *                   properties:
- *                     resultsCount:
+ *                     slotsDetected:
  *                       type: integer
- *                       example: 16
- *                     results:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           slotNumber:
- *                             type: integer
- *                           teamName:
- *                             type: string
- *                           position:
- *                             type: integer
- *                           kills:
- *                             type: integer
- *                           positionPoints:
- *                             type: integer
- *                           killPoints:
- *                             type: integer
- *                           totalPoints:
- *                             type: integer
- *                           playerNames:
- *                             type: array
- *                             items:
- *                               type: string
- *                           matchQuality:
- *                             type: number
+ *                       description: (ATTENDANCE only) number of teams detected
+ *                     slotsCreated:
+ *                       type: integer
+ *                       description: (ATTENDANCE only) new slots created in DB
+ *                     resultsCreated:
+ *                       type: integer
+ *                       description: (RESULT only) results written to DB
  *                     warnings:
  *                       type: array
  *                       items:
- *                         type: string
- *       400:
- *         description: No result screenshots found or processing error
- *       404:
- *         description: Match not found
- *       401:
- *         description: Unauthorized
- */
-quickPTRouter.post(
-    '/matches/:id/process/results',
-    validateRequest(quickMatchParamsSchema, 'params'),
-    validateRequest(processResultsSchema),
-    QuickPTController.processResults
-);
-
-/**
- * @swagger
- * /api/v1/quick-pt/matches/{id}/process/complete:
- *   post:
- *     tags: [Quick-PT]
- *     summary: Run complete processing workflow (attendance + results)
- *     description: Process attendance and results in sequence, then update match status to COMPLETED
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         example: "clx123abc456"
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               skipAttendance:
- *                 type: boolean
- *                 description: Skip attendance processing if already done
- *                 example: false
- *     responses:
- *       200:
- *         description: Complete processing finished successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Match processing completed successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     matchId:
- *                       type: string
- *                     status:
- *                       type: string
- *                       example: "COMPLETED"
- *                     attendance:
- *                       type: object
- *                       properties:
- *                         teamsDetected:
- *                           type: integer
- *                         teamsMatched:
- *                           type: integer
- *                         warnings:
- *                           type: array
- *                           items:
- *                             type: string
- *                     results:
- *                       type: object
- *                       properties:
- *                         resultsCount:
- *                           type: integer
- *                         warnings:
- *                           type: array
- *                           items:
- *                             type: string
- *                     processingTime:
+ *                         type: object
+ *                     processingTimeMs:
  *                       type: number
- *                       description: Total processing time in seconds
- *                       example: 45.3
  *       400:
- *         description: Processing error or missing data
+ *         description: No screenshots found, wrong image type, or invalid type param
  *       404:
  *         description: Match not found
  *       401:
  *         description: Unauthorized
  */
 quickPTRouter.post(
-    '/matches/:id/process/complete',
+    '/matches/:id/process',
     validateRequest(quickMatchParamsSchema, 'params'),
-    QuickPTController.processComplete
+    QuickPTController.processImages
 );
 
 /**

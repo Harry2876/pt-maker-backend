@@ -1,6 +1,5 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
-import { r2Service } from './cloudflareR2Service';
 import { signedUrlUtility } from './signedUrlUtility';
 import { randomUUID } from 'crypto';
 import {
@@ -9,6 +8,8 @@ import {
     CropStorageRequest,
     CropStorageResponse
 } from '../types/quickCrop';
+import { pythonAIService } from './pythonAIService';
+import { unifiedScreenshotService } from './unifiedScreenshotService';
 
 export class CropStorageService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
@@ -17,8 +18,55 @@ export class CropStorageService extends BaseService {
      * Process crops via Python API and store metadata
      */
     async processCrops(request: CropStorageRequest): Promise<CropStorageResponse> {
-        // TODO: Re-implement with new Python API endpoint
-        throw new Error('Not implemented: pending new Python API integration');
+        const { quickMatchId, screenshotUrl, cropType = 'ATTENDANCE', tournamentId } = request;
+
+        try {
+            const isAttendance = cropType.toUpperCase().includes('ATTENDANCE');
+            const typeLabel = isAttendance ? 'attendance' : 'result';
+            const folderPath = `crops/${typeLabel}/match-${quickMatchId}/`;
+
+            this.logger.info(`Processing ${typeLabel} crop for match ${quickMatchId}`);
+
+            const pyRequest = {
+                image_urls: [screenshotUrl],
+                folder_path: folderPath,
+                match_id: quickMatchId,
+                tournament_id: tournamentId ?? null,
+                cleanup_temp: true,
+            };
+
+            const pyResponse = isAttendance
+                ? await pythonAIService.uploadAttendanceCrops(pyRequest)
+                : await pythonAIService.uploadResultCrops(pyRequest);
+
+            if (pyResponse.status !== 'success') {
+                throw new Error(`Python AI crop upload failed with status: ${pyResponse.status}`);
+            }
+
+            const createdCrops: QuickCropCache[] = [];
+
+            for (const rawUrl of pyResponse.uploaded_urls) {
+                const r2Key = this.extractR2Key(rawUrl);
+                const crop = await this.createCrop({
+                    quickMatchId,
+                    cropType: cropType.toUpperCase(),
+                    r2Key,
+                    originalUrl: screenshotUrl,
+                    cropUrl: rawUrl,
+                    cropData: { upload_status: 'ready', source_url: screenshotUrl, python_metadata: pyResponse.metadata },
+                });
+                createdCrops.push(crop);
+            }
+
+            // Invalidate cache so getMatchCrops returns fresh data
+            await redis.delete(`crops:match:${quickMatchId}`);
+
+            return this.getMatchCrops(quickMatchId, request.metadata?.userId ?? '');
+
+        } catch (error) {
+            this.logger.error(`processCrops failed for match ${quickMatchId}:`, error);
+            throw error;
+        }
     }
 
     /**
@@ -130,11 +178,71 @@ export class CropStorageService extends BaseService {
     }
 
     /**
-     * Auto-process all unprocessed screenshots for a match
-     * TODO: Re-implement with new Python API endpoint
+     * Auto-process all unprocessed screenshots for a match.
+     * Batches attendance and result screenshots separately and uploads crops to R2.
      */
-    private async autoProcessMatchScreenshots(_quickMatchId: string): Promise<void> {
-        throw new Error('Not implemented: pending new Python API integration');
+    private async autoProcessMatchScreenshots(quickMatchId: string): Promise<void> {
+        try {
+            // Check if any crops already exist to avoid re-processing
+            const existingCrops = await this.db.quickMatchCrop.count({
+                where: { quickMatchId, isActive: true },
+            });
+            if (existingCrops > 0) return;
+
+            // Fetch all screenshots regardless of processed status — crops are independent of OCR
+            const attendanceShots = await unifiedScreenshotService.listScreenshots(
+                'quick-pt', quickMatchId, '', { type: 'ATTENDANCE' }
+            ).catch(() => []);
+
+            const resultShots = await unifiedScreenshotService.listScreenshots(
+                'quick-pt', quickMatchId, '', { type: 'RESULT' }
+            ).catch(() => []);
+
+            const processGroup = async (
+                shots: typeof attendanceShots,
+                isAttendance: boolean
+            ) => {
+                if (shots.length === 0) return;
+                const typeLabel = isAttendance ? 'attendance' : 'result';
+                const folderPath = `crops/${typeLabel}/match-${quickMatchId}/`;
+
+                const pyRequest = {
+                    image_urls: shots.map(s => s.storageUrl),
+                    folder_path: folderPath,
+                    match_id: quickMatchId,
+                    cleanup_temp: true,
+                };
+
+                const pyResponse = isAttendance
+                    ? await pythonAIService.uploadAttendanceCrops(pyRequest)
+                    : await pythonAIService.uploadResultCrops(pyRequest);
+
+                if (pyResponse.status !== 'success') return;
+
+                for (const rawUrl of pyResponse.uploaded_urls) {
+                    const r2Key = this.extractR2Key(rawUrl);
+                    await this.createCrop({
+                        quickMatchId,
+                        cropType: isAttendance ? 'ATTENDANCE_CROP' : 'RESULT_CROP',
+                        r2Key,
+                        originalUrl: shots[0]?.storageUrl ?? '',
+                        cropUrl: rawUrl,
+                        cropData: { upload_status: 'ready', python_metadata: pyResponse.metadata },
+                    });
+                }
+            };
+
+            await Promise.allSettled([
+                processGroup(attendanceShots, true),
+                processGroup(resultShots, false),
+            ]);
+
+            await redis.delete(`crops:match:${quickMatchId}`);
+
+        } catch (error) {
+            this.logger.warn(`autoProcessMatchScreenshots failed for match ${quickMatchId}:`, error);
+            // Non-critical: getMatchCrops will still return existing crops
+        }
     }
 
     /**

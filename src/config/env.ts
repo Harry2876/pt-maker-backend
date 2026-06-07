@@ -18,6 +18,8 @@ export const env = {
   SWAGGER_PASSWORD: process.env.SWAGGER_PASSWORD,
   ENABLE_SWAGGER: process.env.ENABLE_SWAGGER === 'true',
   PRODUCTION_DOMAIN: process.env.PRODUCTION_DOMAIN,
+  // Python AI Service (private network — localhost or DigitalOcean private IP)
+  PYTHON_AI_BASE_URL: process.env.PYTHON_AI_BASE_URL || 'http://localhost:8000',
   // WhatsApp Business API Configuration  
   WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN!,
   WHATSAPP_BUSINESS_PHONE_NUMBER_ID: process.env.WHATSAPP_BUSINESS_PHONE_NUMBER_ID!,

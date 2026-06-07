@@ -2,40 +2,166 @@ openapi: 3.0.0
 
 info:
   title: BGMI Tournament Platform API
-  version: 1.0.0
+  version: 2.0.0
   description: |
     ## BGMI Tournament Platform — Internal API Documentation
 
-    > 🔒 **Restricted.** Internal team access only. Do not share this URL.
+    > **Restricted.** Internal team access only. Do not share this URL.
 
-    ### What this platform does
     Full-stack tournament management system for BGMI (Battlegrounds Mobile India).
-    Handles everything from player onboarding to live match results and leaderboards.
+    Handles everything from player onboarding to live match results and AI-powered standings image generation.
     Production: **https://serverscrymz.me**
+
+    ---
+
+    ## Quick PT — Complete Developer Integration Guide
+
+    Quick PT is the core feature of v2. It turns raw BGMI scoreboard screenshots into a
+    professional standings image in under 30 seconds, powered by a Python AI backend.
+
+    ### Architecture
+
+    ```
+    Mobile/Web App
+        │
+        ▼
+    Node.js API (this server)         Python AI Service (private network)
+    ─────────────────────────         ────────────────────────────────────
+    Auth, DB, Redis, R2               YOLO OCR, Image generation
+    Orchestrates flow                 Reads/writes Cloudflare R2 directly
+    Signs R2 URLs for clients         Returns raw R2 URLs
+    ```
+
+    The Node.js server never processes images itself — it orchestrates the Python AI and
+    signs the R2 URLs so clients can display them.
+
+    ---
+
+    ### End-to-End Flow (Quick PT)
+
+    #### Step 1 — Authenticate
+    ```
+    POST /auth/send-otp      { phoneNumber: "+91XXXXXXXXXX" }
+    POST /auth/verify-otp    { phoneNumber, otp }
+    → accessToken (30 min), refreshToken (34 days)
+    ```
+
+    #### Step 2 — Create a Quick Match
+    ```
+    POST /quick-pt/matches
+    {
+      "matchName": "BGMI Scrims Day 1",
+      "game": "BGMI",
+      "positionPointsConfig": [15,12,10,8,6,4,2,1,1,1,1,0,0,0,0,0],
+      "killPointsValue": 1
+    }
+    → { id: "<matchId>" }
+    ```
+
+    #### Step 3 — Set Slot Assignments (optional)
+    If you know which team occupies which slot before the match, parse them now.
+    This gives cleaner team names in the final standings.
+    ```
+    POST /quick-pt/matches/{id}/slots/parse
+    {
+      "text": "Slot 01 -> Team Alpha\nSlot 02 -> Team Beta\n..."
+    }
+    ```
+    Skip this step if you want the AI to auto-detect team identities from screenshots.
+
+    #### Step 4 — Upload Screenshots
+    Upload attendance screenshots (taken before match starts) and result screenshots
+    (taken after match ends) as multipart/form-data.
+    ```
+    POST /quick-pt/matches/{id}/screenshots?type=ATTENDANCE
+    Content-Type: multipart/form-data
+    screenshots: <file1>, <file2>, ...   (up to 3 attendance images)
+
+    POST /quick-pt/matches/{id}/screenshots?type=RESULT
+    screenshots: <file1>, ..., <file9>   (up to 9 result images)
+    ```
+
+    #### Step 5 — Process Attendance
+    Sends uploaded attendance screenshots to Python AI. Detects slot numbers and
+    player rosters. Creates slot records in the DB with player names.
+    ```
+    POST /quick-pt/matches/{id}/process
+    { "type": "ATTENDANCE" }
+    → { slotsDetected: 16, slotsCreated: 16 }
+    ```
+
+    #### Step 6 — Process Results
+    Sends result screenshots to Python AI. Extracts final rankings and kill counts.
+    Teams are matched to slots using **fuzzy roster matching** (Levenshtein distance
+    on all player names across both image types). Points are calculated and written to DB.
+    ```
+    POST /quick-pt/matches/{id}/process
+    { "type": "RESULT" }
+    → { resultsCreated: 16, warnings: [...] }
+    ```
+
+    > **Tip:** Run both steps at once with `{ "type": "COMPLETE" }`.
+
+    #### Step 7 — View Results
+    ```
+    GET /quick-pt/matches/{id}/results
+    → sorted array of team results with rank, teamName, totalPoints, etc.
+    ```
+
+    #### Step 8 — Export Standings Image
+    Choose a template, then generate the standings PNG.
+    ```
+    GET /quick-pt/templates
+    → { "16_teams": [{ name: "tmplate_1", signedUrl: "...", ... }] }
+
+    POST /quick-pt/matches/{id}/export
+    {
+      "template": "tmplate_2",          ← template name from step above
+      "formatType": "16_teams",          ← category key
+      "tableFontSize": 75,
+      "tableHeaderLabelMode": "abbr",
+      "elementOverrides": {
+        "event_name":     { "size": 85, "color": "#FFFFFF" },
+        "sponsor_name":   { "size": 55, "color": "#FFD700" }
+      },
+      "columnOverrides": {
+        "total":          { "color": "#FFD700", "weight": "bold" },
+        "kills":          { "color": "#FF6B6B" }
+      }
+    }
+    → { signedImageUrl: "https://...r2.dev/standings/...png?X-Amz-..." }
+    ```
+    The `signedImageUrl` is valid for **30 minutes**. Re-call `/export` to get a fresh URL.
+
+    ---
+
+    ### Key Design Decisions
+
+    | Concern | Decision |
+    |---|---|
+    | **Python AI access to R2** | Python reads/writes R2 directly using its own credentials. Node.js never proxies image bytes. |
+    | **Signed URLs** | All R2 URLs returned to clients are pre-signed (30 min TTL). Never expose raw R2 URLs to clients. |
+    | **Slot matching** | Results are matched to attendance slots using fuzzy player-name comparison (Levenshtein ≤ 2, prefix match, substring match). |
+    | **Re-export** | Calling `/export` again overwrites the previous standings record (`upsert`). |
+    | **Token lifecycle** | Access token = 30 min. Refresh token = 34 days. Use `POST /auth/refresh-token` to get a new pair silently. |
+
+    ---
 
     ### Authentication
     All protected endpoints require a JWT Bearer token:
     ```
     Authorization: Bearer <access_token>
     ```
-    Get your token from `/auth/login` or `/auth/verify-otp`.
-    Access tokens expire in **30 minutes** — refresh using `/auth/refresh-token`.
+    Access tokens expire in **30 minutes** — refresh using `POST /auth/refresh-token`.
 
     ### Standard Response Envelope
     ```json
     {
       "success": true,
       "message": "Human readable description",
-      "data": {},
-      "error": {
-        "code": "ERROR_CODE",
-        "details": "More info",
-        "timestamp": "2024-01-15T10:30:00.000Z"
-      },
-      "meta": {
-        "timestamp": "2024-01-15T10:30:00.000Z",
-        "version": "1.0"
-      }
+      "data": { },
+      "error": { "code": "ERROR_CODE", "details": "More info" },
+      "meta": { "timestamp": "2024-01-15T10:30:00.000Z", "version": "1.0" }
     }
     ```
 
@@ -53,20 +179,15 @@ info:
     | Module | Base Path | Description |
     |---|---|---|
     | Auth | `/auth` | OTP login, registration, token management, sessions |
+    | Quick PT | `/quick-pt` | AI-powered quick point table generation (primary feature) |
     | Tournaments | `/tournaments` | Create and manage BGMI tournaments |
     | Matches | `/matches` | Match scheduling and management |
     | Match Results | `/match-results` | Submit and query match results |
     | Teams | `/teams` | Team enrollment and management |
     | Team Registration | `/team-registrations` | Register teams to tournaments |
-    | Team Advancement | `/team-advancement` | Advance teams between stages |
     | Groups | `/groups` | Tournament group/pool management |
-    | Tournament Stages | `/tournament-stages` | Stage configuration and lifecycle |
-    | Slot Management | `/slot-management` | Slot allocation per match |
     | Leaderboards | `/leaderboards` | Rankings and standings |
-    | Quick PT | `/quick-pt` | Quick point table generation |
     | Uploads | `/uploads` | File and media upload handling |
-    | Discord | `/discord` | Discord bot integration and webhooks |
-    | WhatsApp | `/whatsapp` | WhatsApp notification integration |
 
 servers:
   - url: https://serverscrymz.me/api/v1

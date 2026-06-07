@@ -371,32 +371,33 @@ export class QuickPTController {
     });
 
     /**
-     * POST /api/quick-pt/matches/:id/process/attendance
-     * Process attendance screenshots
+     * POST /api/quick-pt/matches/:id/process
+     * Unified screenshot processing endpoint.
+     * Body: { type: "ATTENDANCE" | "RESULT" | "COMPLETE" }
+     * Omitting type or passing "COMPLETE" runs both steps in sequence.
      */
-    static processAttendance = asyncHandler(async (req: Request, res: Response) => {
+    static processImages = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
+        const type: string = (req.body?.type ?? 'COMPLETE').toUpperCase();
 
-        const result = await quickProcessingService.processAttendance(quickMatchId, userId);
+        if (type === 'ATTENDANCE') {
+            const result = await quickProcessingService.processAttendance(quickMatchId, userId);
+            return res.json(ResponseHelper.success('Attendance processed successfully', result));
+        }
 
-        return res.json(
-            ResponseHelper.success('Attendance processed successfully', result)
-        );
-    });
+        if (type === 'RESULT') {
+            const result = await quickProcessingService.processResults(quickMatchId, userId);
+            return res.json(ResponseHelper.success('Results processed successfully', result));
+        }
 
-    /**
-     * POST /api/quick-pt/matches/:id/process/results
-     * Process result screenshots
-     */
-    static processResults = asyncHandler(async (req: Request, res: Response) => {
-        const { id: quickMatchId } = req.params;
-        const userId = req.user!.id;
+        if (type === 'COMPLETE') {
+            const result = await quickProcessingService.processComplete(quickMatchId, userId);
+            return res.json(ResponseHelper.success('Complete processing finished successfully', result));
+        }
 
-        const result = await quickProcessingService.processResults(quickMatchId, userId);
-
-        return res.json(
-            ResponseHelper.success('Results processed successfully', result)
+        return res.status(400).json(
+            ResponseHelper.error('Invalid process type', 'VALIDATION_ERROR', 'Use "ATTENDANCE", "RESULT", or "COMPLETE"')
         );
     });
     // ========================================
@@ -542,23 +543,6 @@ export class QuickPTController {
             ResponseHelper.success('Series tie-breaking config retrieved', config)
         );
     });
-    /**
-     * POST /api/quick-pt/matches/:id/process/complete
-     * Run complete processing (attendance + results)
-     */
-    static processComplete = asyncHandler(async (req: Request, res: Response) => {
-        const { id: quickMatchId } = req.params;
-        const userId = req.user!.id;
-
-        const result = await quickProcessingService.processComplete(
-            quickMatchId,
-            userId,
-        );
-
-        return res.json(
-            ResponseHelper.success('Complete processing finished successfully', result)
-        );
-    });
 
     /**
      * GET /api/quick-pt/matches/:id/results
@@ -589,7 +573,18 @@ export class QuickPTController {
     static exportPointsTable = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
-        const { template, formatType, outputFilename, customization } = req.body;
+        const {
+            template,
+            formatType,
+            outputFilename,
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
+        } = req.body;
 
         const result = await quickExportService.exportPointsTable({
             quickMatchId,
@@ -597,7 +592,13 @@ export class QuickPTController {
             template,
             formatType,
             outputFilename,
-            customization
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
         });
 
         return res.json(
@@ -631,16 +632,33 @@ export class QuickPTController {
     static regeneratePointsTable = asyncHandler(async (req: Request, res: Response) => {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
-        const { template, formatType, outputFilename, customization } = req.body;
-
-        const result = await quickExportService.regeneratePointsTable(
-            quickMatchId, 
-            userId, 
-            template, 
-            formatType, 
+        const {
+            template,
+            formatType,
             outputFilename,
-            customization
-        );
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
+        } = req.body;
+
+        const result = await quickExportService.regeneratePointsTable({
+            quickMatchId,
+            userId,
+            template,
+            formatType,
+            outputFilename,
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
+        });
 
         return res.json(
             ResponseHelper.success('Points table regenerated successfully', result)
