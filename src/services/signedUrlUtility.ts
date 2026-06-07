@@ -42,7 +42,7 @@ export class SignedUrlUtility extends BaseService {
             const signedUrl = await r2Service.getSignedDownloadUrl(r2Key, expirySeconds);
             const expiresAt = SignedUrlUtility.calculateExpiryTimestamp(expiryMinutes);
 
-            this.logger.info(`Generated signed URL for ${r2Key} with ${expiryMinutes}min expiry`);
+            this.logger.debug(`Generated signed URL for ${r2Key} with ${expiryMinutes}min expiry`);
 
             return {
                 signedUrl,

@@ -40,7 +40,7 @@ export class TemplateService extends BaseService {
             // Check cache first
             const cachedTemplates = await redis.get(this.CACHE_KEY);
             if (cachedTemplates) {
-                this.logger.info('Found cached templates, refreshing signed URLs...');
+                this.logger.debug('Found cached templates, refreshing signed URLs...');
                 const parsed = JSON.parse(cachedTemplates);
                 
                 // Regenerate signed URLs (they expire)
