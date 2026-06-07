@@ -1,5 +1,3 @@
-import { AdvancedEngineRequest } from "./advancedEngine";
-
 export interface ScreenshotProcessingJob {
     matchId: string;
     screenshotUrls: string[];
@@ -107,13 +105,4 @@ export interface BatchSyncJob {
     type: 'TOURNAMENT' | 'MATCHES' | 'SCREENSHOTS' | 'ALL';
     batchSize?: number;
     olderThan?: string;
-}
-
-export interface AdvancedEngineJob {
-    type: 'PROCESS_SCREENSHOTS';
-    matchId: string;
-    userId: string;
-    request: AdvancedEngineRequest;
-    priority: 'HIGH' | 'NORMAL' | 'LOW';
-    createdAt: Date;
 }

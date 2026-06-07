@@ -60,13 +60,6 @@ export interface BatchProcessingJob extends ScalableQueueJob {
   operation: string; 
 }
 
-export interface AdvancedEngineScalableJob extends ScalableQueueJob {
-  screenshotData: any;
-  matchId: string;
-  stageId?: string;
-  groupId?: string;
-}
-
 export interface LeaderboardBatchJob extends ScalableQueueJob {
   groupIds?: string[];
   calculateGlobal: boolean;

@@ -2,8 +2,6 @@ import logger from '../utils/logger';
 import { OTPWorker } from './otpWorker';
 import { UserSyncWorker } from './userSyncWorker';
 import { DatabaseSyncWorker } from './databaseSyncWorker';
-import { ResultProcessingWorker } from './resultProcessingWorker';
-import { ScalableAdvancedEngineWorker } from './scalableAdvancedEngineWorker';
 import { BatchProcessingWorker } from './batchProcessingWorker';
 import { LeaderboardBatchWorker } from './leaderboardBatchWorker';
 import { QuickPTWorker } from './quickPTWorker';
@@ -19,8 +17,6 @@ export class WorkersManager {
             await this.startWorker('OTP', () => new OTPWorker());
             await this.startWorker('User Sync', () => new UserSyncWorker());
             await this.startWorker('Database Sync', () => new DatabaseSyncWorker());
-            await this.startWorker('ResultProcessing', () => new ResultProcessingWorker());
-            await this.startWorker('Scalable Advanced Engine', () => new ScalableAdvancedEngineWorker());
             await this.startWorker('Batch Processing', () => new BatchProcessingWorker());
             await this.startWorker('Leaderboard Batch', () => new LeaderboardBatchWorker());
             await this.startWorker('Quick-PT Sync', () => new QuickPTWorker());

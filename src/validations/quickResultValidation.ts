@@ -87,11 +87,7 @@ export const quickResultParamsSchema = z.object({
 });
 
 // Process results (trigger AI processing)
-export const processResultsSchema = z.object({
-    useGeminiFallback: z.boolean()
-        .optional()
-        .default(true)
-});
+export const processResultsSchema = z.object({});
 
 // Font customization schema
 const fontSchema = z.object({

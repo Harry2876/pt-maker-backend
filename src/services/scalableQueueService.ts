@@ -1,14 +1,12 @@
 import { 
     ScalableQueueRouter, 
     batchProcessingQueue, 
-    advancedEngineScalableQueue,
     leaderboardBatchQueue,
     priorityProcessingQueue 
 } from '../config/scalableQueues';
 import { 
     ScalableQueueJob, 
     BatchProcessingJob, 
-    AdvancedEngineScalableJob,
     LeaderboardBatchJob,
     TournamentScaleDetector 
 } from '../types/scalableQueue';
@@ -98,44 +96,6 @@ export class ScalableQueueService {
     }
 
     /**
-     * Queue Advanced Engine processing with scale awareness
-     */
-    static async queueAdvancedEngineProcessing(data: {
-        tournamentId: string;
-        screenshotData: any;
-        matchId: string;
-        teamCount: number;
-        stageId?: string;
-        groupId?: string;
-        priority?: number;
-    }): Promise<void> {
-        const { scale, config } = TournamentScaleDetector.getConfigForTeamCount(data.teamCount);
-
-        const jobData: AdvancedEngineScalableJob = {
-            tournamentId: data.tournamentId,
-            tournamentScale: scale,
-            teamCount: data.teamCount,
-            screenshotData: data.screenshotData,
-            matchId: data.matchId,
-            stageId: data.stageId,
-            groupId: data.groupId,
-            processingStrategy: scale === 'massive' ? 'stream' : 'individual',
-            priority: data.priority || config.priority
-        };
-
-        // Use priority queue for urgent processing
-        if (data.priority && data.priority >= 9) {
-            await priorityProcessingQueue.add('advanced-engine-priority', jobData, {
-                priority: data.priority
-            });
-        } else {
-            await advancedEngineScalableQueue.add('advanced-engine-scalable', jobData);
-        }
-
-        logger.info(`Queued Advanced Engine processing for tournament ${data.tournamentId} (scale: ${scale})`);
-    }
-
-    /**
      * Queue leaderboard batch processing
      */
     static async queueLeaderboardBatchProcessing(data: {
@@ -169,7 +129,6 @@ export class ScalableQueueService {
      */
     static async getQueueMetrics(): Promise<any> {
         const queues = [
-            { name: 'Advanced Engine Scalable', queue: advancedEngineScalableQueue },
             { name: 'Batch Processing', queue: batchProcessingQueue },
             { name: 'Leaderboard Batch', queue: leaderboardBatchQueue },
             { name: 'Priority Processing', queue: priorityProcessingQueue }
@@ -204,7 +163,6 @@ export class ScalableQueueService {
         logger.warn('🚨 Clearing all scalable queues - this should only be used in emergencies!');
         
         const queues = [
-            advancedEngineScalableQueue,
             batchProcessingQueue,
             leaderboardBatchQueue,
             priorityProcessingQueue

@@ -19,7 +19,6 @@ import groupRouter from './routes/groupRoutes';
 import tournamentStageRouter from './routes/tournamentStageRoutes'; // Add this
 import teamRegistrationRouter from './routes/teamRegistrationRoutes';
 import teamAdvancementRouter from './routes/teamAdvancementRoutes';
-import advancedEngineRouter from './routes/advancedEngineRoutes';
 import slotManagementRouter from './routes/slotManagementRoutes';
 import leaderboardRouter from './routes/leaderboardRoutes';
 import quickPTRouter from './routes/quickPTRoutes';
@@ -248,7 +247,6 @@ app.use('/api/v1/team-registrations', teamRegistrationRouter);
 app.use('/api/v1/match-results', matchResultRouter);
 app.use('/api/v1/tournament-stages', tournamentStageRouter);
 app.use('/api/v1/team-advancement', teamAdvancementRouter);
-app.use('/api/v1/advanced-engine', advancedEngineRouter);
 app.use('/api/v1/slot-management', slotManagementRouter);
 app.use('/api/v1/leaderboards', leaderboardRouter);
 app.use('/api/v1/quick-pt', quickPTRouter);

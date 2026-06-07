@@ -8,7 +8,6 @@ const queueConnection = redis.getQueueConnection();
 
 // Scalable Queue Names
 export const ScalableQueues = {
-    ADVANCED_ENGINE_SCALABLE: 'advanced-engine-scalable',
     BATCH_PROCESSING: 'batch-processing',
     LEADERBOARD_BATCH: 'leaderboard-batch',
     TEAM_PROCESSING_SMALL: 'team-processing-small',
@@ -67,11 +66,6 @@ export class ScalableQueueConfig {
 }
 
 // Create scalable queues
-export const advancedEngineScalableQueue = new Queue(
-    ScalableQueues.ADVANCED_ENGINE_SCALABLE, 
-    ScalableQueueConfig.createQueueOptions('medium')
-);
-
 export const batchProcessingQueue = new Queue(
     ScalableQueues.BATCH_PROCESSING,
     {
@@ -172,11 +166,6 @@ export class ScalableQueueRouter {
         }
         // For small tournaments, use regular team processing
         return this.getTeamProcessingQueue(teamCount);
-    }
-
-    static getAdvancedEngineQueue(teamCount: number): Queue {
-        // Always use scalable advanced engine queue
-        return advancedEngineScalableQueue;
     }
 
     static getPriorityQueue(): Queue {

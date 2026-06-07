@@ -1,5 +1,5 @@
-import { otpQueue, screenshotQueue, emailQueue, userSyncQueue, databaseSyncQueue, batchSyncQueue, advancedEngineQueue, quickPtSyncQueue } from "../config/queues";
-import { OTPSendingJob, ScreenshotProcessingJob, EmailNotificationJob, DatabaseSyncJob, EntityType, AdvancedEngineJob } from "../types/queue";
+import { otpQueue, screenshotQueue, emailQueue, userSyncQueue, databaseSyncQueue, batchSyncQueue, quickPtSyncQueue } from "../config/queues";
+import { OTPSendingJob, ScreenshotProcessingJob, EmailNotificationJob, DatabaseSyncJob, EntityType } from "../types/queue";
 import logger from "../utils/logger";
 import { Job } from 'bullmq';
 
@@ -45,81 +45,6 @@ export class QueueService {
             throw error;
         }
     }
-    static async processAdvancedEngine(data: AdvancedEngineJob): Promise<string> {
-        try {
-            const job = await advancedEngineQueue.add('PROCESS_SCREENSHOTS', data, {
-                priority: this.getPriorityValue(data.priority),
-                delay: 0,
-                attempts: 3,
-                backoff: {
-                    type: 'exponential',
-                    delay: 5000,
-                }
-            });
-
-            logger.info(`Advanced Engine job added to queue for match ${data.matchId} by user ${data.userId}`, {
-                jobId: job.id,
-                priority: data.priority,
-                processingType: data.request.processingType
-            });
-
-            return job.id as string;
-        } catch (error) {
-            logger.error(`Failed to add Advanced Engine job to queue for match ${data.matchId}:`, error);
-            throw error;
-        }
-    }
-
-    // Get Advanced Engine Job Status
-    static async getAdvancedEngineJobStatus(jobId: string): Promise<any> {
-        try {
-            const job = await advancedEngineQueue.getJob(jobId);
-            if (!job) {
-                return {
-                    status: 'NOT_FOUND',
-                    message: 'Job not found'
-                };
-            }
-
-            return {
-                id: job.id,
-                status: await job.getState(),
-                progress: job.progress,
-                data: job.data,
-                failedReason: job.failedReason,
-                processedOn: job.processedOn,
-                finishedOn: job.finishedOn,
-                createdAt: job.timestamp
-            };
-        } catch (error) {
-            logger.error(`Failed to get Advanced Engine job status for ${jobId}:`, error);
-            throw error;
-        }
-    }
-
-    // Get Match Processing Status
-    static async getMatchProcessingStatus(matchId: string): Promise<any> {
-        try {
-            // Get jobs for this match
-            const jobs = await advancedEngineQueue.getJobs(['waiting', 'active', 'completed', 'failed']);
-            const matchJobs = jobs.filter(job => job.data.matchId === matchId);
-
-            if (matchJobs.length === 0) {
-                return {
-                    status: 'NO_JOBS',
-                    message: 'No processing jobs found for this match'
-                };
-            }
-
-            // Return the latest job
-            const latestJob = matchJobs.sort((a, b) => b.timestamp - a.timestamp)[0];
-            return await this.getAdvancedEngineJobStatus(latestJob.id as string);
-        } catch (error) {
-            logger.error(`Failed to get match processing status for ${matchId}:`, error);
-            throw error;
-        }
-    }
-
     static async scheduleUserSync(): Promise<void> {
         try {
             await userSyncQueue.add('sync-users-to-db', {}, {
@@ -131,7 +56,7 @@ export class QueueService {
             logger.info('User sync job scheduled to run every 60 seconds');
         } catch (error) {
             logger.error('Failed to schedule user sync job:', error);
-            throw error;
+            throw error;        
         }
     }
     static async queueDatabaseSync(data: DatabaseSyncJob): Promise<void> {
@@ -211,6 +136,7 @@ export class QueueService {
             throw error;
         }
     }
+
     private static getPriorityValue(priority: string): number {
         switch (priority) {
             case 'CRITICAL':
