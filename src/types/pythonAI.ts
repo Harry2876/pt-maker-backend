@@ -51,10 +51,8 @@ export interface ScoreboardResponse {
 // ===== CROP UPLOAD =====
 
 export interface CropUploadRequest {
+    /** R2 key paths — format: "pt-maker-screenshots/ATTENDANCE_IMAGE/match-xxx/file.jpg" */
     image_urls: string[];
-    folder_path?: string | null;
-    match_id?: string | null;
-    tournament_id?: string | null;
     metadata?: Record<string, any> | null;
     cleanup_temp?: boolean;
 }
