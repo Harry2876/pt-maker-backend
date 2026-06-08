@@ -505,8 +505,13 @@ export class QuickProcessingService extends BaseService {
      * Return true if two normalised player names are considered the same.
      * Rules (in order):
      *   1. Exact normalised match
-     *   2. One is a prefix of the other (min 4 chars) — handles OCR truncation
-     *   3. Levenshtein distance ≤ 2 for names longer than 5 chars
+     *   2. One is a prefix/substring of the other (min 4 chars) — handles OCR truncation
+     *   3. Levenshtein distance ≤ proportional threshold:
+     *        ≤ 2  for names  6–8 chars
+     *        ≤ 3  for names  9–11 chars
+     *        ≤ 4  for names ≥ 12 chars
+     *      This accounts for OCR substitutions on longer names (e.g. kuicurusan→kaizurusan).
+     *   4. Character overlap ratio ≥ 70 % (bigram similarity) as a final safety net
      */
     private namesMatch(a: string, b: string): boolean {
         const na = this.normaliseName(a);
@@ -516,16 +521,45 @@ export class QuickProcessingService extends BaseService {
 
         const shorter = na.length < nb.length ? na : nb;
         const longer  = na.length < nb.length ? nb : na;
+
+        // Rule 2: prefix / substring
         if (shorter.length >= 4 && longer.startsWith(shorter)) return true;
         if (shorter.length >= 4 && longer.includes(shorter)) return true;
 
-        // Simple edit-distance check for longer names
         if (shorter.length > 5) {
+            // Rule 3: proportional Levenshtein threshold
+            const maxDist = shorter.length >= 12 ? 4 : shorter.length >= 9 ? 3 : 2;
             const dist = this.levenshtein(na, nb);
-            if (dist <= 2) return true;
+            if (dist <= maxDist) return true;
+
+            // Rule 4: bigram overlap ratio — catches swapped / inserted characters
+            const bigramOverlap = this.bigramSimilarity(na, nb);
+            if (bigramOverlap >= 0.70) return true;
         }
 
         return false;
+    }
+
+    /** Sørensen–Dice bigram similarity in [0, 1]. */
+    private bigramSimilarity(a: string, b: string): number {
+        const bigrams = (s: string) => {
+            const set = new Map<string, number>();
+            for (let i = 0; i < s.length - 1; i++) {
+                const bg = s.slice(i, i + 2);
+                set.set(bg, (set.get(bg) ?? 0) + 1);
+            }
+            return set;
+        };
+        const ba = bigrams(a);
+        const bb = bigrams(b);
+        let intersection = 0;
+        for (const [bg, count] of ba) {
+            intersection += Math.min(count, bb.get(bg) ?? 0);
+        }
+        const totalA = a.length - 1;
+        const totalB = b.length - 1;
+        if (totalA <= 0 || totalB <= 0) return 0;
+        return (2 * intersection) / (totalA + totalB);
     }
 
     private levenshtein(a: string, b: string): number {

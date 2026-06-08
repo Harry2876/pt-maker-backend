@@ -275,12 +275,20 @@ async function startServer() {
     try {
         await dbManager.connect();
 
-        app.listen(PORT, () => {
+        const server = app.listen(PORT, () => {
             logger.info(`🚀 Server running on port ${PORT}`);
             logger.info(`💾 Database connected successfully`);
             // Force-flush all startup logs to Sentry after they've had time to queue
             setTimeout(() => Sentry.flush(10000).catch(() => {}), 3000);
         });
+
+        // OCR batch + standings generation can take up to ~90s.
+        // Python AI client already has a 300s axios timeout — the HTTP server
+        // must stay alive at least that long so long-running routes aren't
+        // killed mid-request by the Node.js idle timeout.
+        server.timeout = 310_000;        // 310 s — just above Python AI axios timeout
+        server.keepAliveTimeout = 65_000; // keep-alive > any proxy (nginx default: 60s)
+        server.headersTimeout = 320_000;  // must be > server.timeout
     } catch (error) {
         logger.error('❌ Failed to start server:', error);
         Sentry.captureException(error, { tags: { phase: 'startup' } });
