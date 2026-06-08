@@ -3,7 +3,7 @@ import * as ExcelJS from 'exceljs';
 import { r2Service } from './cloudflareR2Service';
 import { signedUrlUtility } from './signedUrlUtility';
 import { quickMatchService } from './quickMatchService';
-import { quickProcessingService } from './quickProcessingService';
+import { quickResultService } from './quickResultService';
 import { tieBreakingService } from './tieBreakingService';
 import redis from '../config/redis';
 import { randomUUID } from 'crypto';
@@ -96,7 +96,7 @@ export class ExcelExportService extends BaseService {
         }
 
         // Get match results
-        const results = await quickProcessingService.getMatchResults(quickMatchId, userId);
+        const results = await quickResultService.getMatchResults(quickMatchId, userId);
         if (results.length === 0) {
             throw new Error('No results found for this match');
         }

@@ -1,24 +1,19 @@
 import { BaseService } from './baseService';
-import redis from '../config/redis';
-import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { quickSlotService } from './quickSlotService';
 import { pythonAIService } from './pythonAIService';
 import { PointsCalculator, ScoringConfig } from '../utils/pointsCalculator';
 import { unifiedScreenshotService } from './unifiedScreenshotService';
-import {
-    QuickMatchCache,
-    QuickMatchStatus
-} from '../types/quickMatch';
 import { QuickSlotCache } from '../types/quickSlot';
 import {
-    QuickMatchResultCache,
     CreateQuickMatchResultData,
     WarningType,
-    PlayerResult
 } from '../types/quickResult';
 import { AttendanceTeam, ResultTeam } from '../types/pythonAI';
 import { quickSeriesService } from './quickSeriesService';
+import { quickResultService } from './quickResultService';
+import { ServiceError, isServiceError } from '../utils/serviceError';
+import { storageUrlToR2Key } from '../utils/r2UrlUtils';
 
 
 // Response interfaces
@@ -77,22 +72,30 @@ export class QuickProcessingService extends BaseService {
             this.logger.info(`Starting attendance processing for Quick Match ${quickMatchId}`);
 
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-            if (!quickMatch) throw new Error('Quick Match not found or access denied');
+            if (!quickMatch) {
+                throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
+            }
 
             const screenshots = await unifiedScreenshotService.listScreenshots(
                 'quick-pt', quickMatchId, userId, { type: 'ATTENDANCE' }
             );
 
-            if (screenshots.length === 0) throw new Error('No attendance screenshots found');
+            if (screenshots.length === 0) {
+                throw new ServiceError(
+                    'No attendance screenshots found. Upload attendance screenshots first.',
+                    400,
+                    'NO_ATTENDANCE_SCREENSHOTS'
+                );
+            }
 
             this.logger.info(`Sending ${screenshots.length} attendance screenshot(s) to Python AI`);
 
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                processingStep: 'Processing Attendance Screenshots'
+                processingStep: 'Processing Attendance Screenshots',
             });
 
-            const imageUrls = screenshots.map(s => s.storageUrl);
-            const response = await pythonAIService.processScoreboardBatch(imageUrls);
+            const imageRefs = screenshots.map(s => storageUrlToR2Key(s.storageUrl));
+            const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
             if (response.status !== 'success') {
                 throw new Error(`Python AI returned status: ${response.status}`);
@@ -149,10 +152,7 @@ export class QuickProcessingService extends BaseService {
                 }
             }
 
-            await unifiedScreenshotService.markScreenshotsProcessed(quickMatchId, 'ATTENDANCE', userId);
-
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                processingStep: 'Attendance Processing Complete',
                 teamsDetected: attendanceTeams.length,
                 warningsCount: (quickMatch.warningsCount || 0) + warnings.length,
             });
@@ -180,10 +180,11 @@ export class QuickProcessingService extends BaseService {
 
         } catch (error) {
             this.logger.error(`Attendance processing failed for ${quickMatchId}:`, error);
-            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'ERROR',
-                processingStep: `Error: ${(error as Error).message}`,
-            }).catch(() => {});
+            if (!isServiceError(error)) {
+                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                    status: 'ERROR',
+                }).catch(() => {});
+            }
             throw error;
         }
     }
@@ -203,18 +204,43 @@ export class QuickProcessingService extends BaseService {
             this.logger.info(`Starting result processing for Quick Match ${quickMatchId}`);
 
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-            if (!quickMatch) throw new Error('Quick Match not found or access denied');
+            if (!quickMatch) {
+                throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
+            }
 
             const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId);
             if (slots.length === 0) {
-                throw new Error('No teams detected. Process attendance screenshots first.');
+                throw new ServiceError(
+                    'No slots found. Upload attendance screenshots or create slots manually first.',
+                    400,
+                    'NO_SLOTS'
+                );
             }
 
             const screenshots = await unifiedScreenshotService.listScreenshots(
-                'quick-pt', quickMatchId, userId, { type: 'RESULT', isProcessed: false }
+                'quick-pt', quickMatchId, userId, { type: 'RESULT' }
             );
 
-            if (screenshots.length === 0) throw new Error('No result screenshots found');
+            if (screenshots.length === 0) {
+                const existingResults = await quickResultService.getMatchResults(quickMatchId, userId);
+                if (existingResults.length > 0) {
+                    return {
+                        success: true,
+                        resultsCreated: 0,
+                        resultsProcessed: existingResults.length,
+                        warnings: [{
+                            type: 'SLOT_NOT_FOUND' as WarningType,
+                            message: 'No result screenshots uploaded — using existing manual results',
+                        }],
+                        processingTimeMs: Date.now() - startTime,
+                    };
+                }
+                throw new ServiceError(
+                    'No result screenshots found. Upload result screenshots or enter results manually.',
+                    400,
+                    'NO_RESULT_SCREENSHOTS'
+                );
+            }
 
             this.logger.info(`Sending ${screenshots.length} result screenshot(s) to Python AI`);
 
@@ -222,8 +248,8 @@ export class QuickProcessingService extends BaseService {
                 processingStep: 'Processing Result Screenshots',
             });
 
-            const imageUrls = screenshots.map(s => s.storageUrl);
-            const response = await pythonAIService.processScoreboardBatch(imageUrls);
+            const imageRefs = screenshots.map(s => storageUrlToR2Key(s.storageUrl));
+            const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
             if (response.status !== 'success') {
                 throw new Error(`Python AI returned status: ${response.status}`);
@@ -282,7 +308,10 @@ export class QuickProcessingService extends BaseService {
                         aiConfidence: 0.9,
                     };
 
-                    await this.createMatchResult(quickMatchId, userId, resultData);
+                    await quickResultService.persistResult(quickMatchId, userId, resultData, {
+                        status: 'PROCESSED',
+                        upsert: true,
+                    });
                     resultsCreated++;
 
                 } catch (err) {
@@ -295,11 +324,8 @@ export class QuickProcessingService extends BaseService {
                 }
             }
 
-            await unifiedScreenshotService.markScreenshotsProcessed(quickMatchId, 'RESULT', userId);
-
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                 status: 'COMPLETED',
-                processingStep: 'Result Processing Complete',
                 warningsCount: (quickMatch.warningsCount || 0) + warnings.length,
             });
 
@@ -329,17 +355,18 @@ export class QuickProcessingService extends BaseService {
 
         } catch (error) {
             this.logger.error(`Result processing failed for ${quickMatchId}:`, error);
-            await quickMatchService.updateQuickMatch(quickMatchId, userId, {
-                status: 'ERROR',
-                processingStep: `Error: ${(error as Error).message}`,
-            }).catch(() => {});
+            if (!isServiceError(error)) {
+                await quickMatchService.updateQuickMatch(quickMatchId, userId, {
+                    status: 'ERROR',
+                }).catch(() => {});
+            }
             throw error;
         }
     }
 
     /**
-     * Process both attendance and results in sequence
-     * STEP 3: Complete Processing
+     * Process both attendance and results in sequence.
+     * Skips the result OCR step when results already exist and no result screenshots are uploaded.
      */
     async processComplete(
         quickMatchId: string,
@@ -371,123 +398,6 @@ export class QuickProcessingService extends BaseService {
 
         } catch (error) {
             this.logger.error(`Complete processing failed for Quick Match ${quickMatchId}:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Create a match result record
-     * @private
-     */
-    private async createMatchResult(
-        quickMatchId: string,
-        userId: string,
-        data: CreateQuickMatchResultData
-    ): Promise<QuickMatchResultCache> {
-        const resultId = randomUUID();
-
-        const result: QuickMatchResultCache = {
-            id: resultId,
-            quickMatchId,
-            slotNumber: data.slotNumber,
-            teamName: data.teamName,
-            detectedTeamName: data.detectedTeamName,
-            position: data.position,
-            rank: data.rank,
-            totalKills: data.totalKills,
-            positionPoints: data.positionPoints,
-            killPoints: data.killPoints,
-            totalPoints: data.totalPoints,
-            playerResults: data.playerResults,
-            status: 'PENDING',
-            warningType: data.warningType,
-            needsReview: data.needsReview || false,
-            aiConfidence: data.aiConfidence,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            dbStatus: 'SYNCED' // Direct DB write, so it's synced
-        };
-
-        // Store directly in database (no queue needed)
-        await this.db.quickMatchResult.create({
-            data: {
-                id: resultId,
-                quickMatchId,
-                slotNumber: data.slotNumber,
-                teamName: data.teamName,
-                position: data.position,
-                rank: data.position,
-                totalKills: data.totalKills,
-                positionPoints: data.positionPoints,
-                killPoints: data.killPoints,
-                totalPoints: data.totalPoints,
-                needsReview: data.needsReview || false,
-                aiConfidence: data.aiConfidence,
-                createdAt: new Date(),
-                updatedAt: new Date()
-            }
-        });
-
-        // Cache the result for quick access
-        await redis.hsetObject(`quickResult:${resultId}`, result);
-        await redis.sadd(`quickMatch:${quickMatchId}:results`, resultId);
-
-        this.logger.info(`Created match result for slot ${data.slotNumber} (${data.teamName})`);
-        return result;
-    }
-
-    /**
-     * Get all results for a match
-     */
-    async getMatchResults(
-        quickMatchId: string,
-        userId: string
-    ): Promise<QuickMatchResultCache[]> {
-        try {
-            // Verify ownership
-            const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-            if (!quickMatch) {
-                throw new Error('Quick Match not found or access denied');
-            }
-
-            // Get results from database
-            const dbResults = await this.db.quickMatchResult.findMany({
-                where: { quickMatchId },
-                orderBy: [
-                    { position: 'asc' },
-                    { totalPoints: 'desc' }
-                ]
-            });
-
-            // Convert to cache format
-            const results: QuickMatchResultCache[] = dbResults.map(dbResult => ({
-                id: dbResult.id,
-                quickMatchId: dbResult.quickMatchId,
-                slotNumber: dbResult.slotNumber,
-                teamName: dbResult.teamName,
-                detectedTeamName: dbResult.detectedTeamName || undefined,
-                position: dbResult.position,
-                rank: dbResult.rank,
-                totalKills: dbResult.totalKills,
-                positionPoints: dbResult.positionPoints,
-                killPoints: dbResult.killPoints,
-                totalPoints: dbResult.totalPoints,
-                playerResults: dbResult.playerResults
-                    ? JSON.parse(JSON.stringify(dbResult.playerResults)) as PlayerResult[]
-                    : undefined,
-                status: dbResult.status as any,
-                warningType: dbResult.warningType || undefined,
-                needsReview: dbResult.needsReview,
-                aiConfidence: dbResult.aiConfidence ?? undefined,
-                createdAt: dbResult.createdAt.toISOString(),
-                updatedAt: dbResult.updatedAt.toISOString(),
-                dbStatus: 'SYNCED'
-            }));
-
-            return results;
-
-        } catch (error) {
-            this.handleError(error, 'Get Match Results');
             throw error;
         }
     }

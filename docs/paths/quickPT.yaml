@@ -1368,10 +1368,14 @@ paths:
 
         ### How it works internally
         1. Node.js loads match results from the DB and ranks them.
-        2. Node.js looks up the requested template in R2 and fetches its raw URL + config URL.
-        3. Both URLs (plus team data and all overrides) are forwarded to the Python AI service.
+        2. Node.js resolves `template` + `formatType` via `GET /quick-pt/templates`:
+           - **template_url** → raw R2 URL of the template image (e.g. `.../templates/16_teams/tmplate_1.jpeg`)
+           - **template_config_url** → paired config JSON (e.g. `.../templates/16_teams/templateConfig_1.json` for `tmplate_1`)
+        3. Node builds the Python `POST /api/v1/standings/generate` body (snake_case) and forwards it.
         4. Python AI renders the image, uploads it to R2, and returns the raw R2 URL.
         5. Node.js signs the URL and returns it to the client.
+
+        See `components.schemas.PythonStandingsGenerateRequest` for the exact Python payload shape.
 
         > The client never talks to Python AI directly. Node.js is the only entry point.
 
@@ -1379,8 +1383,19 @@ paths:
         1. **Get templates:** `GET /quick-pt/templates` → note the `name` and category key.
         2. **Choose template:** e.g. `name = "tmplate_2"`, category = `"16_teams"`.
         3. **POST here** with `{ "template": "tmplate_2", "formatType": "16_teams" }`.
-        4. **Receive** `data.signedImageUrl` — render this directly in the app.
+        4. **Receive** `data.images` — array of signed URLs (30 min expiry). Use `data.signedImageUrl` for the first image only.
         5. **Re-export** any time to regenerate (overwrites the previous record).
+
+        ### Split export (more teams than template capacity)
+        If a match has more teams than the chosen format holds (e.g. **18 teams** with `16_teams`),
+        Node automatically generates **multiple PNGs**:
+        - **Part 1 (`main`)** — first 16 teams by rank
+        - **Part 2 (`overflow`)** — remaining teams (e.g. ranks 17–18)
+
+        Check `data.imageCount > 1` and render every entry in `data.images`.
+        Filenames use `_part1`, `_overflow` suffixes when `outputFilename` is provided.
+
+        > Team standings data is **not** duplicated in this response — use `GET /matches/{id}/results` for raw scores.
 
         > **Field name note:** The body field is `template`, not `templateName`.
 
@@ -1390,7 +1405,7 @@ paths:
         to tweak individual column colours or weights. See the request schema for exact key names.
 
         ### Prerequisites
-        - Match must have processed results (`POST /process` with `RESULT` or `COMPLETE`).
+        - Match must have at least one result (`POST /process`, or manual entry via `POST /results/manual` / `POST /results/bulk`).
       security:
         - bearerAuth: []
       parameters:
@@ -1519,7 +1534,11 @@ paths:
     get:
       tags: [Quick-PT Export]
       summary: Get points table for a match
-      description: "Retrieve the last generated points table. Run `/export` first if none exists."
+      description: |
+        Returns the last generated export in the same shape as `POST /export`.
+        Signed URLs are refreshed on every read (30 min expiry).
+
+        Run `POST /export` first if none exists.
       security:
         - bearerAuth: []
       parameters:
@@ -1539,7 +1558,7 @@ paths:
                     type: string
                     example: "Points table retrieved successfully"
                   data:
-                    $ref: "#/components/schemas/PointsTableObject"
+                    $ref: "#/components/schemas/ExportResponse"
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "401":
@@ -2505,8 +2524,18 @@ paths:
       summary: Get all available PT template images
       description: |
         Templates are organized by format category: `8_teams`, `16_teams`, `24_teams`.
-        Each template has a `name` (e.g. `tmplate_1`) and `signedUrl`/`previewUrl` for display.
-        Pass the `name` and the category key as `formatType` when calling `/export`.
+        Each template has a `name` (e.g. `tmplate_1`) and URLs for preview and export.
+
+        **For export:** pass `name` as `template` and the category key as `formatType` in `POST /matches/{id}/export`.
+        Node resolves the paired config automatically:
+        - `tmplate_1` → config file `templateConfig_1.json` in the same folder
+        - `tmplate_2` → `templateConfig_2.json`, etc.
+
+        | Field | Use |
+        |-------|-----|
+        | `signedUrl` / `previewUrl` | Display in the app (expire in 30 min) |
+        | `rawTemplateUrl` | Raw R2 URL sent to Python as `template_url` (internal) |
+        | `rawConfigUrl` | Raw R2 URL sent to Python as `template_config_url` (internal) |
 
         Signed URLs expire in 30 minutes. Results are Redis-cached for 1 hour.
       security:
@@ -2541,6 +2570,8 @@ paths:
                               signedUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800..."
                               previewUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800..."
                               configUrl: "https://pub-xxx.r2.dev/templates/16_teams/templateConfig_1.json?X-Amz-Expires=1800..."
+                              rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/tmplate_1.jpeg"
+                              rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/templateConfig_1.json"
                               category: "16_teams"
                               fullPath: "16_teams/tmplate_1"
                               originalExtension: "jpeg"
@@ -2713,60 +2744,156 @@ components:
               live_indicator:
                 enabled: false
 
+    PythonStandingsGenerateRequest:
+      type: object
+      description: |
+        Exact JSON body Node.js sends to Python `POST /api/v1/standings/generate`.
+        The mobile app sends camelCase to Node (`POST /quick-pt/matches/{id}/export`);
+        Node resolves template URLs and converts field names to snake_case.
+
+        **Config pairing rule:** for template name `tmplate_N`, config is `templateConfig_N.json`
+        in the same `{format_type}` folder (derived from `GET /quick-pt/templates`).
+      required: [template_url, template_config_url, format_type, team_data]
+      properties:
+        template_url:
+          type: string
+          format: uri
+          description: Raw R2 HTTPS URL of the template image
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/tmplate_1.jpeg"
+        template_config_url:
+          type: string
+          format: uri
+          description: Raw R2 HTTPS URL of the paired template config JSON
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/templateConfig_1.json"
+        format_type:
+          type: string
+          enum: [8_teams, 16_teams, 24_teams]
+          example: "16_teams"
+        table_font_size:
+          type: number
+          example: 55
+        table_header_font_size:
+          type: number
+          example: 40
+        table_header_label_mode:
+          type: string
+          enum: [full, abbr, initial]
+          example: "abbr"
+        row_height_adjust:
+          type: number
+          example: -35
+        element_overrides:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        column_overrides:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        advanced_config:
+          type: object
+          additionalProperties: true
+        team_data:
+          type: array
+          items:
+            type: object
+            required: [rank, slot_number, team_name, total_points]
+            properties:
+              rank:
+                type: integer
+              slot_number:
+                type: integer
+              team_name:
+                type: string
+              matches_played:
+                type: integer
+              position_points:
+                type: integer
+              finish_points:
+                type: integer
+              total_points:
+                type: integer
+              wwcd:
+                type: integer
+        output_filename:
+          type: string
+          description: Optional — Node adds this when the client sends outputFilename
+        options:
+          type: object
+          properties:
+            upload_to_r2:
+              type: boolean
+              example: true
+
     ExportResponse:
       type: object
+      description: |
+        Clean export payload returned by `POST /export`, `POST /points-table/regenerate`,
+        and `GET /points-table`.
+
+        Use `images` for all generated PNGs. `signedImageUrl` mirrors `images[0].signedUrl`
+        for clients that only display a single image.
       properties:
         pointsTableId:
           type: string
           format: uuid
           description: "DB ID for this export record"
+        template:
+          type: string
+          description: "Template name used (from request `template` field)"
+          example: "tmplate_2"
+        formatType:
+          type: string
+          enum: [8_teams, 16_teams, 24_teams]
+          example: "16_teams"
+        totalTeams:
+          type: integer
+          description: "Total teams included across all images"
+          example: 18
+        imageCount:
+          type: integer
+          description: "Number of PNGs generated (1 = normal, 2+ = split export)"
+          example: 2
+        generationTimeMs:
+          type: integer
+          description: "Total wall-clock time for all images (ms)"
+          example: 19594
         signedImageUrl:
           type: string
           format: uri
-          description: "Signed Cloudflare R2 URL — valid for 30 minutes. Display this in the app."
-          example: "https://pub-xxx.r2.dev/pt-maker-screenshots/standings/match-abc.png?X-Amz-Expires=1800..."
-        originalImageUrl:
+          description: "Signed URL for the first image — alias of `images[0].signedUrl`"
+        images:
+          type: array
+          description: "All generated standings PNGs, in rank order"
+          items:
+            $ref: "#/components/schemas/ExportStandingsImage"
+
+    ExportStandingsImage:
+      type: object
+      properties:
+        part:
+          type: integer
+          description: "1-based part index"
+          example: 1
+        label:
+          type: string
+          enum: [main, overflow]
+          description: "`main` for full pages; `overflow` for the final partial page"
+          example: "main"
+        signedUrl:
           type: string
           format: uri
-          description: "Raw (unsigned) R2 URL — permanent storage location"
-        r2Key:
+          description: "Signed Cloudflare R2 URL — valid for 30 minutes"
+        filename:
           type: string
-          description: "R2 object key for the generated image"
-        pngUrl:
-          type: string
-          format: uri
-          description: "Alias for signedImageUrl (backward compat)"
-        generationTimeMs:
+          description: "R2 output filename"
+          example: "scrims_day1_standings_part1.png"
+        teamCount:
           type: integer
-          description: "Total time to generate and upload the image (ms)"
-          example: 8400
-        formatType:
-          type: string
-          example: "16_teams"
-        templateUsed:
-          type: string
-          description: "The template name that was used (echoes the `template` field from the request)"
-          example: "tmplate_2"
-        teamsProcessed:
-          type: integer
+          description: "Teams rendered in this image"
           example: 16
-        standingsMetadata:
-          type: object
-          properties:
-            processing_time_seconds:
-              type: number
-              example: 8.4
-            image_dimensions:
-              type: string
-              example: "1920x1080"
-            template_source:
-              type: string
-            total_text_elements:
-              type: integer
-              example: 16
-            r2_upload_success:
-              type: boolean
-              example: true
 
     # ── Match ────────────────────────────────────────────────
 
@@ -3217,23 +3344,43 @@ components:
 
     TemplateInfo:
       type: object
+      description: |
+        One PT template image. Config JSON is auto-paired: `tmplate_1` → `templateConfig_1.json`.
       properties:
         name:
           type: string
-          example: "template1"
+          description: "Template identifier — pass as `template` in export request"
+          example: "tmplate_1"
         signedUrl:
           type: string
           format: uri
+          description: "Signed URL for app preview (30 min)"
         previewUrl:
           type: string
           format: uri
           nullable: true
+        configUrl:
+          type: string
+          format: uri
+          description: "Signed URL of paired templateConfig_N.json (30 min)"
+        rawTemplateUrl:
+          type: string
+          format: uri
+          description: "Raw R2 URL — Node sends to Python as template_url"
+        rawConfigUrl:
+          type: string
+          format: uri
+          description: "Raw R2 URL — Node sends to Python as template_config_url"
         category:
           type: string
-          example: "24_teams"
+          description: "Format category — pass as formatType in export"
+          example: "16_teams"
         fullPath:
           type: string
-          example: "24_teams/template1"
+          example: "16_teams/tmplate_1"
+        originalExtension:
+          type: string
+          example: "jpeg"
 
     # ── Tie-Breaking ─────────────────────────────────────────
 

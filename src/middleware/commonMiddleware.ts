@@ -3,6 +3,7 @@ import { ZodError, ZodType } from 'zod';
 import logger from '../utils/logger';
 import { Sentry } from '../utils/instrument';
 import { ResponseHelper } from '../utils/responseHelper';
+import { isServiceError } from '../utils/serviceError';
 
 declare global {
     namespace Express {
@@ -89,6 +90,12 @@ export const handleControllerError = (
     operation: string,
     res: Response
 ) => {
+    if (isServiceError(error)) {
+        return res.status(error.statusCode).json(
+            ResponseHelper.error(error.message, error.code)
+        );
+    }
+
     const errorMessage = error instanceof Error ? error.message : `Failed to ${operation}`;
     logger.error(`${operation} Error:`, error);
 
@@ -114,6 +121,12 @@ export const globalErrorHandler = (
     res: Response,
     _next: NextFunction
 ) => {
+    if (isServiceError(error)) {
+        return res.status(error.statusCode).json(
+            ResponseHelper.error(error.message, error.code)
+        );
+    }
+
     logger.error('Unhandled error:', error);
 
     // Send to Sentry — only real server errors, not expected client errors

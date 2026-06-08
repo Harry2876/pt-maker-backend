@@ -10,6 +10,7 @@ import {
 } from '../types/quickCrop';
 import { pythonAIService } from './pythonAIService';
 import { unifiedScreenshotService } from './unifiedScreenshotService';
+import { storageUrlToR2Key } from '../utils/r2UrlUtils';
 
 export class CropStorageService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
@@ -27,7 +28,7 @@ export class CropStorageService extends BaseService {
             this.logger.info(`Processing ${typeLabel} crop for match ${quickMatchId}`);
 
             const pyRequest = {
-                image_urls: [this.toR2Key(screenshotUrl)],
+                image_urls: [storageUrlToR2Key(screenshotUrl)],
                 cleanup_temp: true,
             };
 
@@ -202,7 +203,7 @@ export class CropStorageService extends BaseService {
 
                 const pyRequest = {
                     // Python AI expects R2 key paths, not full URLs
-                    image_urls: shots.map(s => this.toR2Key(s.storageUrl)),
+                    image_urls: shots.map(s => storageUrlToR2Key(s.storageUrl)),
                     cleanup_temp: true,
                 };
 
@@ -281,23 +282,6 @@ export class CropStorageService extends BaseService {
             key = key.substring('pt-maker-screenshots/'.length);
         }
         return key;
-    }
-
-    /**
-     * Convert a full R2 storage URL to the key path Python AI expects.
-     * Python AI wants: "pt-maker-screenshots/ATTENDANCE_IMAGE/match-xxx/file.jpg"
-     * i.e. the URL pathname after the hostname (minus leading slash).
-     * e.g. https://accountid.r2.cloudflarestorage.com/pt-maker-screenshots/quick-pt/... 
-     *   → pt-maker-screenshots/quick-pt/...
-     */
-    private toR2Key(storageUrl: string): string {
-        try {
-            const url = new URL(storageUrl);
-            return url.pathname.substring(1); // strip leading /
-        } catch {
-            // If it's already a key path, return as-is
-            return storageUrl;
-        }
     }
 
     /**

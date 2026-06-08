@@ -27,6 +27,12 @@ export const createManualResultSchema = z.object({
         .int('Position must be an integer')
         .min(1, 'Position must be at least 1')
         .max(25, 'Position cannot exceed 25'),
+
+    rank: z.number()
+        .int('Rank must be an integer')
+        .min(1, 'Rank must be at least 1')
+        .max(25, 'Rank cannot exceed 25')
+        .optional(),
     
     totalKills: z.number()
         .int('Total kills must be an integer')

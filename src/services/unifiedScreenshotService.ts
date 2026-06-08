@@ -627,41 +627,14 @@ export class UnifiedScreenshotService extends BaseService {
         return { success: true, message: 'Quick PT screenshot deleted successfully' };
     }
     /**
- * Mark screenshots as processed (Quick PT only)
- */
+     * @deprecated Processing no longer tracks isProcessed — kept for API compatibility.
+     */
     async markScreenshotsProcessed(
-        quickMatchId: string,
-        type: any,
-        userId?: string
+        _quickMatchId: string,
+        _type: any,
+        _userId?: string
     ): Promise<void> {
-        try {
-            // Update in database
-            await this.db.quickScreenshot.updateMany({
-                where: {
-                    quickMatchId,
-                    type
-                },
-                data: { isProcessed: true }
-            });
-
-            // Get screenshot IDs from Redis
-            const screenshotIds = await redis.smembers(`quickMatch:${quickMatchId}:screenshots:${type}`);
-
-            // Update each in Redis cache
-            for (const screenshotId of screenshotIds) {
-                const screenshot = await redis.hgetObject<any>(`quickScreenshot:${screenshotId}`);
-                if (screenshot) {
-                    screenshot.isProcessed = true;
-                    await redis.hsetObject(`quickScreenshot:${screenshotId}`, screenshot);
-                }
-            }
-
-            this.logger.info(`All ${type} screenshots marked as processed for Quick Match ${quickMatchId}`);
-
-        } catch (error) {
-            this.handleError(error, 'Mark Screenshots Processed');
-            throw error;
-        }
+        // No-op: screenshots can be re-processed at any time.
     }
     private async populateTournamentScreenshotCache(matchId: string, screenshots: any[]) {
         try {

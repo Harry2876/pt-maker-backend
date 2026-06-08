@@ -552,7 +552,7 @@ export class QuickPTController {
         const { id: quickMatchId } = req.params;
         const userId = req.user!.id;
 
-        const results = await quickProcessingService.getMatchResults(quickMatchId, userId);
+        const results = await quickResultService.getMatchResults(quickMatchId, userId);
 
         return res.json(
             ResponseHelper.success('Match results retrieved successfully', {
@@ -601,8 +601,12 @@ export class QuickPTController {
             advancedConfig,
         });
 
+        const message = result.imageCount > 1
+            ? `Standings exported as ${result.imageCount} images`
+            : 'Standings exported successfully';
+
         return res.json(
-            ResponseHelper.success('Standings table exported successfully', result)
+            ResponseHelper.success(message, result)
         );
     });
 
@@ -660,8 +664,12 @@ export class QuickPTController {
             advancedConfig,
         });
 
+        const message = result.imageCount > 1
+            ? `Standings regenerated as ${result.imageCount} images`
+            : 'Standings regenerated successfully';
+
         return res.json(
-            ResponseHelper.success('Points table regenerated successfully', result)
+            ResponseHelper.success(message, result)
         );
     });
 

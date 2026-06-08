@@ -2,13 +2,19 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
-import { quickProcessingService } from './quickProcessingService';
+import { quickResultService } from './quickResultService';
 import { templateService } from './templateService';
 import { tieBreakingService } from './tieBreakingService';
 import { signedUrlUtility } from './signedUrlUtility';
 import { QuickPointsTableCache } from '../types/quickResult';
 import { pythonAIService } from './pythonAIService';
-import { StandingsTeamData } from '../types/pythonAI';
+import { StandingsTeamData, StandingsRequest } from '../types/pythonAI';
+import { ServiceError } from '../utils/serviceError';
+import {
+    getExpectedTeamCount,
+    splitTeamDataIntoChunks,
+    buildSplitOutputFilename,
+} from '../utils/pythonErrorUtils';
 import { 
     ConflictDetectionResult, 
     TieBreakingResult, 
@@ -44,29 +50,38 @@ export interface ExportPointsTableRequest {
     advancedConfig?: Record<string, any> | null;
 }
 
+/** One generated standings PNG returned to the client */
+export interface ExportStandingsImage {
+    part: number;
+    label: 'main' | 'overflow';
+    signedUrl: string;
+    filename?: string;
+    teamCount: number;
+}
+
 export interface ExportPointsTableResponse {
-    success: boolean;
     pointsTableId: string;
-    signedImageUrl: string;        // New: signed URL instead of direct URL
-    originalImageUrl: string;      // New: original R2 URL
-    r2Key: string;                // New: R2 storage key
-    pngUrl: string;               // Keep for backward compatibility
-    csvData: any;
-    generationTimeMs: number;
-    tieBreakingApplied: boolean;
-    conflictsResolved: number;
-    manualResolutionsApplied: number;
-    // New: Enhanced metadata
+    template: string;
     formatType: string;
-    templateUsed: string;
-    teamsProcessed: number;
-    standingsMetadata: {
-        processing_time_seconds: number;
-        image_dimensions: string;
-        template_source: string;
-        total_text_elements: number;
-        r2_upload_success: boolean;
-    };
+    totalTeams: number;
+    imageCount: number;
+    generationTimeMs: number;
+    images: ExportStandingsImage[];
+    /** First image signed URL — convenience alias for single-image clients */
+    signedImageUrl: string;
+}
+
+interface StoredStandingsImage {
+    part: number;
+    label: 'main' | 'overflow';
+    originalUrl: string;
+    filename?: string;
+    teamCount: number;
+}
+
+interface GeneratedStandingsImage extends StoredStandingsImage {
+    signedUrl: string;
+    r2Key: string;
 }
 
 export class QuickExportService extends BaseService {
@@ -102,11 +117,18 @@ export class QuickExportService extends BaseService {
         try {
             // 1. Verify match ownership and completion
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
-            if (!quickMatch) throw new Error('Quick Match not found or access denied');
+            if (!quickMatch) {
+                throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
+            }
 
-            // 2. Get match results
-            const results = await quickProcessingService.getMatchResults(quickMatchId, userId);
-            if (results.length === 0) throw new Error('No match results found. Process result screenshots first.');
+            const results = await quickResultService.getMatchResults(quickMatchId, userId);
+            if (results.length === 0) {
+                throw new ServiceError(
+                    'No match results found. Process result screenshots or enter results manually first.',
+                    400,
+                    'NO_RESULTS'
+                );
+            }
 
             // 3. Resolve template → get raw R2 URLs for the Python API
             const templateName = template || this.DEFAULT_TEMPLATE;
@@ -119,7 +141,11 @@ export class QuickExportService extends BaseService {
 
             const templateConfig = await templateService.getTemplateWithConfig(templateName, resolvedFormatType);
             if (!templateConfig) {
-                throw new Error(`Template "${templateName}" not found for format "${resolvedFormatType}". Check available templates.`);
+                throw new ServiceError(
+                    `Template "${templateName}" not found for format "${resolvedFormatType}". Check GET /quick-pt/templates.`,
+                    400,
+                    'TEMPLATE_NOT_FOUND'
+                );
             }
 
             // 4. Build team_data (rank order)
@@ -136,96 +162,140 @@ export class QuickExportService extends BaseService {
                 wwcd: (r.rank ?? r.position) === 1 ? 1 : 0,
             }));
 
-            // 5. Call Python AI to generate standings image
-            // Use raw R2 URLs — Python accesses R2 directly with its own credentials
-            const standingsReq = {
-                template_url: templateConfig.templateUrl,        // raw R2 URL
-                template_config_url: templateConfig.configUrl,   // raw R2 URL (rawConfigUrl)
-                format_type: resolvedFormatType as '8_teams' | '16_teams' | '24_teams',
-                team_data: teamData,
-                output_filename: outputFilename,
-                table_font_size: tableFontSize ?? null,
-                table_header_font_size: tableHeaderFontSize ?? null,
-                table_header_label_mode: tableHeaderLabelMode ?? null,
-                row_height_adjust: rowHeightAdjust ?? null,
-                element_overrides: elementOverrides ?? null,
-                column_overrides: columnOverrides ?? null,
-                advanced_config: advancedConfig ?? null,
-                options: { upload_to_r2: true },
-            };
+            const maxTeamsPerImage = getExpectedTeamCount(resolvedFormatType);
+            const teamChunks = splitTeamDataIntoChunks(teamData, maxTeamsPerImage);
+            const splitExport = teamChunks.length > 1;
 
-            this.logger.info(`Generating standings image for match ${quickMatchId}`, {
-                template: templateName,
-                formatType: resolvedFormatType,
-                teams: teamData.length,
-            });
-
-            const pyResponse = await pythonAIService.generateStandings(standingsReq);
-
-            if (pyResponse.status !== 'success') {
-                throw new Error(`Python AI standings generation failed: ${pyResponse.status}`);
+            if (splitExport) {
+                this.logger.info(
+                    `Splitting ${teamData.length} teams into ${teamChunks.length} standings images for match ${quickMatchId}`,
+                    { formatType: resolvedFormatType, chunkSizes: teamChunks.map(c => c.length) }
+                );
             }
 
-            // 6. Extract and sign the generated image URL
-            const rawImageUrl: string =
-                pyResponse.data?.image_url ||
-                pyResponse.data?.download_url ||
-                pyResponse.data?.output_url ||
-                pyResponse.metadata?.r2_upload_url;
+            const generatedImages: GeneratedStandingsImage[] = [];
 
-            if (!rawImageUrl) {
-                throw new Error('Python AI did not return an image URL in the response');
+            for (let i = 0; i < teamChunks.length; i++) {
+                const chunk = teamChunks[i];
+                const partIndex = i + 1;
+                const isOverflow = partIndex === teamChunks.length && chunk.length < maxTeamsPerImage;
+
+                const chunkOutputFilename = buildSplitOutputFilename(
+                    outputFilename,
+                    partIndex,
+                    teamChunks.length
+                );
+
+                const standingsReq: StandingsRequest = {
+                    template_url: templateConfig.templateUrl,
+                    template_config_url: templateConfig.configUrl,
+                    format_type: resolvedFormatType as '8_teams' | '16_teams' | '24_teams',
+                    team_data: chunk,
+                    ...(chunkOutputFilename && { output_filename: chunkOutputFilename }),
+                    ...(tableFontSize != null && { table_font_size: tableFontSize }),
+                    ...(tableHeaderFontSize != null && { table_header_font_size: tableHeaderFontSize }),
+                    ...(tableHeaderLabelMode != null && { table_header_label_mode: tableHeaderLabelMode }),
+                    ...(rowHeightAdjust != null && { row_height_adjust: rowHeightAdjust }),
+                    ...(elementOverrides && { element_overrides: elementOverrides }),
+                    ...(columnOverrides && { column_overrides: columnOverrides }),
+                    ...(advancedConfig && { advanced_config: advancedConfig }),
+                    options: { upload_to_r2: true },
+                };
+
+                this.logger.info(`Generating standings image ${partIndex}/${teamChunks.length} for match ${quickMatchId}`, {
+                    template: templateName,
+                    formatType: resolvedFormatType,
+                    teams: chunk.length,
+                    partLabel: isOverflow ? 'overflow' : 'main',
+                });
+
+                const pyResponse = await pythonAIService.generateStandings(standingsReq);
+
+                if (pyResponse.status !== 'success') {
+                    throw new Error(`Python AI standings generation failed: ${pyResponse.status}`);
+                }
+
+                const rawImageUrl: string =
+                    pyResponse.data?.image_url ||
+                    pyResponse.data?.download_url ||
+                    pyResponse.data?.output_url ||
+                    pyResponse.metadata?.r2_upload_url;
+
+                if (!rawImageUrl) {
+                    throw new Error('Python AI did not return an image URL in the response');
+                }
+
+                const r2Key = this.extractR2KeyFromUrl(rawImageUrl);
+                const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+
+                generatedImages.push({
+                    part: partIndex,
+                    label: isOverflow ? 'overflow' : 'main',
+                    signedUrl: signedUrlData.signedUrl,
+                    originalUrl: rawImageUrl,
+                    r2Key,
+                    filename: chunkOutputFilename,
+                    teamCount: chunk.length,
+                });
             }
-
-            const r2Key = this.extractR2KeyFromUrl(rawImageUrl);
-            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
-            const signedImageUrl = signedUrlData.signedUrl;
 
             const generationTimeMs = Date.now() - startTime;
             const pointsTableId = randomUUID();
+            const storedImages: StoredStandingsImage[] = generatedImages.map(({ signedUrl: _s, r2Key: _k, ...rest }) => rest);
 
             // 7. Persist to DB and cache (upsert so re-exports overwrite previous record)
             await this.db.quickPointsTable.upsert({
                 where: { quickMatchId },
                 update: {
                     id: pointsTableId,
-                    tableImageUrl: rawImageUrl,
+                    tableImageUrl: generatedImages[0].originalUrl,
                     pngGeneratedAt: new Date(),
                     generationTimeMs,
                     template: templateName,
                     expiresAt: new Date(Date.now() + this.EXPORT_CACHE_TTL * 1000),
                     csvData: JSON.parse(JSON.stringify({
-                        original_image_url: rawImageUrl,
                         format_type: resolvedFormatType,
-                        teams: teamData,
-                        python_response_data: pyResponse.data,
+                        total_teams: teamData.length,
+                        images: storedImages,
                     })),
                 },
                 create: {
                     id: pointsTableId,
                     quickMatchId,
-                    tableImageUrl: rawImageUrl,
+                    tableImageUrl: generatedImages[0].originalUrl,
                     pngGeneratedAt: new Date(),
                     generationTimeMs,
                     template: templateName,
                     expiresAt: new Date(Date.now() + this.EXPORT_CACHE_TTL * 1000),
                     csvData: JSON.parse(JSON.stringify({
-                        original_image_url: rawImageUrl,
                         format_type: resolvedFormatType,
-                        teams: teamData,
-                        python_response_data: pyResponse.data,
+                        total_teams: teamData.length,
+                        images: storedImages,
                     })),
                 },
             });
 
+            const response = this.buildExportResponse(
+                pointsTableId,
+                templateName,
+                resolvedFormatType,
+                teamData.length,
+                generationTimeMs,
+                generatedImages
+            );
+
             const cacheEntry: QuickPointsTableCache = {
                 id: pointsTableId,
                 quickMatchId,
-                tableImageUrl: signedImageUrl,
+                tableImageUrl: response.signedImageUrl,
                 generationTimeMs,
                 template: templateName,
                 expiresAt: new Date(Date.now() + this.EXPORT_CACHE_TTL * 1000).toISOString(),
-                csvData: { original_image_url: rawImageUrl },
+                csvData: {
+                    format_type: resolvedFormatType,
+                    total_teams: teamData.length,
+                    images: storedImages,
+                },
                 pngGeneratedAt: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
@@ -235,36 +305,13 @@ export class QuickExportService extends BaseService {
             await redis.hsetObject(`quickPointsTable:${pointsTableId}`, cacheEntry, this.EXPORT_CACHE_TTL);
             await redis.set(`quickMatch:${quickMatchId}:pointsTable`, pointsTableId, this.EXPORT_CACHE_TTL);
 
-            this.logger.info(`Standings image generated for match ${quickMatchId}`, {
+            this.logger.info(`Standings image${splitExport ? 's' : ''} generated for match ${quickMatchId}`, {
                 pointsTableId,
                 generationTimeMs,
+                imageCount: response.imageCount,
             });
 
-            const stats = pyResponse.metadata?.processing_stats;
-
-            return {
-                success: true,
-                pointsTableId,
-                signedImageUrl,
-                originalImageUrl: rawImageUrl,
-                r2Key,
-                pngUrl: signedImageUrl,
-                csvData: { teams: teamData },
-                generationTimeMs,
-                tieBreakingApplied: false,
-                conflictsResolved: 0,
-                manualResolutionsApplied: 0,
-                formatType: resolvedFormatType,
-                templateUsed: templateName,
-                teamsProcessed: teamData.length,
-                standingsMetadata: {
-                    processing_time_seconds: (stats?.processing_time_ms ?? generationTimeMs) / 1000,
-                    image_dimensions: pyResponse.metadata?.image_dimensions ?? '',
-                    template_source: templateConfig.templateUrl,
-                    total_text_elements: stats?.teams_processed ?? teamData.length,
-                    r2_upload_success: !!rawImageUrl,
-                },
-            };
+            return response;
 
         } catch (error) {
             this.logger.error(`exportPointsTable failed for match ${quickMatchId}:`, error);
@@ -273,93 +320,70 @@ export class QuickExportService extends BaseService {
     }
 
     /**
-     * Get existing points table for a match
+     * Get existing points table for a match (same shape as POST /export response)
      */
     async getPointsTable(
         quickMatchId: string,
         userId: string
-    ): Promise<QuickPointsTableCache | null> {
+    ): Promise<ExportPointsTableResponse | null> {
         try {
-            // 1. Verify ownership
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
             if (!quickMatch) {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            // 2. Check Redis cache first
+            let record: {
+                id: string;
+                template: string;
+                tableImageUrl: string | null;
+                csvData: any;
+                generationTimeMs: number | null;
+            } | null = null;
+
             const cachedId = await redis.get(`quickMatch:${quickMatchId}:pointsTable`);
             if (cachedId) {
                 const cached = await redis.hgetObject<QuickPointsTableCache>(`quickPointsTable:${cachedId}`);
                 if (cached) {
-                    // Refresh signed URL on every read to avoid expired links in app.
-                    if (cached.tableImageUrl) {
-                        try {
-                            const originalImageUrl = (cached.csvData as any)?.original_image_url;
-                            const sourceUrl = originalImageUrl || cached.tableImageUrl;
-                            const r2Key = this.extractR2KeyFromUrl(sourceUrl);
-                            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
-                            cached.tableImageUrl = signedUrlData.signedUrl;
-                            if (cached.csvData && typeof cached.csvData === 'object') {
-                                (cached.csvData as any).signed_url_expires_at = signedUrlData.expiresAt.toISOString();
-                            }
-                            await redis.hsetObject(`quickPointsTable:${cachedId}`, cached, this.EXPORT_CACHE_TTL);
-                        } catch (error) {
-                            this.logger.warn('Failed to refresh signed URL from cache entry, returning cached value', {
-                                pointsTableId: cachedId,
-                                tableImageUrl: cached.tableImageUrl
-                            });
-                        }
-                    }
-                    return cached;
+                    record = {
+                        id: cached.id,
+                        template: cached.template,
+                        tableImageUrl: cached.tableImageUrl ?? null,
+                        csvData: cached.csvData,
+                        generationTimeMs: cached.generationTimeMs ?? null,
+                    };
                 }
             }
 
-            // 3. Fallback to database
-            const dbPointsTable = await this.db.quickPointsTable.findFirst({
-                where: { quickMatchId },
-                orderBy: { createdAt: 'desc' } // Get latest
-            });
+            if (!record) {
+                const dbPointsTable = await this.db.quickPointsTable.findFirst({
+                    where: { quickMatchId },
+                    orderBy: { createdAt: 'desc' },
+                });
+                if (!dbPointsTable) return null;
 
-            if (!dbPointsTable) {
-                return null;
+                record = {
+                    id: dbPointsTable.id,
+                    template: dbPointsTable.template,
+                    tableImageUrl: dbPointsTable.tableImageUrl,
+                    csvData: dbPointsTable.csvData,
+                    generationTimeMs: dbPointsTable.generationTimeMs,
+                };
             }
 
-            // 4. Convert to cache format
-            let tableImageUrl = dbPointsTable.tableImageUrl || undefined;
+            const storedImages = this.normalizeStoredImages(record.csvData, record.tableImageUrl ?? undefined);
+            if (storedImages.length === 0) return null;
 
-            // Always provide a signed URL to the app when possible.
-            if (tableImageUrl) {
-                try {
-                    const r2Key = this.extractR2KeyFromUrl(tableImageUrl);
-                    const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
-                    tableImageUrl = signedUrlData.signedUrl;
-                } catch (error) {
-                    this.logger.warn('Failed to sign points table image URL, returning original URL', {
-                        pointsTableId: dbPointsTable.id,
-                        imageUrl: tableImageUrl
-                    });
-                }
-            }
+            const signedImages = await this.signStoredImages(storedImages);
+            const csvData = record.csvData as Record<string, unknown> | null;
 
-            const pointsTable: QuickPointsTableCache = {
-                id: dbPointsTable.id,
-                quickMatchId: dbPointsTable.quickMatchId,
-                tableImageUrl,
-                csvData: dbPointsTable.csvData,
-                pngGeneratedAt: dbPointsTable.pngGeneratedAt?.toISOString(),
-                generationTimeMs: dbPointsTable.generationTimeMs || undefined,
-                template: dbPointsTable.template,
-                expiresAt: dbPointsTable.expiresAt?.toISOString(),
-                createdAt: dbPointsTable.createdAt.toISOString(),
-                updatedAt: dbPointsTable.updatedAt.toISOString(),
-                dbStatus: 'SYNCED'
-            };
-
-            // 5. Cache it
-            await redis.hsetObject(`quickPointsTable:${pointsTable.id}`, pointsTable, this.EXPORT_CACHE_TTL);
-
-            return pointsTable;
-
+            return this.buildExportResponse(
+                record.id,
+                record.template,
+                (csvData?.format_type as string) ?? this.determineFormatType(signedImages.reduce((n, i) => n + i.teamCount, 0)),
+                (csvData?.total_teams as number) ?? signedImages.reduce((n, i) => n + i.teamCount, 0),
+                record.generationTimeMs ?? 0,
+                signedImages
+            );
         } catch (error) {
             this.handleError(error, 'Get Points Table');
             return null;
@@ -403,7 +427,7 @@ export class QuickExportService extends BaseService {
             }
 
             // 2. Get match results
-            const results = await quickProcessingService.getMatchResults(quickMatchId, userId);
+            const results = await quickResultService.getMatchResults(quickMatchId, userId);
             if (results.length === 0) {
                 return {
                     hasConflicts: false,
@@ -445,11 +469,11 @@ export class QuickExportService extends BaseService {
             }
 
             // 2. Get current conflicts
-            const results = await quickProcessingService.getMatchResults(quickMatchId, userId);
+            const results = await quickResultService.getMatchResults(quickMatchId, userId);
             const conflictDetection = await tieBreakingService.detectMatchConflicts(results);
-            
+
             // 3. Find specific conflict group
-            const conflictGroup = conflictDetection.conflictGroups.find(g => 
+            const conflictGroup = conflictDetection.conflictGroups.find(g =>
                 g.points.toString() === conflictGroupId
             );
             
@@ -567,6 +591,82 @@ export class QuickExportService extends BaseService {
             this.handleError(error, 'Delete Points Table');
             throw error;
         }
+    }
+
+    private buildExportResponse(
+        pointsTableId: string,
+        template: string,
+        formatType: string,
+        totalTeams: number,
+        generationTimeMs: number,
+        images: GeneratedStandingsImage[]
+    ): ExportPointsTableResponse {
+        const clientImages: ExportStandingsImage[] = images.map(({ part, label, signedUrl, filename, teamCount }) => ({
+            part,
+            label,
+            signedUrl,
+            filename,
+            teamCount,
+        }));
+
+        return {
+            pointsTableId,
+            template,
+            formatType,
+            totalTeams,
+            imageCount: clientImages.length,
+            generationTimeMs,
+            images: clientImages,
+            signedImageUrl: clientImages[0]?.signedUrl ?? '',
+        };
+    }
+
+    private async signStoredImages(stored: StoredStandingsImage[]): Promise<GeneratedStandingsImage[]> {
+        return Promise.all(
+            stored.map(async (img) => {
+                const r2Key = this.extractR2KeyFromUrl(img.originalUrl);
+                const signed = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+                return {
+                    ...img,
+                    signedUrl: signed.signedUrl,
+                    r2Key,
+                };
+            })
+        );
+    }
+
+    /** Normalize DB/cache metadata — supports current and legacy export formats */
+    private normalizeStoredImages(csvData: unknown, fallbackOriginalUrl?: string): StoredStandingsImage[] {
+        if (!csvData || typeof csvData !== 'object') {
+            return fallbackOriginalUrl
+                ? [{ part: 1, label: 'main', originalUrl: fallbackOriginalUrl, teamCount: 0 }]
+                : [];
+        }
+
+        const data = csvData as Record<string, any>;
+        const rawImages = Array.isArray(data.images) ? data.images : [];
+
+        if (rawImages.length > 0) {
+            return rawImages.map((img: any, idx: number) => ({
+                part: img.part ?? img.part_index ?? idx + 1,
+                label: (img.label ?? img.part_label ?? (idx === 0 ? 'main' : 'overflow')) as 'main' | 'overflow',
+                originalUrl: img.originalUrl ?? img.original_url ?? img.original_image_url,
+                filename: img.filename ?? img.output_filename,
+                teamCount: img.teamCount ?? img.team_count ?? img.teams_processed ?? 0,
+            })).filter((img: StoredStandingsImage) => !!img.originalUrl);
+        }
+
+        const singleUrl = data.original_image_url ?? fallbackOriginalUrl;
+        if (singleUrl) {
+            return [{
+                part: 1,
+                label: 'main',
+                originalUrl: singleUrl,
+                teamCount: data.total_teams ?? 0,
+            }];
+        }
+
+        return [];
     }
 
     /**

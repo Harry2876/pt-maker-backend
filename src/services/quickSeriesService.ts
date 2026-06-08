@@ -12,7 +12,7 @@ import {
     QuickSeriesLeaderboardCache
 } from '../types/quickSeries';
 import { quickMatchService } from './quickMatchService';
-import { quickProcessingService } from './quickProcessingService';
+import { quickResultService } from './quickResultService';
 import { tieBreakingService } from './tieBreakingService';
 import {
     ConflictDetectionResult,
@@ -241,7 +241,7 @@ export class QuickSeriesService extends BaseService {
 
         for (const seriesMatch of completedMatches) {
             // Get match results for this completed match
-            const matchResults = await quickProcessingService.getMatchResults(seriesMatch.quickMatchId, userId);
+            const matchResults = await quickResultService.getMatchResults(seriesMatch.quickMatchId, userId);
 
             for (const result of matchResults) {
                 const teamName = result.teamName;

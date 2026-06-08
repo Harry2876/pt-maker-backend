@@ -141,44 +141,32 @@ export const exportPointsTableSchema = z.object({
     format: z.enum(['PNG', 'CSV', 'BOTH'] as const)
         .optional()
         .default('PNG'),
-    
+
     template: z.string()
         .min(1, 'Template name is required')
         .max(100, 'Template name must be at most 100 characters')
         .regex(/^[\w\-_.]+$/, 'Template name contains invalid characters')
         .optional()
         .default('tmplate_1'),
-        
+
     formatType: z.string()
         .min(1, 'Format type is required')
         .max(50, 'Format type must be at most 50 characters')
         .optional()
         .default('24_teams'),
-        
+
     outputFilename: z.string()
         .min(1, 'Output filename is required')
         .max(100, 'Output filename must be at most 100 characters')
         .regex(/^[\w\-_.]+\.png$/, 'Output filename must be a valid PNG filename')
         .optional(),
-        
-    customization: z.object({
-        fonts: z.object({
-            main_font_name: z.string().optional(),
-            bold_font_name: z.string().optional()
-        }).optional(),
-        
-        font_customization: z.object({
-            global_size_multiplier: z.number().min(0.1).max(3.0).optional(),
-            override_all_fonts: z.boolean().optional(),
-            default_font_family: z.string().optional(),
-            default_font_weight: z.string().optional()
-        }).optional(),
-        
-        advanced_config: z.object({
-            header: headerConfigSchema,
-            organiser: organiserConfigSchema,
-            event_details: eventDetailsSchema,
-            footer: footerSchema
-        }).optional()
-    }).optional()
+
+    tableFontSize: z.number().nullable().optional(),
+    tableHeaderFontSize: z.number().nullable().optional(),
+    tableHeaderLabelMode: z.enum(['full', 'abbr', 'initial']).nullable().optional(),
+    rowHeightAdjust: z.number().nullable().optional(),
+
+    elementOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
+    columnOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
+    advancedConfig: z.record(z.string(), z.any()).nullable().optional(),
 });

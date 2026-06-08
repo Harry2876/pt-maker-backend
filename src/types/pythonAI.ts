@@ -78,19 +78,19 @@ export interface StandingsTeamData {
 }
 
 export interface StandingsRequest {
-    template_url?: string | null;
-    config_url?: string | null;
-    template_name?: string | null;
+    /** Raw R2 HTTPS URL to the template image (from GET /quick-pt/templates → rawTemplateUrl) */
+    template_url: string;
+    /** Raw R2 HTTPS URL to templateConfig_N.json (paired with template_url) */
+    template_config_url: string;
     format_type: '8_teams' | '16_teams' | '24_teams';
     team_data: StandingsTeamData[];
-    template_config_url?: string | null;
-    advanced_config?: Record<string, any> | null;
-    column_overrides?: Record<string, Record<string, any>> | null;
     table_font_size?: number | null;
     table_header_font_size?: number | null;
+    table_header_label_mode?: string | null;
     row_height_adjust?: number | null;
     element_overrides?: Record<string, Record<string, any>> | null;
-    table_header_label_mode?: string | null;
+    column_overrides?: Record<string, Record<string, any>> | null;
+    advanced_config?: Record<string, any> | null;
     output_filename?: string;
     options?: {
         cleanup_temp?: boolean;
