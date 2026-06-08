@@ -26,8 +26,6 @@ paths:
         7. `GET /results` — verify final standings
         8. `GET /templates` → `POST /export` — generate standings PNG
         9. Receive `signedImageUrl` — valid 30 minutes
-        → 5. Process results (`/process` with `type: "RESULT"`)
-        → 6. Export points table (`/export`)
       security:
         - bearerAuth: []
       requestBody:
@@ -740,12 +738,14 @@ paths:
         ### Roster-based team matching (RESULT step)
         Because OCR can vary between image types, teams are matched by comparing **all player names**
         across the result screenshot against the player names stored during the attendance step.
-        The algorithm uses:
-        - Exact normalised match
-        - Prefix match (≥ 4 chars)
-        - Levenshtein distance ≤ 2 (for names > 5 chars)
+        The algorithm uses (in order):
+        - Exact normalised match (lowercase, strip non-alphanumeric)
+        - Prefix / substring match (≥ 4 chars)
+        - Proportional Levenshtein distance: ≤ 2 for 6–8 char names, ≤ 3 for 9–11 chars, ≤ 4 for ≥ 12 chars
+        - Bigram similarity ≥ 70 % (Sørensen–Dice) as a final fallback
 
-        The slot with the highest number of matched players wins. Unmatched teams appear in `warnings`.
+        **Only one matching player is required** — the slot with the highest match count wins.
+        Unmatched teams appear in `warnings`.
 
         ### Prerequisites
         - Screenshots must be uploaded before processing (`POST /quick-pt/matches/{id}/screenshots`).

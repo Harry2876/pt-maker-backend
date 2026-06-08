@@ -141,7 +141,7 @@ info:
     |---|---|
     | **Python AI access to R2** | Python reads/writes R2 directly using its own credentials. Node.js never proxies image bytes. |
     | **Signed URLs** | All R2 URLs returned to clients are pre-signed (30 min TTL). Never expose raw R2 URLs to clients. |
-    | **Slot matching** | Results are matched to attendance slots using fuzzy player-name comparison (Levenshtein ≤ 2, prefix match, substring match). |
+    | **Slot matching** | Results matched to attendance slots by fuzzy player-name comparison: exact → prefix/substring → proportional Levenshtein (≤ 2/3/4 by name length) → bigram similarity ≥ 70 %. One matching player is sufficient. |
     | **Re-export** | Calling `/export` again overwrites the previous standings record (`upsert`). |
     | **Token lifecycle** | Access token = 30 min. Refresh token = 34 days. Use `POST /auth/refresh-token` to get a new pair silently. |
 
