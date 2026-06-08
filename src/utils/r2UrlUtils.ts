@@ -21,8 +21,8 @@ export function buildRawR2ObjectUrl(relativeKey: string): string {
 }
 
 /**
- * Convert a stored screenshot/template URL to the R2 key path Python AI expects.
- * Handles path-style URLs: https://account.r2.cloudflarestorage.com/bucket/key → bucket/key
+ * Convert a stored screenshot/template URL to the object key inside the bucket.
+ * Handles path-style URLs: https://account.r2.cloudflarestorage.com/bucket/key → key
  */
 export function storageUrlToR2Key(storageUrl: string): string {
     try {
@@ -36,6 +36,23 @@ export function storageUrlToR2Key(storageUrl: string): string {
     } catch {
         return storageUrl.replace(/^\/+/, '');
     }
+}
+
+/**
+ * Build the image reference Python AI uses to download from R2.
+ * Uses full raw HTTPS URLs — same pattern as standings/template calls.
+ */
+export function resolvePythonImageRef(storageUrl: string, fallbackKey?: string): string {
+    const source = (storageUrl || fallbackKey || '').trim();
+    if (!source) {
+        throw new Error('Missing R2 image reference');
+    }
+
+    const key = source.startsWith('http')
+        ? storageUrlToR2Key(source)
+        : source.replace(/^\/+/, '');
+
+    return buildRawR2ObjectUrl(key);
 }
 
 /**

@@ -10,7 +10,7 @@ import {
 } from '../types/quickCrop';
 import { pythonAIService } from './pythonAIService';
 import { unifiedScreenshotService } from './unifiedScreenshotService';
-import { storageUrlToR2Key } from '../utils/r2UrlUtils';
+import { storageUrlToR2Key, resolvePythonImageRef } from '../utils/r2UrlUtils';
 
 export class CropStorageService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
@@ -28,7 +28,7 @@ export class CropStorageService extends BaseService {
             this.logger.info(`Processing ${typeLabel} crop for match ${quickMatchId}`);
 
             const pyRequest = {
-                image_urls: [storageUrlToR2Key(screenshotUrl)],
+                image_urls: [resolvePythonImageRef(screenshotUrl)],
                 cleanup_temp: true,
             };
 
@@ -202,8 +202,7 @@ export class CropStorageService extends BaseService {
                 if (shots.length === 0) return;
 
                 const pyRequest = {
-                    // Python AI expects R2 key paths, not full URLs
-                    image_urls: shots.map(s => storageUrlToR2Key(s.storageUrl)),
+                    image_urls: shots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName)),
                     cleanup_temp: true,
                 };
 

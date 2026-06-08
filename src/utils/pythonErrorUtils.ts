@@ -29,6 +29,13 @@ export function extractPythonErrorDetail(err: any): string {
         return data.message;
     }
 
+    if (data.error && typeof data.error === 'object') {
+        const nested = data.error.message ?? data.error.detail;
+        if (typeof nested === 'string') {
+            return nested;
+        }
+    }
+
     try {
         return JSON.stringify(data);
     } catch {

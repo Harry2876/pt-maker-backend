@@ -13,7 +13,7 @@ import { AttendanceTeam, ResultTeam } from '../types/pythonAI';
 import { quickSeriesService } from './quickSeriesService';
 import { quickResultService } from './quickResultService';
 import { ServiceError, isServiceError } from '../utils/serviceError';
-import { storageUrlToR2Key } from '../utils/r2UrlUtils';
+import { resolvePythonImageRef } from '../utils/r2UrlUtils';
 
 
 // Response interfaces
@@ -94,7 +94,8 @@ export class QuickProcessingService extends BaseService {
                 processingStep: 'Processing Attendance Screenshots',
             });
 
-            const imageRefs = screenshots.map(s => storageUrlToR2Key(s.storageUrl));
+            const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
+            this.logger.debug('Python OCR image refs', { count: imageRefs.length, sample: imageRefs[0] });
             const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
             if (response.status !== 'success') {
@@ -248,7 +249,8 @@ export class QuickProcessingService extends BaseService {
                 processingStep: 'Processing Result Screenshots',
             });
 
-            const imageRefs = screenshots.map(s => storageUrlToR2Key(s.storageUrl));
+            const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
+            this.logger.debug('Python OCR image refs', { count: imageRefs.length, sample: imageRefs[0] });
             const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
             if (response.status !== 'success') {

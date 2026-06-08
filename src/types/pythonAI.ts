@@ -51,7 +51,7 @@ export interface ScoreboardResponse {
 // ===== CROP UPLOAD =====
 
 export interface CropUploadRequest {
-    /** R2 key paths — format: "pt-maker-screenshots/ATTENDANCE_IMAGE/match-xxx/file.jpg" */
+    /** Full raw R2 HTTPS URLs or object keys — Python downloads from R2 directly */
     image_urls: string[];
     metadata?: Record<string, any> | null;
     cleanup_temp?: boolean;
