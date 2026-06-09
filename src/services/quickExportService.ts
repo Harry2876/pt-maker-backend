@@ -8,8 +8,12 @@ import { tieBreakingService } from './tieBreakingService';
 import { signedUrlUtility } from './signedUrlUtility';
 import { QuickPointsTableCache } from '../types/quickResult';
 import { pythonAIService } from './pythonAIService';
-import { StandingsTeamData, StandingsRequest } from '../types/pythonAI';
+import { StandingsTeamData, StandingsExportOptions } from '../types/pythonAI';
 import { ServiceError } from '../utils/serviceError';
+import { buildStandingsRequest } from '../utils/standingsPayloadBuilder';
+import { quickSeriesService } from './quickSeriesService';
+import { SeriesTeamStanding } from '../types/quickSeries';
+import { teamsMatch } from '../utils/seriesSlotUtils';
 import {
     getExpectedTeamCount,
     splitTeamDataIntoChunks,
@@ -42,12 +46,36 @@ export interface ExportPointsTableRequest {
     tableHeaderLabelMode?: string | null;
     /** Pixels to add/subtract from row height */
     rowHeightAdjust?: number | null;
+    /** Header overlay text sent to Python as event_name */
+    eventName?: string | null;
+    /** Header overlay text sent to Python as organiser_name */
+    organiserName?: string | null;
+    /** Header overlay text sent to Python as sponsor_name */
+    sponsorName?: string | null;
     /** Per-element font/color overrides (event_name, organiser_name, sponsor_name, etc.) */
     elementOverrides?: Record<string, Record<string, any>> | null;
     /** Per-column font/color overrides (rank, team, position, kills, total, etc.) */
     columnOverrides?: Record<string, Record<string, any>> | null;
     /** Advanced config for header/organiser text position overrides */
     advancedConfig?: Record<string, any> | null;
+}
+
+export interface ExportSeriesLeaderboardRequest extends StandingsExportOptions {
+    seriesId: string;
+    userId: string;
+    template?: string;
+    formatType?: string;
+}
+
+export interface ExportSeriesLeaderboardResponse {
+    seriesId: string;
+    template: string;
+    formatType: string;
+    totalTeams: number;
+    imageCount: number;
+    generationTimeMs: number;
+    images: ExportStandingsImage[];
+    signedImageUrl: string;
 }
 
 /** One generated standings PNG returned to the client */
@@ -109,10 +137,27 @@ export class QuickExportService extends BaseService {
             tableHeaderFontSize,
             tableHeaderLabelMode,
             rowHeightAdjust,
+            eventName,
+            organiserName,
+            sponsorName,
             elementOverrides,
             columnOverrides,
             advancedConfig,
         } = request;
+
+        const stylingOptions = this.pickStylingOptions({
+            outputFilename,
+            eventName,
+            organiserName,
+            sponsorName,
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
+        });
 
         try {
             // 1. Verify match ownership and completion
@@ -162,82 +207,14 @@ export class QuickExportService extends BaseService {
                 wwcd: (r.rank ?? r.position) === 1 ? 1 : 0,
             }));
 
-            const maxTeamsPerImage = getExpectedTeamCount(resolvedFormatType);
-            const teamChunks = splitTeamDataIntoChunks(teamData, maxTeamsPerImage);
-            const splitExport = teamChunks.length > 1;
-
-            if (splitExport) {
-                this.logger.info(
-                    `Splitting ${teamData.length} teams into ${teamChunks.length} standings images for match ${quickMatchId}`,
-                    { formatType: resolvedFormatType, chunkSizes: teamChunks.map(c => c.length) }
-                );
-            }
-
-            const generatedImages: GeneratedStandingsImage[] = [];
-
-            for (let i = 0; i < teamChunks.length; i++) {
-                const chunk = teamChunks[i];
-                const partIndex = i + 1;
-                const isOverflow = partIndex === teamChunks.length && chunk.length < maxTeamsPerImage;
-
-                const chunkOutputFilename = buildSplitOutputFilename(
-                    outputFilename,
-                    partIndex,
-                    teamChunks.length
-                );
-
-                const standingsReq: StandingsRequest = {
-                    template_url: templateConfig.templateUrl,
-                    template_config_url: templateConfig.configUrl,
-                    format_type: resolvedFormatType as '8_teams' | '16_teams' | '24_teams',
-                    team_data: chunk,
-                    ...(chunkOutputFilename && { output_filename: chunkOutputFilename }),
-                    ...(tableFontSize != null && { table_font_size: tableFontSize }),
-                    ...(tableHeaderFontSize != null && { table_header_font_size: tableHeaderFontSize }),
-                    ...(tableHeaderLabelMode != null && { table_header_label_mode: tableHeaderLabelMode }),
-                    ...(rowHeightAdjust != null && { row_height_adjust: rowHeightAdjust }),
-                    ...(elementOverrides && { element_overrides: elementOverrides }),
-                    ...(columnOverrides && { column_overrides: columnOverrides }),
-                    ...(advancedConfig && { advanced_config: advancedConfig }),
-                    options: { upload_to_r2: true },
-                };
-
-                this.logger.info(`Generating standings image ${partIndex}/${teamChunks.length} for match ${quickMatchId}`, {
-                    template: templateName,
-                    formatType: resolvedFormatType,
-                    teams: chunk.length,
-                    partLabel: isOverflow ? 'overflow' : 'main',
-                });
-
-                const pyResponse = await pythonAIService.generateStandings(standingsReq);
-
-                if (pyResponse.status !== 'success') {
-                    throw new Error(`Python AI standings generation failed: ${pyResponse.status}`);
-                }
-
-                const rawImageUrl: string =
-                    pyResponse.data?.image_url ||
-                    pyResponse.data?.download_url ||
-                    pyResponse.data?.output_url ||
-                    pyResponse.metadata?.r2_upload_url;
-
-                if (!rawImageUrl) {
-                    throw new Error('Python AI did not return an image URL in the response');
-                }
-
-                const r2Key = this.extractR2KeyFromUrl(rawImageUrl);
-                const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
-
-                generatedImages.push({
-                    part: partIndex,
-                    label: isOverflow ? 'overflow' : 'main',
-                    signedUrl: signedUrlData.signedUrl,
-                    originalUrl: rawImageUrl,
-                    r2Key,
-                    filename: chunkOutputFilename,
-                    teamCount: chunk.length,
-                });
-            }
+            const generatedImages = await this.generateStandingsImages({
+                quickMatchId,
+                templateName,
+                resolvedFormatType,
+                templateConfig,
+                teamData,
+                stylingOptions,
+            });
 
             const generationTimeMs = Date.now() - startTime;
             const pointsTableId = randomUUID();
@@ -305,7 +282,7 @@ export class QuickExportService extends BaseService {
             await redis.hsetObject(`quickPointsTable:${pointsTableId}`, cacheEntry, this.EXPORT_CACHE_TTL);
             await redis.set(`quickMatch:${quickMatchId}:pointsTable`, pointsTableId, this.EXPORT_CACHE_TTL);
 
-            this.logger.info(`Standings image${splitExport ? 's' : ''} generated for match ${quickMatchId}`, {
+            this.logger.info(`Standings image${response.imageCount > 1 ? 's' : ''} generated for match ${quickMatchId}`, {
                 pointsTableId,
                 generationTimeMs,
                 imageCount: response.imageCount,
@@ -408,6 +385,111 @@ export class QuickExportService extends BaseService {
             return this.exportPointsTable(request);
         } catch (error) {
             this.logger.error(`regeneratePointsTable failed for match ${quickMatchId}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Export aggregated series leaderboard as standings PNG(s)
+     */
+    async exportSeriesLeaderboard(
+        request: ExportSeriesLeaderboardRequest
+    ): Promise<ExportSeriesLeaderboardResponse> {
+        const startTime = Date.now();
+        const {
+            seriesId,
+            userId,
+            template,
+            formatType,
+            outputFilename,
+            eventName,
+            organiserName,
+            sponsorName,
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
+        } = request;
+
+        try {
+            const series = await quickSeriesService.getTournamentSeriesById(seriesId, userId);
+            if (!series) {
+                throw new ServiceError('Tournament series not found or access denied', 404, 'NOT_FOUND');
+            }
+
+            const leaderboard = await quickSeriesService.getSeriesLeaderboard(seriesId, userId);
+            if (!leaderboard?.leaderboardData?.length) {
+                throw new ServiceError(
+                    'No series leaderboard data. Add matches with results before exporting.',
+                    400,
+                    'NO_LEADERBOARD'
+                );
+            }
+
+            const templateName = template || this.DEFAULT_TEMPLATE;
+            const standings = leaderboard.leaderboardData;
+            let resolvedFormatType = formatType;
+            if (!resolvedFormatType) {
+                resolvedFormatType = this.determineFormatType(standings.length);
+            }
+
+            const templateConfig = await templateService.getTemplateWithConfig(templateName, resolvedFormatType);
+            if (!templateConfig) {
+                throw new ServiceError(
+                    `Template "${templateName}" not found for format "${resolvedFormatType}". Check GET /quick-pt/templates.`,
+                    400,
+                    'TEMPLATE_NOT_FOUND'
+                );
+            }
+
+            const teamData = await this.buildSeriesTeamData(standings, userId);
+            const stylingOptions = this.pickStylingOptions({
+                outputFilename,
+                eventName: eventName ?? series.seriesName,
+                organiserName,
+                sponsorName,
+                tableFontSize,
+                tableHeaderFontSize,
+                tableHeaderLabelMode,
+                rowHeightAdjust,
+                elementOverrides,
+                columnOverrides,
+                advancedConfig,
+            });
+
+            const generatedImages = await this.generateStandingsImages({
+                quickMatchId: seriesId,
+                templateName,
+                resolvedFormatType,
+                templateConfig,
+                teamData,
+                stylingOptions,
+            });
+
+            const generationTimeMs = Date.now() - startTime;
+            const clientImages: ExportStandingsImage[] = generatedImages.map(({ part, label, signedUrl, filename, teamCount }) => ({
+                part,
+                label,
+                signedUrl,
+                filename,
+                teamCount,
+            }));
+
+            return {
+                seriesId,
+                template: templateName,
+                formatType: resolvedFormatType,
+                totalTeams: teamData.length,
+                imageCount: clientImages.length,
+                generationTimeMs,
+                images: clientImages,
+                signedImageUrl: clientImages[0]?.signedUrl ?? '',
+            };
+        } catch (error) {
+            this.logger.error(`exportSeriesLeaderboard failed for series ${seriesId}:`, error);
             throw error;
         }
     }
@@ -591,6 +673,156 @@ export class QuickExportService extends BaseService {
             this.handleError(error, 'Delete Points Table');
             throw error;
         }
+    }
+
+    private pickStylingOptions(options: StandingsExportOptions): StandingsExportOptions {
+        return {
+            outputFilename: options.outputFilename,
+            eventName: options.eventName,
+            organiserName: options.organiserName,
+            sponsorName: options.sponsorName,
+            tableFontSize: options.tableFontSize,
+            tableHeaderFontSize: options.tableHeaderFontSize,
+            tableHeaderLabelMode: options.tableHeaderLabelMode,
+            rowHeightAdjust: options.rowHeightAdjust,
+            elementOverrides: options.elementOverrides,
+            columnOverrides: options.columnOverrides,
+            advancedConfig: options.advancedConfig,
+        };
+    }
+
+    private async buildSeriesTeamData(
+        standings: SeriesTeamStanding[],
+        userId: string
+    ): Promise<StandingsTeamData[]> {
+        const matchIds = [...new Set(standings.flatMap(s => s.matchResults.map(m => m.quickMatchId)))];
+        const resultsByMatch = new Map<string, Awaited<ReturnType<typeof quickResultService.getMatchResults>>>();
+
+        for (const matchId of matchIds) {
+            resultsByMatch.set(matchId, await quickResultService.getMatchResults(matchId, userId));
+        }
+
+        return standings.map((standing, index) => {
+            let positionPoints = 0;
+            let finishPoints = 0;
+            let wwcd = 0;
+            let slotNumber = index + 1;
+
+            for (const matchResult of standing.matchResults) {
+                const matchRows = resultsByMatch.get(matchResult.quickMatchId) ?? [];
+                const teamRow = matchRows.find(r => teamsMatch(r.teamName, standing.teamName));
+                if (!teamRow) continue;
+
+                positionPoints += teamRow.positionPoints;
+                finishPoints += teamRow.killPoints;
+                if ((teamRow.rank ?? teamRow.position) === 1) {
+                    wwcd += 1;
+                }
+                slotNumber = teamRow.slotNumber;
+            }
+
+            return {
+                rank: index + 1,
+                slot_number: slotNumber,
+                team_name: standing.teamName,
+                matches_played: standing.matchesPlayed,
+                position_points: positionPoints,
+                finish_points: finishPoints,
+                total_points: standing.totalPoints,
+                wwcd,
+            };
+        });
+    }
+
+    private async generateStandingsImages(params: {
+        quickMatchId: string;
+        templateName: string;
+        resolvedFormatType: string;
+        templateConfig: { templateUrl: string; configUrl: string };
+        teamData: StandingsTeamData[];
+        stylingOptions: StandingsExportOptions;
+    }): Promise<GeneratedStandingsImage[]> {
+        const {
+            quickMatchId,
+            templateName,
+            resolvedFormatType,
+            templateConfig,
+            teamData,
+            stylingOptions,
+        } = params;
+
+        const maxTeamsPerImage = getExpectedTeamCount(resolvedFormatType);
+        const teamChunks = splitTeamDataIntoChunks(teamData, maxTeamsPerImage);
+
+        if (teamChunks.length > 1) {
+            this.logger.info(
+                `Splitting ${teamData.length} teams into ${teamChunks.length} standings images for ${quickMatchId}`,
+                { formatType: resolvedFormatType, chunkSizes: teamChunks.map(c => c.length) }
+            );
+        }
+
+        const generatedImages: GeneratedStandingsImage[] = [];
+
+        for (let i = 0; i < teamChunks.length; i++) {
+            const chunk = teamChunks[i];
+            const partIndex = i + 1;
+            const isOverflow = partIndex === teamChunks.length && chunk.length < maxTeamsPerImage;
+
+            const chunkOutputFilename = buildSplitOutputFilename(
+                stylingOptions.outputFilename,
+                partIndex,
+                teamChunks.length
+            );
+
+            const standingsReq = buildStandingsRequest(
+                templateConfig.templateUrl,
+                templateConfig.configUrl,
+                resolvedFormatType as '8_teams' | '16_teams' | '24_teams',
+                chunk,
+                {
+                    ...stylingOptions,
+                    outputFilename: chunkOutputFilename,
+                }
+            );
+
+            this.logger.info(`Generating standings image ${partIndex}/${teamChunks.length} for ${quickMatchId}`, {
+                template: templateName,
+                formatType: resolvedFormatType,
+                teams: chunk.length,
+                partLabel: isOverflow ? 'overflow' : 'main',
+            });
+
+            const pyResponse = await pythonAIService.generateStandings(standingsReq);
+
+            if (pyResponse.status !== 'success') {
+                throw new Error(`Python AI standings generation failed: ${pyResponse.status}`);
+            }
+
+            const rawImageUrl: string =
+                pyResponse.data?.image_url ||
+                pyResponse.data?.download_url ||
+                pyResponse.data?.output_url ||
+                pyResponse.metadata?.r2_upload_url;
+
+            if (!rawImageUrl) {
+                throw new Error('Python AI did not return an image URL in the response');
+            }
+
+            const r2Key = this.extractR2KeyFromUrl(rawImageUrl);
+            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+
+            generatedImages.push({
+                part: partIndex,
+                label: isOverflow ? 'overflow' : 'main',
+                signedUrl: signedUrlData.signedUrl,
+                originalUrl: rawImageUrl,
+                r2Key,
+                filename: chunkOutputFilename,
+                teamCount: chunk.length,
+            });
+        }
+
+        return generatedImages;
     }
 
     private buildExportResponse(

@@ -76,7 +76,8 @@ export interface QuickSeriesMatchCache {
     seriesId: string;
     quickMatchId: string;
     matchOrder: number;
-    isCompleted: boolean;
+    /** Derived at read time — true when the match has result rows */
+    isCompleted?: boolean;
     completedAt?: string;
     matchWeight: number;
     bonusPoints: number;

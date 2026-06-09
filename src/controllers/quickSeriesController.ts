@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { asyncHandler } from '../middleware/commonMiddleware';
 import { ResponseHelper } from '../utils/responseHelper';
 import { quickSeriesService } from '../services/quickSeriesService';
+import { quickExportService } from '../services/quickExportService';
+import { excelExportService } from '../services/excelExportService';
 
 export class QuickSeriesController {
 
@@ -53,12 +55,84 @@ export class QuickSeriesController {
 
         const leaderboard = await quickSeriesService.getSeriesLeaderboard(seriesId, userId);
 
-        if (!leaderboard) {
-            return res.status(404).json(ResponseHelper.notFound('Series leaderboard not found'));
-        }
+        return res.json(
+            ResponseHelper.success(
+                leaderboard
+                    ? 'Series leaderboard retrieved successfully'
+                    : 'No series leaderboard yet — add matches with results first',
+                leaderboard
+            )
+        );
+    });
+
+    /**
+     * POST /api/v1/quick-pt/series/:id/export
+     * Export series leaderboard as standings PNG(s)
+     */
+    static exportSeriesLeaderboard = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+        const {
+            template,
+            formatType,
+            outputFilename,
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            eventName,
+            organiserName,
+            sponsorName,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
+        } = req.body;
+
+        const result = await quickExportService.exportSeriesLeaderboard({
+            seriesId,
+            userId,
+            template,
+            formatType,
+            outputFilename,
+            tableFontSize,
+            tableHeaderFontSize,
+            tableHeaderLabelMode,
+            rowHeightAdjust,
+            eventName,
+            organiserName,
+            sponsorName,
+            elementOverrides,
+            columnOverrides,
+            advancedConfig,
+        });
+
+        const message = result.imageCount > 1
+            ? `Series standings exported as ${result.imageCount} images`
+            : 'Series standings exported successfully';
 
         return res.json(
-            ResponseHelper.success('Series leaderboard retrieved successfully', leaderboard)
+            ResponseHelper.success(message, result)
+        );
+    });
+
+    /**
+     * GET /api/v1/quick-pt/series/:id/export/excel
+     * Export series leaderboard to Excel (single sheet)
+     */
+    static exportSeriesToExcel = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+        const queryData = (req as any).validatedQuery || req.query;
+        const { customFilename } = queryData;
+
+        const result = await excelExportService.exportSeriesToExcel(
+            seriesId,
+            userId,
+            { customFilename: customFilename as string | undefined }
+        );
+
+        return res.json(
+            ResponseHelper.success('Series Excel export completed successfully', result)
         );
     });
 

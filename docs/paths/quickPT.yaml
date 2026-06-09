@@ -1400,9 +1400,10 @@ paths:
         > **Field name note:** The body field is `template`, not `templateName`.
 
         ### Appearance customization
-        All fields after `formatType` are optional. Use `elementOverrides` to change
-        the text/colour of overlaid labels (event name, organiser, etc.) and `columnOverrides`
-        to tweak individual column colours or weights. See the request schema for exact key names.
+        All fields after `formatType` are optional. Use top-level `eventName`, `organiserName`, and
+        `sponsorName` to set header overlay text. Use `elementOverrides` to change font size/colour of
+        those labels and `columnOverrides` to tweak individual column colours or weights.
+        Use `advancedConfig` for pixel-level position overrides (see request schema).
 
         ### Prerequisites
         - Match must have at least one result (`POST /process`, or manual entry via `POST /results/manual` / `POST /results/bulk`).
@@ -1451,33 +1452,23 @@ paths:
       tags: [Quick-PT Export]
       summary: Export match results to Excel
       description: |
-        Generates an Excel workbook with multiple sheets:
-        - **Match Summary** — metadata and scoring config
-        - **Final Standings** — ranked results
-        - **Detailed Results** — per-team breakdown
-        - **Points Breakdown** *(optional)* — position + kill points per team
-        - **Player Statistics** *(optional)* — per-player kill data
+        Generates a **single-sheet** Excel workbook (`Match Report`) with three sections:
 
-        Returns a signed download URL valid for 30 minutes. File is auto-deleted after 1 hour.
+        1. **Team & Slot Mapping** — slot number and team name for every registered team
+        2. **Match Details** — match name, game, map, date, team count, kill points (no internal IDs)
+        3. **Results & Rankings** — complete standings for **all teams** (not capped at 10)
+
+        Returns a signed download URL valid for 30 minutes.
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/MatchId"
         - in: query
-          name: includePlayerDetails
-          schema:
-            type: boolean
-            default: false
-        - in: query
-          name: includePointsBreakdown
-          schema:
-            type: boolean
-            default: true
-        - in: query
           name: customFilename
           schema:
             type: string
             maxLength: 100
+          description: "Optional filename without or with `.xlsx` extension"
           example: "BGMI_Tournament_Finals"
       responses:
         "200":
@@ -1494,35 +1485,15 @@ paths:
                     type: string
                     example: "Excel export completed successfully"
                   data:
-                    type: object
-                    properties:
-                      downloadUrl:
-                        type: string
-                        format: uri
-                        description: "Signed download URL — expires in 30 minutes"
-                      filename:
-                        type: string
-                        example: "BGMI_Match_2026-02-10.xlsx"
-                      expiresAt:
-                        type: string
-                        format: date-time
-                      generationTimeMs:
-                        type: integer
-                        example: 1250
-                      sheetsGenerated:
-                        type: integer
-                        example: 4
-                      totalRows:
-                        type: integer
-                        example: 156
-                      fileSize:
-                        type: integer
-                        description: "File size in bytes"
-                        example: 45678
+                    $ref: "#/components/schemas/ExcelExportResponse"
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "400":
-          $ref: "#/components/responses/ValidationError"
+          description: "No results found for this match"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           $ref: "#/components/responses/UnauthorizedError"
         "404":
@@ -2249,7 +2220,8 @@ paths:
 
         - Each match can only be added to one series
         - The match order is assigned automatically (sequential, based on `currentMatchNumber`)
-        - Series leaderboard is rebuilt automatically when the linked match completes AI processing or manual result entry
+        - **All matches must share the same slot/team list** (slot number + team name). Mismatches return `400 SLOT_LIST_MISMATCH`.
+        - Series leaderboard rebuilds automatically when a linked match gets results (including if the match was processed before being added)
       security:
         - bearerAuth: []
       parameters:
@@ -2285,7 +2257,7 @@ paths:
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "400":
-          description: "Match already in a series, or series is full"
+          description: "Series full, match already in a series, or slot list mismatch"
           content:
             application/json:
               schema:
@@ -2384,6 +2356,192 @@ paths:
                         format: date-time
                   meta:
                     $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/conflicts/resolve:
+    post:
+      tags: [Quick-PT Tie-Breaking]
+      summary: Resolve a series points conflict manually
+      description: |
+        Provide a user-defined ordering for teams tied on aggregate series total points.
+        Rebuilds the series leaderboard after saving the resolution.
+
+        `conflictGroupId` is the tied **total points value** as a string (from `POST /conflicts/detect`).
+        `userDefinedOrder` is an array of **team names** — first entry ranks highest within the tie.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conflictGroupId, userDefinedOrder]
+              properties:
+                conflictGroupId:
+                  type: string
+                  description: "Tied total points value from conflict detection (e.g. \"72\")"
+                  example: "72"
+                userDefinedOrder:
+                  type: array
+                  minItems: 2
+                  description: "Team names in preferred rank order (first = higher rank)"
+                  items:
+                    type: string
+                  example: ["TEAM ALPHA", "TEAM BRAVO"]
+                reason:
+                  type: string
+                  maxLength: 500
+                  example: "Team Alpha had more WWCDs across the series"
+      responses:
+        "200":
+          description: Series conflict resolved and leaderboard rebuilt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Series conflicts resolved successfully"
+                  data:
+                    type: object
+                    properties:
+                      success:
+                        type: boolean
+                        example: true
+                      resolvedTeams:
+                        type: array
+                        items:
+                          type: string
+                        example: ["TEAM ALPHA", "TEAM BRAVO"]
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          description: "Invalid conflict group or team order"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/export:
+    post:
+      tags: [Quick-PT Series]
+      summary: Export series leaderboard as standings PNG
+      description: |
+        Generates a professional tournament standings PNG from the aggregated series leaderboard.
+        Uses the same request body and Python payload shape as `POST /matches/{id}/export`.
+
+        **Team data mapping:** each row includes `matches_played` (completed series matches),
+        summed `position_points` / `finish_points`, aggregate `total_points`, and `wwcd` (match wins).
+
+        **Default event title:** when `eventName` is omitted, the series name is used as `event_name`.
+
+        Split export applies when team count exceeds the chosen template capacity (same as match export).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Series standings image generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Series standings exported successfully"
+                  data:
+                    $ref: "#/components/schemas/SeriesExportResponse"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          description: "No leaderboard data or template not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/export/excel:
+    get:
+      tags: [Quick-PT Series]
+      summary: Export series leaderboard to Excel
+      description: |
+        Generates a **single-sheet** Excel workbook (`Series Report`) with three sections:
+
+        1. **Team & Slot Mapping** — from the first match in the series
+        2. **Series Details** — name, game, match counts, status, kill points (no internal IDs)
+        3. **Results & Rankings** — aggregated standings for all teams with matches played,
+           position/kill points, WWCD, and total points
+
+        Returns a signed download URL valid for 30 minutes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+        - in: query
+          name: customFilename
+          schema:
+            type: string
+            maxLength: 100
+          description: "Optional filename without or with `.xlsx` extension"
+          example: "BGMI_League_Standings"
+      responses:
+        "200":
+          description: Series Excel exported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Series Excel export completed successfully"
+                  data:
+                    $ref: "#/components/schemas/ExcelExportResponse"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          description: "No leaderboard data available"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           $ref: "#/components/responses/UnauthorizedError"
         "404":
@@ -2670,7 +2828,25 @@ components:
           type: number
           nullable: true
           description: "Pixels to add (positive) or subtract (negative) from each table row height."
-          example: 0
+          example: -35
+        eventName:
+          type: string
+          description: |
+            Event title rendered in the template header overlay.
+            Sent to Python as `event_name`. Defaults to the template config value when omitted.
+          example: "BATTLEGROUNDS CHAMPIONSHIP"
+        organiserName:
+          type: string
+          description: |
+            Organiser line rendered in the template header overlay.
+            Sent to Python as `organiser_name`.
+          example: "Organized by Nodwin Gaming"
+        sponsorName:
+          type: string
+          description: |
+            Sponsor line rendered in the template header overlay.
+            Sent to Python as `sponsor_name`.
+          example: "Powered by Intel"
         elementOverrides:
           type: object
           nullable: true
@@ -2690,14 +2866,13 @@ components:
             additionalProperties: true
           example:
             event_name:
-              size: 85
+              size: 16
               color: "#FFFFFF"
             sponsor_name:
-              size: 55
+              size: 14
               color: "#FFD700"
             organiser_name:
-              size: 65
-              color: "#FFFFFF"
+              size: 14
         columnOverrides:
           type: object
           nullable: true
@@ -2719,15 +2894,16 @@ components:
             rank:
               color: "#E0E0E0"
             team_name:
-              color: "#FFFFFF"
+              color: "#000000"
+              weight: "bold"
             chicken_dinner:
-              color: "#FFD700"
+              color: "#FF6B35"
             matches:
-              color: "#E0E0E0"
+              color: "#000000"
             position:
-              color: "#87CEEB"
+              color: "#000000"
             kills:
-              color: "#FF6B6B"
+              color: "#000000"
             total:
               color: "#FFD700"
               weight: "bold"
@@ -2735,14 +2911,24 @@ components:
           type: object
           nullable: true
           description: |
-            Free-form config object passed directly to the Python AI service.
-            Use for fine-grained layout tweaks not covered by the above fields.
-            Shape is template-specific — inspect the `templateConfig_N.json` file for available keys.
+            Fine-grained layout overrides passed to Python as `advanced_config`.
+            Use `header` and `organiser` blocks to reposition overlay text elements.
           additionalProperties: true
           example:
-            footer:
-              live_indicator:
-                enabled: false
+            header:
+              event_name:
+                position:
+                  x: 2048
+                  y: 235
+              sponsor_name:
+                position:
+                  x: 2048
+                  y: 400
+            organiser:
+              name:
+                position:
+                  x: 100
+                  y: 240
 
     PythonStandingsGenerateRequest:
       type: object
@@ -2769,6 +2955,15 @@ components:
           type: string
           enum: [8_teams, 16_teams, 24_teams]
           example: "16_teams"
+        event_name:
+          type: string
+          example: "BATTLEGROUNDS CHAMPIONSHIP"
+        organiser_name:
+          type: string
+          example: "Organized by Nodwin Gaming"
+        sponsor_name:
+          type: string
+          example: "Powered by Intel"
         table_font_size:
           type: number
           example: 55
@@ -2846,29 +3041,87 @@ components:
           example: "tmplate_2"
         formatType:
           type: string
-          enum: [8_teams, 16_teams, 24_teams]
           example: "16_teams"
         totalTeams:
           type: integer
-          description: "Total teams included across all images"
-          example: 18
+          example: 16
         imageCount:
           type: integer
-          description: "Number of PNGs generated (1 = normal, 2+ = split export)"
-          example: 2
+          example: 1
         generationTimeMs:
           type: integer
-          description: "Total wall-clock time for all images (ms)"
-          example: 19594
+          example: 4200
         signedImageUrl:
           type: string
           format: uri
-          description: "Signed URL for the first image — alias of `images[0].signedUrl`"
+          description: "Signed URL for the first image (30 min expiry)"
         images:
           type: array
-          description: "All generated standings PNGs, in rank order"
           items:
             $ref: "#/components/schemas/ExportStandingsImage"
+
+    SeriesExportResponse:
+      type: object
+      description: |
+        Export payload returned by `POST /series/{id}/export`.
+        Same image array shape as match export, keyed by `seriesId` instead of `pointsTableId`.
+      properties:
+        seriesId:
+          type: string
+          format: uuid
+        template:
+          type: string
+          example: "tmplate_2"
+        formatType:
+          type: string
+          example: "16_teams"
+        totalTeams:
+          type: integer
+          example: 16
+        imageCount:
+          type: integer
+          example: 1
+        generationTimeMs:
+          type: integer
+          example: 4200
+        signedImageUrl:
+          type: string
+          format: uri
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportStandingsImage"
+
+    ExcelExportResponse:
+      type: object
+      description: |
+        Response from `GET /matches/{id}/export/excel` and `GET /series/{id}/export/excel`.
+        Single-sheet workbook with slot mapping, details, and full rankings.
+      properties:
+        downloadUrl:
+          type: string
+          format: uri
+          description: "Signed download URL — expires in 30 minutes"
+        filename:
+          type: string
+          example: "BGMI_Match_2026-02-10.xlsx"
+        r2Key:
+          type: string
+          description: "R2 object key (internal)"
+        expiresAt:
+          type: string
+          format: date-time
+        generationTimeMs:
+          type: integer
+          example: 850
+        totalTeams:
+          type: integer
+          description: "Number of teams included in the results table"
+          example: 16
+        fileSize:
+          type: integer
+          description: "File size in bytes"
+          example: 12480
 
     ExportStandingsImage:
       type: object
@@ -3496,8 +3749,21 @@ components:
                 type: array
                 items:
                   type: string
-                description: "Team names in this conflict group"
+                description: |
+                  Team names in this conflict group (match conflicts may also include full result objects
+                  in legacy responses — prefer `conflictedTeamNames` for series).
                 example: ["Team Alpha", "Team Beta"]
+              conflictedTeamNames:
+                type: array
+                items:
+                  type: string
+                description: "Team names tied on the same points value (series conflicts)"
+                example: ["TEAM ALPHA", "TEAM BRAVO"]
+              conflictedStandings:
+                type: array
+                description: "Full aggregated series standings for each tied team (series conflicts only)"
+                items:
+                  $ref: "#/components/schemas/SeriesTeamStanding"
         totalConflictedTeams:
           type: integer
           example: 4

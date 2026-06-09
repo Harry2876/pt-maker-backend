@@ -10,7 +10,12 @@ export interface TieBreakingRule {
 
 export interface ConflictGroup {
     points: number;
-    conflictedTeams: QuickMatchResultCache[];
+    /** Full match result rows — populated for match-level conflicts */
+    conflictedTeams?: QuickMatchResultCache[];
+    /** Team names in the tied group — populated for series conflicts */
+    conflictedTeamNames?: string[];
+    /** Aggregated series standings — populated for series conflicts */
+    conflictedStandings?: SeriesTeamStanding[];
     requiresManualResolution: boolean;
     conflictType: 'TOTAL_POINTS' | 'POSITION_POINTS' | 'SERIES_POINTS';
 }

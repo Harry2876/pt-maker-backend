@@ -4,432 +4,542 @@ import { r2Service } from './cloudflareR2Service';
 import { signedUrlUtility } from './signedUrlUtility';
 import { quickMatchService } from './quickMatchService';
 import { quickResultService } from './quickResultService';
-import { tieBreakingService } from './tieBreakingService';
+import { quickSlotService } from './quickSlotService';
+import { quickSeriesService } from './quickSeriesService';
+import { QuickMatchResultCache } from '../types/quickResult';
+import { SeriesTeamStanding } from '../types/quickSeries';
 import redis from '../config/redis';
-import { randomUUID } from 'crypto';
 import {
     ExcelExportRequest,
     ExcelExportResponse,
     ExcelMatchData,
+    ExcelSeriesData,
+    ExcelSeriesStandingRow,
+    ExcelSlotRow,
     ExcelStandingRow,
-    ExcelDetailedRow,
-    ExcelPlayerRow,
-    ExcelPointsMatrix
 } from '../types/excelExport';
+import { ServiceError } from '../utils/serviceError';
+import { teamsMatch } from '../utils/seriesSlotUtils';
 
 export class ExcelExportService extends BaseService {
-    private readonly CACHE_TTL = 1800; // 30 minutes
-    private readonly FILE_CLEANUP_TTL = 3600; // 1 hour
+    private readonly CACHE_TTL = 1800;
 
-    constructor() {
-        super();
-    }
-
-    /**
-     * Main export function - generates Excel file for Quick Match
-     */
     async exportMatchToExcel(
         quickMatchId: string,
         userId: string,
-        request: ExcelExportRequest
+        request: ExcelExportRequest = {}
     ): Promise<ExcelExportResponse> {
         const startTime = Date.now();
-        
+
         try {
             this.logger.info(`Starting Excel export for match: ${quickMatchId}`);
 
-            // 1. Fetch and validate match data
-            const matchData = await this.prepareMatchData(quickMatchId, userId, request);
-            
-            // 2. Generate Excel workbook
-            const workbook = await this.generateWorkbook(matchData, request);
-            
-            // 3. Convert to buffer
+            const matchData = await this.prepareMatchData(quickMatchId, userId);
+            const workbook = await this.generateMatchWorkbook(matchData);
             const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
-            
-            // 4. Generate filename
-            const filename = this.generateFilename(matchData.matchInfo, request.customFilename);
-            
-            // 5. Upload to R2
+            const filename = this.generateFilename(matchData.matchInfo.name, request.customFilename, 'match');
             const r2Key = await this.uploadToR2(buffer, filename, quickMatchId);
-            
-            // 6. Generate signed URL
             const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
-            
-            // 7. Cache export info
-            await this.cacheExportInfo(quickMatchId, r2Key, filename);
-            
-            const generationTimeMs = Date.now() - startTime;
-            
-            this.logger.info(`Excel export completed: ${filename} (${generationTimeMs}ms)`);
-            
-            return {
-                success: true,
-                downloadUrl: signedUrlData.signedUrl,
-                filename,
-                r2Key,
-                expiresAt: signedUrlData.expiresAt,
-                generationTimeMs,
-                sheetsGenerated: this.getSheetCount(request),
-                totalRows: this.calculateTotalRows(matchData, request),
-                fileSize: buffer.length
-            };
 
+            await this.cacheMatchExportInfo(quickMatchId, r2Key, filename);
+
+            return this.buildResponse(signedUrlData, filename, r2Key, startTime, matchData.standings.length, buffer.length);
         } catch (error) {
             this.handleError(error, 'Excel Export');
             throw error;
         }
     }
 
-    /**
-     * Prepare all data needed for Excel generation
-     */
-    private async prepareMatchData(
-        quickMatchId: string,
+    async exportSeriesToExcel(
+        seriesId: string,
         userId: string,
-        request: ExcelExportRequest
-    ): Promise<ExcelMatchData> {
-        // Get match info
+        request: ExcelExportRequest = {}
+    ): Promise<ExcelExportResponse> {
+        const startTime = Date.now();
+
+        try {
+            this.logger.info(`Starting Excel export for series: ${seriesId}`);
+
+            const seriesData = await this.prepareSeriesData(seriesId, userId);
+            const workbook = await this.generateSeriesWorkbook(seriesData);
+            const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+            const filename = this.generateFilename(seriesData.seriesInfo.name, request.customFilename, 'series');
+            const r2Key = await this.uploadToR2(buffer, filename, seriesId);
+            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+
+            await this.cacheSeriesExportInfo(seriesId, r2Key, filename);
+
+            return this.buildResponse(signedUrlData, filename, r2Key, startTime, seriesData.standings.length, buffer.length);
+        } catch (error) {
+            this.handleError(error, 'Series Excel Export');
+            throw error;
+        }
+    }
+
+    private buildResponse(
+        signedUrlData: { signedUrl: string; expiresAt: Date },
+        filename: string,
+        r2Key: string,
+        startTime: number,
+        totalTeams: number,
+        fileSize: number
+    ): ExcelExportResponse {
+        const generationTimeMs = Date.now() - startTime;
+        this.logger.info(`Excel export completed: ${filename} (${generationTimeMs}ms)`);
+
+        return {
+            downloadUrl: signedUrlData.signedUrl,
+            filename,
+            r2Key,
+            expiresAt: signedUrlData.expiresAt,
+            generationTimeMs,
+            totalTeams,
+            fileSize,
+        };
+    }
+
+    private async prepareMatchData(quickMatchId: string, userId: string): Promise<ExcelMatchData> {
         const match = await quickMatchService.getQuickMatchById(quickMatchId, userId);
         if (!match) {
-            throw new Error('Match not found');
+            throw new ServiceError('Match not found', 404, 'NOT_FOUND');
         }
 
-        // Get match results
         const results = await quickResultService.getMatchResults(quickMatchId, userId);
         if (results.length === 0) {
-            throw new Error('No results found for this match');
+            throw new ServiceError('No results found for this match', 400, 'NO_RESULTS');
         }
 
-        // Apply tie-breaking if needed
-        const conflictDetection = await tieBreakingService.detectMatchConflicts(results);
-        let finalResults = results;
-        
-        if (conflictDetection.hasConflicts) {
-            // Auto-resolve conflicts if possible
-            const tieBreakingResult = await tieBreakingService.applyAutomaticTieBreaking(
-                conflictDetection.conflictGroups,
-                [] // Empty tie-breaking rules array - will use defaults
-            );
-            finalResults = tieBreakingResult.resolvedResults;
-        }
-
-        // Prepare data structures
-        const matchData: ExcelMatchData = {
+        return {
             matchInfo: {
-                id: match.id,
                 name: match.matchName,
                 game: match.game,
                 map: match.map,
                 createdAt: match.createdAt,
-                totalTeams: finalResults.length,
-                scoringConfig: {
-                    positionPoints: match.positionPointsConfig || [20, 15, 12, 10, 8, 6, 4, 2, 1, 0],
-                    killPointsValue: match.killPointsValue || 1,
-                    description: match.scoringDescription
-                }
+                totalTeams: results.length,
+                killPointsValue: match.killPointsValue ?? 1,
+                scoringDescription: match.scoringDescription,
             },
-            standings: this.formatStandings(finalResults),
-            detailedResults: this.formatDetailedResults(finalResults),
-            pointsMatrix: this.formatPointsMatrix(match.positionPointsConfig || [20, 15, 12, 10, 8, 6, 4, 2, 1, 0])
+            slots: await this.buildSlotRows(quickMatchId, userId, results),
+            standings: this.formatMatchStandings(results),
         };
-
-        if (request.includePlayerDetails) {
-            matchData.playerBreakdown = this.formatPlayerBreakdown(finalResults);
-        }
-
-        return matchData;
     }
 
-    /**
-     * Generate Excel workbook with multiple sheets
-     */
-    private async generateWorkbook(data: ExcelMatchData, request: ExcelExportRequest): Promise<ExcelJS.Workbook> {
-        const workbook = new ExcelJS.Workbook();
-        
-        // Set workbook properties
-        workbook.creator = 'SCRYMZ';
-        workbook.lastModifiedBy = 'SCRYMZ System';
-        workbook.created = new Date();
-        
-        // Generate sheets
-        await this.createMatchSummarySheet(workbook, data);
-        await this.createFinalStandingsSheet(workbook, data);
-        await this.createDetailedResultsSheet(workbook, data);
-        
-        if (request.includePointsBreakdown) {
-            await this.createPointsBreakdownSheet(workbook, data);
+    private async prepareSeriesData(seriesId: string, userId: string): Promise<ExcelSeriesData> {
+        const series = await quickSeriesService.getTournamentSeriesById(seriesId, userId);
+        if (!series) {
+            throw new ServiceError('Tournament series not found', 404, 'NOT_FOUND');
         }
-        
-        if (request.includePlayerDetails && data.playerBreakdown) {
-            await this.createPlayerBreakdownSheet(workbook, data);
+
+        let leaderboard = await quickSeriesService.getSeriesLeaderboard(seriesId, userId);
+        if (!leaderboard?.leaderboardData?.length) {
+            leaderboard = await quickSeriesService.updateSeriesLeaderboard(seriesId, userId);
         }
-        
-        return workbook;
-    }
 
-    /**
-     * Sheet 1: Match Summary
-     */
-    private async createMatchSummarySheet(workbook: ExcelJS.Workbook, data: ExcelMatchData): Promise<void> {
-        const sheet = workbook.addWorksheet('Match Summary');
-        
-        // Set column widths
-        sheet.columns = [
-            { header: 'Property', key: 'property', width: 25 },
-            { header: 'Value', key: 'value', width: 40 }
-        ];
-        
-        // Add match information
-        const summaryData = [
-            ['Match Name', data.matchInfo.name],
-            ['Game', data.matchInfo.game],
-            ['Map', data.matchInfo.map || 'Not specified'],
-            ['Created At', new Date(data.matchInfo.createdAt).toLocaleString()],
-            ['Total Teams', data.matchInfo.totalTeams.toString()],
-            ['Scoring System', data.matchInfo.scoringConfig.description || 'Standard BGMI'],
-            ['Kill Points Value', data.matchInfo.scoringConfig.killPointsValue.toString()],
-            ['Position Points', data.matchInfo.scoringConfig.positionPoints.join(', ')]
-        ];
-        
-        summaryData.forEach((row, index) => {
-            const excelRow = sheet.addRow({ property: row[0], value: row[1] });
-            
-            // Style header column
-            excelRow.getCell('property').font = { bold: true };
-            excelRow.getCell('property').fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FFE2E8F0' }
-            };
-        });
-        
-        // Add title
-        sheet.insertRow(1, ['Match Information Summary']);
-        sheet.mergeCells('A1:B1');
-        sheet.getCell('A1').font = { size: 16, bold: true };
-        sheet.getCell('A1').alignment = { horizontal: 'center' };
-        
-        // Add borders
-        sheet.eachRow((row, rowNumber) => {
-            if (rowNumber > 1) {
-                row.eachCell((cell) => {
-                    cell.border = {
-                        top: { style: 'thin' },
-                        left: { style: 'thin' },
-                        bottom: { style: 'thin' },
-                        right: { style: 'thin' }
-                    };
-                });
-            }
-        });
-    }
+        if (!leaderboard?.leaderboardData?.length) {
+            throw new ServiceError(
+                'No series leaderboard data. Add matches with results before exporting.',
+                400,
+                'NO_LEADERBOARD'
+            );
+        }
 
-    /**
-     * Sheet 2: Final Standings
-     */
-    private async createFinalStandingsSheet(workbook: ExcelJS.Workbook, data: ExcelMatchData): Promise<void> {
-        const sheet = workbook.addWorksheet('Final Standings');
-        
-        // Define columns
-        sheet.columns = [
-            { header: 'Rank', key: 'rank', width: 8 },
-            { header: 'Team Name', key: 'teamName', width: 25 },
-            { header: 'Slot', key: 'slotNumber', width: 8 },
-            { header: 'Position', key: 'position', width: 12 },
-            { header: 'Total Kills', key: 'totalKills', width: 12 },
-            { header: 'Position Points', key: 'positionPoints', width: 15 },
-            { header: 'Kill Points', key: 'killPoints', width: 12 },
-            { header: 'Total Points', key: 'totalPoints', width: 15 },
-            { header: 'Status', key: 'status', width: 15 }
-        ];
-        
-        // Add data
-        data.standings.forEach(standing => {
-            sheet.addRow(standing);
-        });
-        
-        // Style headers
-        const headerRow = sheet.getRow(1);
-        headerRow.font = { bold: true };
-        headerRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF3B82F6' }
+        const standings = await this.formatSeriesStandings(leaderboard.leaderboardData, userId);
+        const seriesMatches = await quickSeriesService.getSeriesMatches(seriesId, userId);
+        const firstMatch = [...seriesMatches].sort((a, b) => a.matchOrder - b.matchOrder)[0];
+        const slots = firstMatch
+            ? await this.buildSlotRows(firstMatch.quickMatchId, userId, [])
+            : this.slotsFromSeriesStandings(standings);
+
+        return {
+            seriesInfo: {
+                name: series.seriesName,
+                game: series.game,
+                totalMatches: series.totalMatches,
+                matchesCompleted: leaderboard.lastUpdatedMatch,
+                totalTeams: standings.length,
+                killPointsValue: series.killPointsValue ?? 1,
+                status: series.status,
+                scoringDescription: series.scoringDescription,
+                createdAt: series.createdAt,
+            },
+            slots: slots.length > 0 ? slots : this.slotsFromSeriesStandings(standings),
+            standings,
         };
-        headerRow.font = { color: { argb: 'FFFFFFFF' }, bold: true };
-        
-        // Style winner (rank 1)
-        const winnerRow = sheet.getRow(2);
-        if (winnerRow) {
-            winnerRow.fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FFFEF3C7' }
-            };
+    }
+
+    private slotsFromSeriesStandings(standings: ExcelSeriesStandingRow[]): ExcelSlotRow[] {
+        return standings
+            .map(s => ({ slotNumber: s.slotNumber, teamName: s.teamName }))
+            .sort((a, b) => a.slotNumber - b.slotNumber);
+    }
+
+    private async buildSlotRows(
+        quickMatchId: string,
+        userId: string,
+        results: QuickMatchResultCache[]
+    ): Promise<ExcelSlotRow[]> {
+        const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId);
+
+        if (slots.length > 0) {
+            return slots
+                .map(s => ({ slotNumber: s.slotNumber, teamName: s.teamName }))
+                .sort((a, b) => a.slotNumber - b.slotNumber);
         }
-        
-        // Add borders and alternating colors
-        sheet.eachRow((row, rowNumber) => {
-            // Alternating row colors (except header and winner)
-            if (rowNumber > 2 && rowNumber % 2 === 0) {
-                row.fill = {
-                    type: 'pattern',
-                    pattern: 'solid',
-                    fgColor: { argb: 'FFF8FAFC' }
-                };
-            }
-            
-            // Add borders
-            row.eachCell((cell) => {
-                cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' }
-                };
-            });
-        });
-        
-        // Freeze header row
-        sheet.views = [{ state: 'frozen', ySplit: 1 }];
-    }
 
-    /**
-     * Additional helper methods for other sheets...
-     */
-    private async createDetailedResultsSheet(workbook: ExcelJS.Workbook, data: ExcelMatchData): Promise<void> {
-        // Implementation for detailed results sheet
-        // Similar pattern to standings sheet but with player details
-    }
+        if (results.length === 0) {
+            return [];
+        }
 
-    private async createPointsBreakdownSheet(workbook: ExcelJS.Workbook, data: ExcelMatchData): Promise<void> {
-        // Implementation for points breakdown sheet
-    }
-
-    private async createPlayerBreakdownSheet(workbook: ExcelJS.Workbook, data: ExcelMatchData): Promise<void> {
-        // Implementation for individual player statistics
-    }
-
-    /**
-     * Data formatting methods
-     */
-    private formatStandings(results: any[]): ExcelStandingRow[] {
+        const seen = new Set<number>();
         return results
-            .sort((a, b) => b.totalPoints - a.totalPoints || a.position - b.position)
-            .map((result, index) => ({
-                rank: index + 1,
-                teamName: result.teamName,
-                slotNumber: result.slotNumber,
-                position: result.position,
-                totalKills: result.totalKills,
-                positionPoints: result.positionPoints,
-                killPoints: result.killPoints,
-                totalPoints: result.totalPoints,
-                status: result.status || 'COMPLETED'
-            }));
+            .filter(r => {
+                if (seen.has(r.slotNumber)) return false;
+                seen.add(r.slotNumber);
+                return true;
+            })
+            .map(r => ({ slotNumber: r.slotNumber, teamName: r.teamName }))
+            .sort((a, b) => a.slotNumber - b.slotNumber);
     }
 
-    private formatDetailedResults(results: any[]): ExcelDetailedRow[] {
-        return results.map(result => {
-            const row: ExcelDetailedRow = {
-                teamName: result.teamName,
-                slotNumber: result.slotNumber,
-                finalPosition: result.position,
-                totalKills: result.totalKills
-            };
-
-            // Add player details if available
-            if (result.playerResults && Array.isArray(result.playerResults)) {
-                result.playerResults.forEach((player: any, index: number) => {
-                    if (index < 4) { // Max 4 players per team
-                        (row as any)[`player${index + 1}Name`] = player.playerName;
-                        (row as any)[`player${index + 1}Kills`] = player.kills;
-                    }
-                });
-            }
-
-            return row;
-        });
-    }
-
-    private formatPlayerBreakdown(results: any[]): ExcelPlayerRow[] {
-        const playerRows: ExcelPlayerRow[] = [];
-        
-        results.forEach(result => {
-            if (result.playerResults && Array.isArray(result.playerResults)) {
-                result.playerResults.forEach((player: any) => {
-                    playerRows.push({
-                        teamName: result.teamName,
-                        playerName: player.playerName,
-                        kills: player.kills,
-                        teamPosition: result.position,
-                        teamTotalPoints: result.totalPoints
-                    });
-                });
-            }
+    private formatMatchStandings(results: QuickMatchResultCache[]): ExcelStandingRow[] {
+        const sorted = [...results].sort((a, b) => {
+            const rankA = a.rank ?? a.position;
+            const rankB = b.rank ?? b.position;
+            if (rankA !== rankB) return rankA - rankB;
+            if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+            return a.position - b.position;
         });
 
-        return playerRows.sort((a, b) => b.kills - a.kills);
-    }
-
-    private formatPointsMatrix(positionPoints: number[]): ExcelPointsMatrix[] {
-        return positionPoints.map((points, index) => ({
-            position: index + 1,
-            points,
-            description: index === 0 ? 'Winner Winner Chicken Dinner!' : `Position ${index + 1}`
+        return sorted.map((result, index) => ({
+            rank: result.rank ?? index + 1,
+            slotNumber: result.slotNumber,
+            teamName: result.teamName,
+            position: result.position,
+            totalKills: result.totalKills,
+            positionPoints: result.positionPoints,
+            killPoints: result.killPoints,
+            totalPoints: result.totalPoints,
+            isWinner: (result.rank ?? result.position) === 1,
         }));
     }
 
-    /**
-     * File management methods
-     */
-    private async uploadToR2(buffer: Buffer, filename: string, quickMatchId: string): Promise<string> {
+    private async formatSeriesStandings(
+        leaderboard: SeriesTeamStanding[],
+        userId: string
+    ): Promise<ExcelSeriesStandingRow[]> {
+        const matchIds = [...new Set(leaderboard.flatMap(s => s.matchResults.map(m => m.quickMatchId)))];
+        const resultsByMatch = new Map<string, QuickMatchResultCache[]>();
+
+        for (const matchId of matchIds) {
+            resultsByMatch.set(matchId, await quickResultService.getMatchResults(matchId, userId));
+        }
+
+        return leaderboard.map((standing, index) => {
+            let positionPoints = 0;
+            let killPoints = 0;
+            let wwcd = 0;
+            let slotNumber = index + 1;
+
+            for (const matchResult of standing.matchResults) {
+                const matchRows = resultsByMatch.get(matchResult.quickMatchId) ?? [];
+                const teamRow = matchRows.find(r => teamsMatch(r.teamName, standing.teamName));
+                if (!teamRow) continue;
+
+                positionPoints += teamRow.positionPoints;
+                killPoints += teamRow.killPoints;
+                if ((teamRow.rank ?? teamRow.position) === 1) {
+                    wwcd += 1;
+                }
+                slotNumber = teamRow.slotNumber;
+            }
+
+            return {
+                rank: index + 1,
+                slotNumber,
+                teamName: standing.teamName,
+                matchesPlayed: standing.matchesPlayed,
+                totalKills: standing.totalKills,
+                positionPoints,
+                killPoints,
+                wwcd,
+                totalPoints: standing.totalPoints,
+                isLeader: index === 0,
+            };
+        });
+    }
+
+    private initWorkbook(): ExcelJS.Workbook {
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'SCRYMZ';
+        workbook.lastModifiedBy = 'SCRYMZ System';
+        workbook.created = new Date();
+        return workbook;
+    }
+
+    private async generateMatchWorkbook(data: ExcelMatchData): Promise<ExcelJS.Workbook> {
+        const workbook = this.initWorkbook();
+        const sheet = workbook.addWorksheet('Match Report');
+        this.setStandardColumns(sheet, 7);
+
+        let row = 1;
+        row = this.addMergedTitle(sheet, row, data.matchInfo.name, 7);
+        row += 1;
+
+        row = this.writeSlotMappingSection(sheet, row, data.slots, 7);
+        row += 1;
+
+        row = this.addSectionHeading(sheet, row, 'Match Details', 7);
+        const matchDetails: Array<[string, string]> = [
+            ['Match Name', data.matchInfo.name],
+            ['Game', data.matchInfo.game],
+            ['Map', data.matchInfo.map || '—'],
+            ['Date', new Date(data.matchInfo.createdAt).toLocaleString()],
+            ['Total Teams', String(data.matchInfo.totalTeams)],
+            ['Kill Points', String(data.matchInfo.killPointsValue)],
+        ];
+        if (data.matchInfo.scoringDescription) {
+            matchDetails.push(['Scoring', data.matchInfo.scoringDescription]);
+        }
+        row = this.writeKeyValueSection(sheet, row, matchDetails);
+        row += 1;
+
+        row = this.addSectionHeading(sheet, row, 'Results & Rankings', 7);
+        row = this.addTableHeader(sheet, row, [
+            'Rank', 'Team Name', 'Position', 'Kills', 'Pos Pts', 'Kill Pts', 'Total Pts',
+        ]);
+
+        for (const standing of data.standings) {
+            const dataRow = sheet.getRow(row);
+            dataRow.values = [
+                undefined,
+                standing.rank,
+                standing.teamName,
+                standing.position,
+                standing.totalKills,
+                standing.positionPoints,
+                standing.killPoints,
+                standing.totalPoints,
+            ];
+            this.highlightStandingRow(dataRow, standing.isWinner, row, 7);
+            row += 1;
+        }
+
+        sheet.views = [{ state: 'frozen', ySplit: 1 }];
+        return workbook;
+    }
+
+    private async generateSeriesWorkbook(data: ExcelSeriesData): Promise<ExcelJS.Workbook> {
+        const workbook = this.initWorkbook();
+        const sheet = workbook.addWorksheet('Series Report');
+        const colSpan = 8;
+        this.setStandardColumns(sheet, colSpan);
+
+        let row = 1;
+        row = this.addMergedTitle(sheet, row, data.seriesInfo.name, colSpan);
+        row += 1;
+
+        row = this.writeSlotMappingSection(sheet, row, data.slots, colSpan);
+        row += 1;
+
+        row = this.addSectionHeading(sheet, row, 'Series Details', colSpan);
+        const seriesDetails: Array<[string, string]> = [
+            ['Series Name', data.seriesInfo.name],
+            ['Game', data.seriesInfo.game],
+            ['Total Matches', String(data.seriesInfo.totalMatches)],
+            ['Matches Completed', String(data.seriesInfo.matchesCompleted)],
+            ['Total Teams', String(data.seriesInfo.totalTeams)],
+            ['Kill Points', String(data.seriesInfo.killPointsValue)],
+            ['Status', data.seriesInfo.status],
+            ['Created', new Date(data.seriesInfo.createdAt).toLocaleString()],
+        ];
+        if (data.seriesInfo.scoringDescription) {
+            seriesDetails.push(['Scoring', data.seriesInfo.scoringDescription]);
+        }
+        row = this.writeKeyValueSection(sheet, row, seriesDetails);
+        row += 1;
+
+        row = this.addSectionHeading(sheet, row, 'Results & Rankings', colSpan);
+        row = this.addTableHeader(sheet, row, [
+            'Rank', 'Team Name', 'Matches', 'Kills', 'Pos Pts', 'Kill Pts', 'WWCD', 'Total Pts',
+        ]);
+
+        for (const standing of data.standings) {
+            const dataRow = sheet.getRow(row);
+            dataRow.values = [
+                undefined,
+                standing.rank,
+                standing.teamName,
+                standing.matchesPlayed,
+                standing.totalKills,
+                standing.positionPoints,
+                standing.killPoints,
+                standing.wwcd,
+                standing.totalPoints,
+            ];
+            this.highlightStandingRow(dataRow, standing.isLeader, row, colSpan);
+            row += 1;
+        }
+
+        sheet.views = [{ state: 'frozen', ySplit: 1 }];
+        return workbook;
+    }
+
+    private setStandardColumns(sheet: ExcelJS.Worksheet, count: number): void {
+        sheet.columns = Array.from({ length: count + 1 }, (_, i) => ({
+            width: i === 0 ? 8 : i === 2 ? 28 : 14,
+        }));
+    }
+
+    private writeSlotMappingSection(
+        sheet: ExcelJS.Worksheet,
+        row: number,
+        slots: ExcelSlotRow[],
+        colSpan: number
+    ): number {
+        row = this.addSectionHeading(sheet, row, 'Team & Slot Mapping', colSpan);
+        row = this.addTableHeader(sheet, row, ['Slot', 'Team Name']);
+        for (const slot of slots) {
+            const dataRow = sheet.getRow(row);
+            dataRow.values = [undefined, slot.slotNumber, slot.teamName];
+            this.styleDataRow(dataRow, 2);
+            row += 1;
+        }
+        return row;
+    }
+
+    private writeKeyValueSection(sheet: ExcelJS.Worksheet, row: number, pairs: Array<[string, string]>): number {
+        for (const [label, value] of pairs) {
+            const detailRow = sheet.getRow(row);
+            detailRow.values = [undefined, label, value];
+            detailRow.getCell(2).font = { bold: true };
+            detailRow.getCell(2).fill = this.labelFill();
+            this.styleDataRow(detailRow, 2);
+            row += 1;
+        }
+        return row;
+    }
+
+    private highlightStandingRow(dataRow: ExcelJS.Row, highlight: boolean, row: number, colCount: number): void {
+        if (highlight) {
+            dataRow.eachCell({ includeEmpty: false }, cell => {
+                cell.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFFEF3C7' },
+                };
+            });
+        } else if (row % 2 === 0) {
+            dataRow.eachCell({ includeEmpty: false }, cell => {
+                cell.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFF8FAFC' },
+                };
+            });
+        }
+        this.styleDataRow(dataRow, colCount);
+    }
+
+    private addMergedTitle(sheet: ExcelJS.Worksheet, row: number, title: string, colSpan: number): number {
+        sheet.mergeCells(row, 2, row, colSpan + 1);
+        const cell = sheet.getCell(row, 2);
+        cell.value = title;
+        cell.font = { size: 16, bold: true };
+        cell.alignment = { horizontal: 'center' };
+        return row + 1;
+    }
+
+    private addSectionHeading(sheet: ExcelJS.Worksheet, row: number, title: string, colSpan: number): number {
+        sheet.mergeCells(row, 2, row, colSpan + 1);
+        const cell = sheet.getCell(row, 2);
+        cell.value = title;
+        cell.font = { size: 12, bold: true, color: { argb: 'FF1E3A5F' } };
+        cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE2E8F0' },
+        };
+        cell.alignment = { horizontal: 'left' };
+        return row + 1;
+    }
+
+    private addTableHeader(sheet: ExcelJS.Worksheet, row: number, headers: string[]): number {
+        const headerRow = sheet.getRow(row);
+        headerRow.values = [undefined, ...headers];
+        headerRow.eachCell({ includeEmpty: false }, cell => {
+            cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF3B82F6' },
+            };
+            cell.alignment = { horizontal: 'center' };
+            cell.border = this.cellBorder();
+        });
+        return row + 1;
+    }
+
+    private styleDataRow(row: ExcelJS.Row, colCount: number): void {
+        for (let col = 2; col <= colCount + 1; col++) {
+            const cell = row.getCell(col);
+            cell.border = this.cellBorder();
+            cell.alignment = { vertical: 'middle' };
+        }
+    }
+
+    private labelFill(): ExcelJS.Fill {
+        return {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE2E8F0' },
+        };
+    }
+
+    private cellBorder(): Partial<ExcelJS.Borders> {
+        return {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' },
+        };
+    }
+
+    private async uploadToR2(buffer: Buffer, filename: string, entityId: string): Promise<string> {
         const uploadResult = await r2Service.uploadFile(
             buffer,
             filename,
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'RESULT_IMAGE', // Reuse existing type for consistency
-            quickMatchId,
+            'RESULT_IMAGE',
+            entityId,
             'quick-pt'
         );
-        
         return uploadResult.key;
     }
 
-    private generateFilename(matchInfo: any, customFilename?: string): string {
+    private generateFilename(name: string, customFilename: string | undefined, prefix: 'match' | 'series'): string {
         if (customFilename) {
-            return `${customFilename}.xlsx`;
+            return customFilename.endsWith('.xlsx') ? customFilename : `${customFilename}.xlsx`;
         }
-        
-        const sanitized = matchInfo.name.replace(/[^a-zA-Z0-9\s\-_]/g, '').substring(0, 50);
+
+        const sanitized = name.replace(/[^a-zA-Z0-9\s\-_]/g, '').trim().substring(0, 50);
         const timestamp = new Date().toISOString().slice(0, 10);
-        return `${sanitized}_${timestamp}.xlsx`;
+        return `${sanitized || prefix}_${timestamp}.xlsx`;
     }
 
-    private async cacheExportInfo(quickMatchId: string, r2Key: string, filename: string): Promise<void> {
-        const cacheData = {
-            r2Key,
-            filename,
-            generatedAt: new Date().toISOString(),
-            quickMatchId
-        };
-        
-        await redis.set(`quickMatch:${quickMatchId}:excelExport`, JSON.stringify(cacheData), this.CACHE_TTL);
+    private async cacheMatchExportInfo(quickMatchId: string, r2Key: string, filename: string): Promise<void> {
+        await redis.set(
+            `quickMatch:${quickMatchId}:excelExport`,
+            JSON.stringify({ r2Key, filename, generatedAt: new Date().toISOString(), quickMatchId }),
+            this.CACHE_TTL
+        );
     }
 
-    private getSheetCount(request: ExcelExportRequest): number {
-        let count = 3; // Always: Summary, Standings, Detailed
-        if (request.includePointsBreakdown) count++;
-        if (request.includePlayerDetails) count++;
-        return count;
-    }
-
-    private calculateTotalRows(data: ExcelMatchData, request: ExcelExportRequest): number {
-        let rows = 10 + data.standings.length + data.detailedResults.length; // Base sheets
-        if (request.includePointsBreakdown) rows += data.pointsMatrix.length;
-        if (request.includePlayerDetails && data.playerBreakdown) rows += data.playerBreakdown.length;
-        return rows;
+    private async cacheSeriesExportInfo(seriesId: string, r2Key: string, filename: string): Promise<void> {
+        await redis.set(
+            `quickSeries:${seriesId}:excelExport`,
+            JSON.stringify({ r2Key, filename, generatedAt: new Date().toISOString(), seriesId }),
+            this.CACHE_TTL
+        );
     }
 }
 

@@ -166,6 +166,19 @@ export const exportPointsTableSchema = z.object({
     tableHeaderLabelMode: z.enum(['full', 'abbr', 'initial']).nullable().optional(),
     rowHeightAdjust: z.number().nullable().optional(),
 
+    eventName: z.string()
+        .min(1, 'Event name cannot be empty')
+        .max(200, 'Event name must be at most 200 characters')
+        .optional(),
+    organiserName: z.string()
+        .min(1, 'Organiser name cannot be empty')
+        .max(200, 'Organiser name must be at most 200 characters')
+        .optional(),
+    sponsorName: z.string()
+        .min(1, 'Sponsor name cannot be empty')
+        .max(200, 'Sponsor name must be at most 200 characters')
+        .optional(),
+
     elementOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
     columnOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
     advancedConfig: z.record(z.string(), z.any()).nullable().optional(),

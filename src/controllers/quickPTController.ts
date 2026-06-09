@@ -545,6 +545,28 @@ export class QuickPTController {
     });
 
     /**
+     * POST /api/quick-pt/series/:id/conflicts/resolve
+     * Resolve series points conflicts manually
+     */
+    static resolveSeriesConflicts = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+        const { conflictGroupId, userDefinedOrder, reason } = req.body;
+
+        const result = await quickSeriesService.resolveSeriesConflicts(
+            seriesId,
+            userId,
+            conflictGroupId,
+            userDefinedOrder,
+            reason
+        );
+
+        return res.json(
+            ResponseHelper.success('Series conflicts resolved successfully', result)
+        );
+    });
+
+    /**
      * GET /api/quick-pt/matches/:id/results
      * Get match results
      */
@@ -581,6 +603,9 @@ export class QuickPTController {
             tableHeaderFontSize,
             tableHeaderLabelMode,
             rowHeightAdjust,
+            eventName,
+            organiserName,
+            sponsorName,
             elementOverrides,
             columnOverrides,
             advancedConfig,
@@ -596,6 +621,9 @@ export class QuickPTController {
             tableHeaderFontSize,
             tableHeaderLabelMode,
             rowHeightAdjust,
+            eventName,
+            organiserName,
+            sponsorName,
             elementOverrides,
             columnOverrides,
             advancedConfig,
@@ -644,6 +672,9 @@ export class QuickPTController {
             tableHeaderFontSize,
             tableHeaderLabelMode,
             rowHeightAdjust,
+            eventName,
+            organiserName,
+            sponsorName,
             elementOverrides,
             columnOverrides,
             advancedConfig,
@@ -659,6 +690,9 @@ export class QuickPTController {
             tableHeaderFontSize,
             tableHeaderLabelMode,
             rowHeightAdjust,
+            eventName,
+            organiserName,
+            sponsorName,
             elementOverrides,
             columnOverrides,
             advancedConfig,
@@ -863,39 +897,18 @@ static getAvailableTemplates = asyncHandler(async (req: Request, res: Response) 
 
 /**
  * GET /api/v1/quick-pt/matches/:id/export/excel
- * Export match results to Excel format
+ * Export match results to Excel format (single sheet)
  */
 static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
     const { id: quickMatchId } = req.params;
     const userId = req.user!.id;
     const queryData = (req as any).validatedQuery || req.query;
-    const {
-        includePlayerDetails,
-        includePointsBreakdown,
-        customFilename
-    } = queryData;
-
-    const resolvedIncludePlayerDetails =
-        typeof includePlayerDetails === 'boolean'
-            ? includePlayerDetails
-            : includePlayerDetails === 'true';
-
-    const resolvedIncludePointsBreakdown =
-        typeof includePointsBreakdown === 'boolean'
-            ? includePointsBreakdown
-            : includePointsBreakdown !== 'false'; // Default true
-
-    const exportRequest = {
-        quickMatchId,
-        includePlayerDetails: resolvedIncludePlayerDetails,
-        includePointsBreakdown: resolvedIncludePointsBreakdown,
-        customFilename: customFilename as string | undefined
-    };
+    const { customFilename } = queryData;
 
     const result = await excelExportService.exportMatchToExcel(
         quickMatchId,
         userId,
-        exportRequest
+        { customFilename: customFilename as string | undefined }
     );
 
     return res.json(

@@ -84,6 +84,10 @@ export interface StandingsRequest {
     template_config_url: string;
     format_type: '8_teams' | '16_teams' | '24_teams';
     team_data: StandingsTeamData[];
+    /** Header overlay text — overrides template default when set */
+    event_name?: string | null;
+    organiser_name?: string | null;
+    sponsor_name?: string | null;
     table_font_size?: number | null;
     table_header_font_size?: number | null;
     table_header_label_mode?: string | null;
@@ -98,6 +102,21 @@ export interface StandingsRequest {
         compress_image?: boolean;
         image_quality?: number;
     } | null;
+}
+
+/** Styling and header fields shared by match and series standings export */
+export interface StandingsExportOptions {
+    eventName?: string | null;
+    organiserName?: string | null;
+    sponsorName?: string | null;
+    tableFontSize?: number | null;
+    tableHeaderFontSize?: number | null;
+    tableHeaderLabelMode?: string | null;
+    rowHeightAdjust?: number | null;
+    elementOverrides?: Record<string, Record<string, any>> | null;
+    columnOverrides?: Record<string, Record<string, any>> | null;
+    advancedConfig?: Record<string, any> | null;
+    outputFilename?: string;
 }
 
 export interface StandingsStats {

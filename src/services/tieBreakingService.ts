@@ -129,7 +129,8 @@ export class TieBreakingService extends BaseService {
                 hasConflicts: conflictGroups.length > 0,
                 conflictGroups: conflictGroups.map(group => ({
                     points: group.points,
-                    conflictedTeams: [], // Convert series standings to match results format
+                    conflictedTeamNames: group.conflictedStandings.map(s => s.teamName),
+                    conflictedStandings: group.conflictedStandings,
                     requiresManualResolution: group.requiresManualResolution,
                     conflictType: 'SERIES_POINTS' as const
                 })),
@@ -161,9 +162,10 @@ export class TieBreakingService extends BaseService {
             let remainingConflicts = 0;
 
             for (const conflictGroup of conflictGroups) {
+                const teams = conflictGroup.conflictedTeams ?? [];
                 if (conflictGroup.requiresManualResolution) {
                     // Can't auto-resolve, keep original order
-                    resolvedResults.push(...conflictGroup.conflictedTeams);
+                    resolvedResults.push(...teams);
                     remainingConflicts++;
                     continue;
                 }
@@ -171,7 +173,7 @@ export class TieBreakingService extends BaseService {
                 let resolved = false;
                 for (const rule of activeRules) {
                     const sortedTeams = this.applySingleTieBreakingRule(
-                        conflictGroup.conflictedTeams, 
+                        teams,
                         rule
                     );
 
@@ -189,13 +191,13 @@ export class TieBreakingService extends BaseService {
                 }
 
                 if (!resolved) {
-                    resolvedResults.push(...conflictGroup.conflictedTeams);
+                    resolvedResults.push(...teams);
                     remainingConflicts++;
                 }
             }
 
             return {
-                originalResults: conflictGroups.flatMap(g => g.conflictedTeams),
+                originalResults: conflictGroups.flatMap(g => g.conflictedTeams ?? []),
                 resolvedResults,
                 appliedRules,
                 manualResolutions: [],
@@ -215,6 +217,33 @@ export class TieBreakingService extends BaseService {
     }
 
     /**
+     * Order series standings within a tied group using a manual resolution.
+     */
+    applyManualSeriesTieBreaking(
+        conflictGroup: ConflictGroup,
+        manualResolution: ManualTieBreaking
+    ): SeriesTeamStanding[] {
+        const standings = conflictGroup.conflictedStandings ?? [];
+        const ordered: SeriesTeamStanding[] = [];
+
+        for (const teamName of manualResolution.userDefinedOrder) {
+            const standing = standings.find(s => s.teamName === teamName
+                || s.teamName.trim().toLowerCase() === teamName.trim().toLowerCase());
+            if (standing) {
+                ordered.push(standing);
+            }
+        }
+
+        for (const standing of standings) {
+            if (!ordered.some(s => s.teamName === standing.teamName)) {
+                ordered.push(standing);
+            }
+        }
+
+        return ordered;
+    }
+
+    /**
      * Apply manual tie-breaking resolution
      */
     async applyManualTieBreaking(
@@ -223,18 +252,19 @@ export class TieBreakingService extends BaseService {
     ): Promise<QuickMatchResultCache[]> {
         try {
             const { userDefinedOrder } = manualResolution;
+            const teams = conflictGroup.conflictedTeams ?? [];
             const orderedResults: QuickMatchResultCache[] = [];
 
             // Sort teams according to user-defined order
             for (const teamName of userDefinedOrder) {
-                const team = conflictGroup.conflictedTeams.find(t => t.teamName === teamName);
+                const team = teams.find(t => t.teamName === teamName);
                 if (team) {
                     orderedResults.push(team);
                 }
             }
 
             // Add any missing teams at the end (safety check)
-            for (const team of conflictGroup.conflictedTeams) {
+            for (const team of teams) {
                 if (!orderedResults.find(r => r.teamName === team.teamName)) {
                     orderedResults.push(team);
                 }

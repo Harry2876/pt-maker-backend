@@ -243,6 +243,7 @@ export class QuickResultService extends BaseService {
 
         const updated = this.convertDbToCache(dbResult);
         await this.cacheResult(updated);
+        await this.refreshSeriesLeaderboardIfNeeded(existing.quickMatchId, userId);
         return updated;
     }
 
@@ -255,6 +256,7 @@ export class QuickResultService extends BaseService {
         await this.db.quickMatchResult.delete({ where: { id: resultId } });
         await redis.delete(`quickResult:${resultId}`);
         await redis.srem(`quickMatch:${existing.quickMatchId}:results`, resultId);
+        await this.refreshSeriesLeaderboardIfNeeded(existing.quickMatchId, userId);
     }
 
     async createBulkManualResults(
@@ -371,6 +373,10 @@ export class QuickResultService extends BaseService {
 
         if (result.errors.length > 0 && result.updated.length === 0) {
             result.success = false;
+        }
+
+        if (result.updated.length > 0) {
+            await this.refreshSeriesLeaderboardIfNeeded(quickMatchId, userId);
         }
         return result;
     }
@@ -501,8 +507,12 @@ export class QuickResultService extends BaseService {
 
     private async finalizeMatchAfterResults(quickMatchId: string, userId: string): Promise<void> {
         await quickMatchService.updateQuickMatch(quickMatchId, userId, { status: 'COMPLETED' });
+        await this.refreshSeriesLeaderboardIfNeeded(quickMatchId, userId);
+    }
+
+    private async refreshSeriesLeaderboardIfNeeded(quickMatchId: string, userId: string): Promise<void> {
         const { quickSeriesService } = await import('./quickSeriesService');
-        await quickSeriesService.onMatchCompleted(quickMatchId, userId);
+        await quickSeriesService.refreshSeriesForMatch(quickMatchId, userId);
     }
 
     private async cacheResult(result: QuickMatchResultCache): Promise<void> {

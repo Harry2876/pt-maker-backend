@@ -28,6 +28,7 @@ import {
 import {
     setTieBreakingRulesSchema,
     resolveConflictsSchema,
+    resolveSeriesConflictsSchema,
     detectConflictsSchema,
     setSeriesTieBreakingRulesSchema,
     matchIdParamSchema,
@@ -58,7 +59,7 @@ import { CropStorageController } from '../controllers/cropStorageController';
 import {
     cropParamsSchema
 } from '../validations/cropValidation';
-import { excelExportParamsSchema, excelExportSchema } from '../validations/excelExportValidation';
+import { excelExportParamsSchema, excelExportSchema, excelExportSeriesParamsSchema } from '../validations/excelExportValidation';
 
 /**
  * @swagger
@@ -2475,6 +2476,18 @@ quickPTRouter.get('/series/:id/leaderboard',
     QuickSeriesController.getSeriesLeaderboard
 );
 
+quickPTRouter.post('/series/:id/export',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    validateRequest(exportPointsTableSchema),
+    QuickSeriesController.exportSeriesLeaderboard
+);
+
+quickPTRouter.get('/series/:id/export/excel',
+    validateRequest(excelExportSeriesParamsSchema, 'params'),
+    validateRequest(excelExportSchema, 'query'),
+    QuickSeriesController.exportSeriesToExcel
+);
+
 /**
  * @swagger
  * /api/v1/quick-pt/matches/{id}/results/manual:
@@ -3500,6 +3513,12 @@ quickPTRouter.post('/series/:id/conflicts/detect',
     QuickPTController.detectSeriesConflicts
 );
 
+quickPTRouter.post('/series/:id/conflicts/resolve',
+    validateRequest(seriesIdParamSchema, 'params'),
+    validateRequest(resolveSeriesConflictsSchema, 'body'),
+    QuickPTController.resolveSeriesConflicts
+);
+
 /**
  * @swagger
  * /api/v1/quick-pt/series/{id}/tie-breaking/rules:
@@ -4023,26 +4042,10 @@ quickPTRouter.get('/templates', QuickPTController.getAvailableTemplates);
  * /api/v1/quick-pt/matches/{id}/export/excel:
  *   get:
  *     tags: [Quick-PT]
- *     summary: Export match results to Excel format
+ *     summary: Export match results to Excel
  *     description: |
- *       Generate and download comprehensive Excel report with multiple sheets:
- *       
- *       **Sheets Generated:**
- *       - **Match Summary**: Basic match information and scoring configuration
- *       - **Final Standings**: Complete rankings with points breakdown
- *       - **Detailed Results**: Team performance with individual player data
- *       - **Points Breakdown** *(optional)*: Position points matrix explanation
- *       - **Player Statistics** *(optional)*: Individual player performance ranking
- *       
- *       **Features:**
- *       - Professional formatting with colors and borders
- *       - Frozen header rows for easy scrolling
- *       - Winner highlighting (gold background)
- *       - Alternating row colors for readability
- *       - Automatic tie-breaking resolution
- *       - Secure download via signed URLs (30-minute expiry)
- *       
- *       **File Storage**: Uploaded to R2 with automatic cleanup after 1 hour
+ *       Single-sheet workbook (`Match Report`) with team/slot mapping, minimal match details,
+ *       and complete results for all teams. Optional query param `customFilename`.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -4052,104 +4055,19 @@ quickPTRouter.get('/templates', QuickPTController.getAvailableTemplates);
  *         schema:
  *           type: string
  *           format: uuid
- *         description: Quick Match UUID
- *         example: "clx123abc456"
- *       - in: query
- *         name: includePlayerDetails
- *         required: false
- *         schema:
- *           type: boolean
- *           default: false
- *         description: Include individual player statistics sheet
- *         example: true
- *       - in: query
- *         name: includePointsBreakdown
- *         required: false
- *         schema:
- *           type: boolean
- *           default: true
- *         description: Include points system explanation sheet
- *         example: true
  *       - in: query
  *         name: customFilename
  *         required: false
  *         schema:
  *           type: string
  *           maxLength: 100
- *           pattern: '^[a-zA-Z0-9\s\-_()]+$'
- *         description: Custom filename (without .xlsx extension)
- *         example: "BGMI_Tournament_Finals"
  *     responses:
  *       200:
  *         description: Excel export generated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Excel export completed successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     downloadUrl:
- *                       type: string
- *                       format: uri
- *                       example: "https://storage.example.com/signed?token=..."
- *                       description: "Signed download URL (expires in 30 minutes)"
- *                     filename:
- *                       type: string
- *                       example: "BGMI_Match_2026-02-10.xlsx"
- *                     r2Key:
- *                       type: string
- *                       example: "quick-pt/exports/clx123/1707552000000-report.xlsx"
- *                     expiresAt:
- *                       type: string
- *                       format: date-time
- *                       example: "2026-02-10T08:42:00.000Z"
- *                     generationTimeMs:
- *                       type: integer
- *                       example: 1250
- *                       description: "Time taken to generate Excel file"
- *                     sheetsGenerated:
- *                       type: integer
- *                       example: 4
- *                       description: "Number of worksheets created"
- *                     totalRows:
- *                       type: integer
- *                       example: 156
- *                       description: "Total data rows across all sheets"
- *                     fileSize:
- *                       type: integer
- *                       example: 45678
- *                       description: "File size in bytes"
  *       400:
- *         description: No results available or invalid parameters
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "No results found for this match"
- *                 error:
- *                   type: object
- *                   properties:
- *                     code:
- *                       type: string
- *                       example: "NO_RESULTS_FOUND"
+ *         description: No results found for this match
  *       404:
  *         description: Match not found
- *       401:
- *         description: Unauthorized
  */
 quickPTRouter.get(
     '/matches/:id/export/excel',
