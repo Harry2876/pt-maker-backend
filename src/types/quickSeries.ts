@@ -5,11 +5,7 @@ export interface QuickTournamentSeriesCache {
     totalMatches: number;
     matchesCompleted: number;
     status: QuickSeriesStatus;
-    
-    positionPointsConfig?: number[];
-    killPointsValue: number;
-    scoringDescription?: string;
-    
+
     currentMatchNumber: number;
     isFinished: boolean;
     winnerTeamName?: string;
@@ -25,9 +21,6 @@ export interface CreateQuickSeriesData {
     seriesName: string;
     game?: string;
     totalMatches: number;
-    positionPointsConfig?: number[];
-    killPointsValue?: number;
-    scoringDescription?: string;
 }
 
 export interface UpdateQuickSeriesData {
@@ -36,9 +29,6 @@ export interface UpdateQuickSeriesData {
     totalMatches?: number;
     matchesCompleted?: number;
     status?: QuickSeriesStatus;
-    positionPointsConfig?: number[];
-    killPointsValue?: number;
-    scoringDescription?: string;
     currentMatchNumber?: number;
     isFinished?: boolean;
     winnerTeamName?: string;

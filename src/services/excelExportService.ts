@@ -157,9 +157,7 @@ export class ExcelExportService extends BaseService {
                 totalMatches: series.totalMatches,
                 matchesCompleted: leaderboard.lastUpdatedMatch,
                 totalTeams: standings.length,
-                killPointsValue: series.killPointsValue ?? 1,
                 status: series.status,
-                scoringDescription: series.scoringDescription,
                 createdAt: series.createdAt,
             },
             slots: slots.length > 0 ? slots : this.slotsFromSeriesStandings(standings),
@@ -348,13 +346,9 @@ export class ExcelExportService extends BaseService {
             ['Total Matches', String(data.seriesInfo.totalMatches)],
             ['Matches Completed', String(data.seriesInfo.matchesCompleted)],
             ['Total Teams', String(data.seriesInfo.totalTeams)],
-            ['Kill Points', String(data.seriesInfo.killPointsValue)],
             ['Status', data.seriesInfo.status],
             ['Created', new Date(data.seriesInfo.createdAt).toLocaleString()],
         ];
-        if (data.seriesInfo.scoringDescription) {
-            seriesDetails.push(['Scoring', data.seriesInfo.scoringDescription]);
-        }
         row = this.writeKeyValueSection(sheet, row, seriesDetails);
         row += 1;
 

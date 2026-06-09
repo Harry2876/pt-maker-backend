@@ -13,15 +13,12 @@ export class QuickSeriesController {
      */
     static createTournamentSeries = asyncHandler(async (req: Request, res: Response) => {
         const userId = req.user!.id;
-        const { seriesName, game, totalMatches, positionPointsConfig, killPointsValue, scoringDescription } = req.body;
+        const { seriesName, game, totalMatches } = req.body;
 
         const tournamentSeries = await quickSeriesService.createTournamentSeries(userId, {
             seriesName,
             game,
             totalMatches,
-            positionPointsConfig,
-            killPointsValue,
-            scoringDescription
         });
 
         return res.status(201).json(

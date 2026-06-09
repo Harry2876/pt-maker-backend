@@ -452,11 +452,6 @@ model QuickTournamentSeries {
   matchesCompleted Int               @default(0)
   status           QuickSeriesStatus @default(CREATED)
 
-  // Aggregated scoring config (inherited by matches)
-  positionPointsConfig Json?
-  killPointsValue      Int     @default(1)
-  scoringDescription   String?
-
   // Series progression
   currentMatchNumber Int     @default(1)
   isFinished         Boolean @default(false)

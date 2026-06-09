@@ -16,21 +16,6 @@ export const createQuickSeriesSchema = z.object({
         .int('Total matches must be an integer')
         .min(1, 'Must have at least 1 match')
         .max(20, 'Cannot exceed 20 matches'),
-    
-    positionPointsConfig: z.array(z.number().int().min(0).max(100))
-        .length(10, 'Position points must have exactly 10 values')
-        .optional(),
-    
-    killPointsValue: z.number()
-        .int('Kill points must be an integer')
-        .min(0, 'Kill points cannot be negative')
-        .max(10, 'Kill points cannot exceed 10')
-        .optional()
-        .default(1),
-    
-    scoringDescription: z.string()
-        .max(200, 'Scoring description must be at most 200 characters')
-        .optional()
 });
 
 export const addMatchToSeriesSchema = z.object({
@@ -42,7 +27,6 @@ export const quickSeriesParamsSchema = z.object({
     id: z.string().uuid('Invalid series ID format')
 });
 
-// Update Tournament Series
 export const updateQuickSeriesSchema = z.object({
     seriesName: z.string()
         .min(3, 'Series name must be at least 3 characters')
@@ -63,25 +47,10 @@ export const updateQuickSeriesSchema = z.object({
 
     status: z.enum(['CREATED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const)
         .optional(),
-    
-    positionPointsConfig: z.array(z.number().int().min(0).max(100))
-        .length(10, 'Position points must have exactly 10 values')
-        .optional(),
-    
-    killPointsValue: z.number()
-        .int('Kill points must be an integer')
-        .min(0, 'Kill points cannot be negative')
-        .max(10, 'Kill points cannot exceed 10')
-        .optional(),
-    
-    scoringDescription: z.string()
-        .max(200, 'Scoring description must be at most 200 characters')
-        .optional()
 }).refine(data => Object.keys(data).length > 0, {
     message: 'At least one field must be provided for update'
 });
 
-// List Tournament Series Query
 export const listQuickSeriesQuerySchema = z.object({
     status: z.enum(['CREATED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const)
         .optional(),

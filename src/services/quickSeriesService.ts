@@ -35,12 +35,6 @@ export class QuickSeriesService extends BaseService {
             // 1. Generate Series ID
             const seriesId = randomUUID();
 
-            // 2. Set default scoring if not provided
-            const positionPointsConfig = data.positionPointsConfig || [20, 15, 12, 10, 8, 6, 4, 2, 1, 0];
-            const killPointsValue = data.killPointsValue ?? 1;
-            const scoringDescription = data.scoringDescription || 'Standard BGMI Scoring';
-
-            // 3. Create Series object
             const tournamentSeries: QuickTournamentSeriesCache = {
                 id: seriesId,
                 seriesName: data.seriesName,
@@ -48,9 +42,6 @@ export class QuickSeriesService extends BaseService {
                 totalMatches: data.totalMatches,
                 matchesCompleted: 0,
                 status: 'CREATED',
-                positionPointsConfig,
-                killPointsValue,
-                scoringDescription,
                 currentMatchNumber: 1,
                 isFinished: false,
                 userId,
@@ -357,7 +348,7 @@ export class QuickSeriesService extends BaseService {
             // 1. Try Redis first
             const cached = await redis.hgetObject<QuickTournamentSeriesCache>(`quick_series:${seriesId}`);
             if (cached && cached.userId === userId) {
-                return cached;
+                return this.stripLegacySeriesFields(cached);
             }
 
             // 2. Fallback to database
@@ -377,11 +368,6 @@ export class QuickSeriesService extends BaseService {
                 totalMatches: dbSeries.totalMatches,
                 matchesCompleted: dbSeries.matchesCompleted,
                 status: dbSeries.status as QuickSeriesStatus,
-                positionPointsConfig: dbSeries.positionPointsConfig
-                    ? JSON.parse(JSON.stringify(dbSeries.positionPointsConfig)) as number[]
-                    : undefined,
-                killPointsValue: dbSeries.killPointsValue,
-                scoringDescription: dbSeries.scoringDescription || undefined,
                 currentMatchNumber: dbSeries.currentMatchNumber,
                 isFinished: dbSeries.isFinished,
                 winnerTeamName: dbSeries.winnerTeamName || undefined,
@@ -868,11 +854,6 @@ export class QuickSeriesService extends BaseService {
                 totalMatches: row.totalMatches,
                 matchesCompleted: row.matchesCompleted,
                 status: row.status as QuickSeriesStatus,
-                positionPointsConfig: row.positionPointsConfig
-                    ? JSON.parse(JSON.stringify(row.positionPointsConfig)) as number[]
-                    : undefined,
-                killPointsValue: row.killPointsValue,
-                scoringDescription: row.scoringDescription || undefined,
                 currentMatchNumber: row.currentMatchNumber,
                 isFinished: row.isFinished,
                 winnerTeamName: row.winnerTeamName || undefined,
@@ -1009,6 +990,22 @@ export class QuickSeriesService extends BaseService {
                 'SLOT_LIST_MISMATCH'
             );
         }
+    }
+
+    /** Drop removed scoring fields from older Redis cache entries */
+    private stripLegacySeriesFields(series: QuickTournamentSeriesCache): QuickTournamentSeriesCache {
+        const legacy = series as QuickTournamentSeriesCache & {
+            positionPointsConfig?: unknown;
+            killPointsValue?: unknown;
+            scoringDescription?: unknown;
+        };
+        const {
+            positionPointsConfig: _positionPointsConfig,
+            killPointsValue: _killPointsValue,
+            scoringDescription: _scoringDescription,
+            ...clean
+        } = legacy;
+        return clean;
     }
 }
 

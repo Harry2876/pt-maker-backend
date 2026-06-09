@@ -135,6 +135,51 @@ info:
 
     ---
 
+    ### Quick Series Flow
+
+    A series groups multiple Quick Matches and shows an **aggregated leaderboard**.
+    Scoring is configured **per match** — there is no series-level points config.
+
+    #### Step 1 — Create Series
+    ```
+    POST /quick-pt/series
+    { "seriesName": "BGMI League Week 1", "game": "BGMI", "totalMatches": 6 }
+    → { id: "<seriesId>" }
+    ```
+
+    #### Step 2 — Create & Process Matches
+    For each leg, run the normal Quick PT flow (`POST /matches` with scoring config,
+    upload screenshots, process, get results). Set `positionPointsConfig` / `killPointsValue`
+    on each match as needed.
+
+    #### Step 3 — Link Matches to Series
+    ```
+    POST /quick-pt/series/{seriesId}/matches
+    { "quickMatchId": "<matchId>" }
+    ```
+    All matches must share the same slot/team roster. Leaderboard rebuilds when results change.
+
+    #### Step 4 — View Leaderboard
+    ```
+    GET /quick-pt/series/{seriesId}/leaderboard
+    → { leaderboardData: [...] }   // null if no results yet
+    ```
+
+    #### Step 5 — Export (optional)
+    ```
+    POST /quick-pt/series/{seriesId}/export          → standings PNG
+    GET  /quick-pt/series/{seriesId}/export/excel    → single-sheet Excel
+    ```
+
+    #### Tie-breaking (optional)
+    ```
+    POST /quick-pt/series/{seriesId}/conflicts/detect
+    POST /quick-pt/series/{seriesId}/conflicts/resolve   // team names, not UUIDs
+    POST /quick-pt/series/{seriesId}/tie-breaking/rules
+    ```
+
+    ---
+
     ### Key Design Decisions
 
     | Concern | Decision |
@@ -143,6 +188,7 @@ info:
     | **Signed URLs** | All R2 URLs returned to clients are pre-signed (30 min TTL). Never expose raw R2 URLs to clients. |
     | **Slot matching** | Results matched to attendance slots by fuzzy player-name comparison: exact → prefix/substring → proportional Levenshtein (≤ 2/3/4 by name length) → bigram similarity ≥ 70 %. One matching player is sufficient. |
     | **Re-export** | Calling `/export` again overwrites the previous standings record (`upsert`). |
+    | **Series scoring** | No series-level points config. Each match's scoring is used; series sums match totals. |
     | **Token lifecycle** | Access token = 30 min. Refresh token = 34 days. Use `POST /auth/refresh-token` to get a new pair silently. |
 
     ---

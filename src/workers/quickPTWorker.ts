@@ -432,9 +432,6 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
                     totalMatches: seriesData.totalMatches,
                     matchesCompleted: seriesData.matchesCompleted || 0,
                     status: seriesData.status,
-                    positionPointsConfig: seriesData.positionPointsConfig || null,
-                    killPointsValue: seriesData.killPointsValue || 1,
-                    scoringDescription: seriesData.scoringDescription,
                     currentMatchNumber: seriesData.currentMatchNumber || 1,
                     isFinished: seriesData.isFinished || false,
                     winnerTeamName: seriesData.winnerTeamName,
@@ -462,7 +459,17 @@ export class QuickPTWorker extends BaseWorker<DatabaseSyncJob> {
 
     private async syncQuickSeriesUpdate(seriesId: string, updateData: any): Promise<void> {
         try {
-            const { id, userId, createdAt, dbStatus, dbSyncedAt, ...updatableFields } = updateData;
+            const {
+                id,
+                userId,
+                createdAt,
+                dbStatus,
+                dbSyncedAt,
+                positionPointsConfig: _positionPointsConfig,
+                killPointsValue: _killPointsValue,
+                scoringDescription: _scoringDescription,
+                ...updatableFields
+            } = updateData;
 
             await db.quickTournamentSeries.update({
                 where: { id: seriesId },

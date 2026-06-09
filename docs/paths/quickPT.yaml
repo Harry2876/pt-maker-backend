@@ -1,6 +1,9 @@
 # Quick PT Module — docs/paths/quickPT.yaml
 # Base: /api/v1/quick-pt
 # All routes require: Authorization: Bearer <token>
+#
+# Quick Series: scoring lives on each Quick Match (positionPointsConfig, killPointsValue).
+# A series only groups matches and sums their computed totalPoints — no series-level scoring config.
 
 paths:
 
@@ -1959,8 +1962,17 @@ paths:
       description: |
         Group multiple Quick Matches into a series and track aggregate standings.
 
-        After creation, add matches with `POST /series/{id}/matches`.
-        The series leaderboard is automatically rebuilt whenever a match in the series completes processing.
+        **Scoring:** There is no series-level points config. Each linked Quick Match uses its
+        own `positionPointsConfig` and `killPointsValue` (set at match creation). The series
+        leaderboard sums each match's computed `totalPoints`.
+
+        **Flow:**
+        1. Create series (this endpoint) — `seriesName`, `game`, `totalMatches` only
+        2. Create Quick Matches with the desired scoring per leg
+        3. `POST /series/{id}/matches` — link each match (same slot roster required)
+        4. Process or enter results per match — leaderboard rebuilds automatically
+        5. `GET /series/{id}/leaderboard` — aggregated standings
+        6. Optional: tie-breaking, PNG export, Excel export
       security:
         - bearerAuth: []
       requestBody:
@@ -1968,40 +1980,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [seriesName, totalMatches]
-              properties:
-                seriesName:
-                  type: string
-                  minLength: 3
-                  maxLength: 100
-                  example: "BGMI Championship Series"
-                game:
-                  type: string
-                  default: "BGMI"
-                  example: "BGMI"
-                totalMatches:
-                  type: integer
-                  minimum: 1
-                  maximum: 20
-                  example: 5
-                positionPointsConfig:
-                  type: array
-                  minItems: 10
-                  maxItems: 10
-                  items:
-                    type: integer
-                    minimum: 0
-                    maximum: 100
-                  example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
-                killPointsValue:
-                  type: integer
-                  minimum: 0
-                  maximum: 10
-                  default: 1
-                scoringDescription:
-                  type: string
-                  maxLength: 200
+              $ref: "#/components/schemas/CreateSeriesRequest"
       responses:
         "201":
           description: Series created
@@ -2124,6 +2103,10 @@ paths:
     put:
       tags: [Quick-PT Series]
       summary: Update Tournament Series metadata
+      description: |
+        Update series name, game, planned match count, or status.
+
+        Does **not** change scoring — edit individual Quick Matches for that.
       security:
         - bearerAuth: []
       parameters:
@@ -2133,35 +2116,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                seriesName:
-                  type: string
-                  minLength: 3
-                  maxLength: 100
-                game:
-                  type: string
-                totalMatches:
-                  type: integer
-                  minimum: 1
-                  maximum: 20
-                status:
-                  type: string
-                  enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
-                positionPointsConfig:
-                  type: array
-                  minItems: 10
-                  maxItems: 10
-                  items:
-                    type: integer
-                    minimum: 0
-                killPointsValue:
-                  type: integer
-                  minimum: 0
-                  maximum: 10
-                scoringDescription:
-                  type: string
-                  maxLength: 200
+              $ref: "#/components/schemas/UpdateSeriesRequest"
       responses:
         "200":
           description: Series updated
@@ -2221,6 +2176,7 @@ paths:
         - Each match can only be added to one series
         - The match order is assigned automatically (sequential, based on `currentMatchNumber`)
         - **All matches must share the same slot/team list** (slot number + team name). Mismatches return `400 SLOT_LIST_MISMATCH`.
+        - Each match keeps its **own scoring config**; series totals are the sum of per-match points.
         - Series leaderboard rebuilds automatically when a linked match gets results (including if the match was processed before being added)
       security:
         - bearerAuth: []
@@ -2309,9 +2265,13 @@ paths:
       tags: [Quick-PT Series]
       summary: Get series leaderboard
       description: |
-        Aggregated standings across all completed matches in the series.
-        Points from each match are summed; weighted scoring and bonus points are applied.
-        Returns `null` data if no matches have been completed yet.
+        Aggregated standings across all matches in the series that have results.
+
+        Points are summed from each match's already-calculated `totalPoints` (using that
+        match's own scoring config). Optional `matchWeight` and `bonusPoints` on series
+        match links are applied during aggregation.
+
+        Returns `null` data if no matches have results yet.
       security:
         - bearerAuth: []
       parameters:
@@ -2502,7 +2462,7 @@ paths:
         Generates a **single-sheet** Excel workbook (`Series Report`) with three sections:
 
         1. **Team & Slot Mapping** — from the first match in the series
-        2. **Series Details** — name, game, match counts, status, kill points (no internal IDs)
+        2. **Series Details** — name, game, match counts, status (no internal IDs)
         3. **Results & Rankings** — aggregated standings for all teams with matches played,
            position/kill points, WWCD, and total points
 
@@ -2591,6 +2551,10 @@ paths:
     post:
       tags: [Quick-PT Tie-Breaking]
       summary: Set tie-breaking rules for a series
+      description: |
+        Configure automatic tie-breaking for **aggregate series standings** when teams
+        are tied on total points. Use `POST /conflicts/detect` first, then
+        `POST /conflicts/resolve` for manual ordering if needed.
       security:
         - bearerAuth: []
       parameters:
@@ -2600,14 +2564,7 @@ paths:
         content:
           application/json:
             schema:
-              allOf:
-                - $ref: "#/components/schemas/TieBreakingRulesBody"
-                - type: object
-                  properties:
-                    applyToAllMatches:
-                      type: boolean
-                      default: false
-                      description: "If true, also apply these rules to individual matches in the series"
+              $ref: "#/components/schemas/TieBreakingRulesBody"
       responses:
         "200":
           description: Series tie-breaking rules saved
@@ -3403,8 +3360,53 @@ components:
 
     # ── Series ───────────────────────────────────────────────
 
+    CreateSeriesRequest:
+      type: object
+      required: [seriesName, totalMatches]
+      description: |
+        Create a tournament series. Scoring is **not** configured here — set
+        `positionPointsConfig` / `killPointsValue` on each Quick Match instead.
+      properties:
+        seriesName:
+          type: string
+          minLength: 3
+          maxLength: 100
+          example: "BGMI Championship Series"
+        game:
+          type: string
+          default: "BGMI"
+          example: "BGMI"
+        totalMatches:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: "Planned number of matches in this series (max 20)"
+          example: 5
+
+    UpdateSeriesRequest:
+      type: object
+      minProperties: 1
+      description: "Partial update — at least one field required. No scoring fields."
+      properties:
+        seriesName:
+          type: string
+          minLength: 3
+          maxLength: 100
+        game:
+          type: string
+        totalMatches:
+          type: integer
+          minimum: 1
+          maximum: 20
+        status:
+          type: string
+          enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
+
     SeriesObject:
       type: object
+      description: |
+        Tournament series metadata and progress. Points aggregation uses each linked
+        Quick Match's own scoring configuration — this object has no scoring fields.
       properties:
         id:
           type: string
@@ -3426,18 +3428,6 @@ components:
           type: string
           enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
           example: "IN_PROGRESS"
-        positionPointsConfig:
-          type: array
-          nullable: true
-          items:
-            type: integer
-          example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
-        killPointsValue:
-          type: integer
-          example: 1
-        scoringDescription:
-          type: string
-          nullable: true
         currentMatchNumber:
           type: integer
           description: "The match order number that will be assigned to the NEXT added match"

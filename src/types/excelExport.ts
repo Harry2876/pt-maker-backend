@@ -63,9 +63,7 @@ export interface ExcelSeriesData {
         totalMatches: number;
         matchesCompleted: number;
         totalTeams: number;
-        killPointsValue: number;
         status: string;
-        scoringDescription?: string;
         createdAt: string;
     };
     slots: ExcelSlotRow[];

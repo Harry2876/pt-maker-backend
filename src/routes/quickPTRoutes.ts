@@ -1630,12 +1630,10 @@ quickPTRouter.delete(
  *     tags: [Quick-PT]
  *     summary: Create Tournament Series
  *     description: |
- *       Create a new tournament series to group multiple matches and track overall standings.
- *       
- *       **Use Cases:**
- *       - Multi-match tournaments (BGMI leagues, scrims series)
- *       - Overall championship tracking
- *       - Aggregated leaderboards across matches
+ *       Create a tournament series to group multiple matches and track overall standings.
+ *
+ *       Scoring is configured on each Quick Match — not on the series. Only
+ *       `seriesName`, `game`, and `totalMatches` are accepted here.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -1665,25 +1663,6 @@ quickPTRouter.delete(
  *                 minimum: 1
  *                 maximum: 20
  *                 example: 5
- *               positionPointsConfig:
- *                 type: array
- *                 items:
- *                   type: integer
- *                   minimum: 0
- *                   maximum: 100
- *                 minItems: 10
- *                 maxItems: 10
- *                 example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
- *               killPointsValue:
- *                 type: integer
- *                 minimum: 0
- *                 maximum: 10
- *                 default: 1
- *                 example: 1
- *               scoringDescription:
- *                 type: string
- *                 maxLength: 200
- *                 example: "Standard BGMI tournament scoring"
  *     responses:
  *       201:
  *         description: Tournament Series created successfully
@@ -1721,17 +1700,6 @@ quickPTRouter.delete(
  *                       type: string
  *                       enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
  *                       example: "CREATED"
- *                     positionPointsConfig:
- *                       type: array
- *                       items:
- *                         type: integer
- *                       example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
- *                     killPointsValue:
- *                       type: integer
- *                       example: 1
- *                     scoringDescription:
- *                       type: string
- *                       example: "Standard BGMI tournament scoring"
  *                     currentMatchNumber:
  *                       type: integer
  *                       example: 1
@@ -2016,17 +1984,6 @@ quickPTRouter.get('/series/:id/matches',
  *                       type: string
  *                       enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
  *                       example: "IN_PROGRESS"
- *                     positionPointsConfig:
- *                       type: array
- *                       items:
- *                         type: integer
- *                       example: [15, 12, 10, 8, 6, 4, 2, 1, 0, 0]
- *                     killPointsValue:
- *                       type: integer
- *                       example: 1
- *                     scoringDescription:
- *                       type: string
- *                       example: "Standard BGMI tournament scoring"
  *                     currentMatchNumber:
  *                       type: integer
  *                       example: 4
@@ -2194,7 +2151,7 @@ quickPTRouter.get('/series',
  *   put:
  *     tags: [Quick-PT]
  *     summary: Update Tournament Series
- *     description: Update tournament series details like name, scoring configuration, or status
+ *     description: Update series name, game, planned match count, or status (no scoring fields)
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -2234,24 +2191,6 @@ quickPTRouter.get('/series',
  *                 type: string
  *                 enum: [CREATED, IN_PROGRESS, COMPLETED, CANCELLED]
  *                 example: "IN_PROGRESS"
- *               positionPointsConfig:
- *                 type: array
- *                 items:
- *                   type: integer
- *                   minimum: 0
- *                   maximum: 100
- *                 minItems: 10
- *                 maxItems: 10
- *                 example: [20, 15, 12, 10, 8, 6, 4, 2, 1, 0]
- *               killPointsValue:
- *                 type: integer
- *                 minimum: 0
- *                 maximum: 10
- *                 example: 2
- *               scoringDescription:
- *                 type: string
- *                 maxLength: 200
- *                 example: "Updated tournament scoring rules"
  *     responses:
  *       200:
  *         description: Tournament Series updated successfully
@@ -2284,17 +2223,6 @@ quickPTRouter.get('/series',
  *                     status:
  *                       type: string
  *                       example: "IN_PROGRESS"
- *                     positionPointsConfig:
- *                       type: array
- *                       items:
- *                         type: integer
- *                       example: [20, 15, 12, 10, 8, 6, 4, 2, 1, 0]
- *                     killPointsValue:
- *                       type: integer
- *                       example: 2
- *                     scoringDescription:
- *                       type: string
- *                       example: "Updated tournament scoring rules"
  *                     updatedAt:
  *                       type: string
  *                       format: date-time
@@ -2475,6 +2403,33 @@ quickPTRouter.get('/series/:id/leaderboard',
     validateRequest(quickSeriesParamsSchema, 'params'),
     QuickSeriesController.getSeriesLeaderboard
 );
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/export/excel:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Export series leaderboard to Excel
+ *     description: Single-sheet Series Report (slot mapping, series details, aggregated rankings). Optional query param customFilename.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: customFilename
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Excel export generated
+ *       400:
+ *         description: No leaderboard data
+ */
 
 quickPTRouter.post('/series/:id/export',
     validateRequest(quickSeriesParamsSchema, 'params'),
@@ -3572,9 +3527,6 @@ quickPTRouter.post('/series/:id/conflicts/resolve',
  *               autoResolveEnabled:
  *                 type: boolean
  *                 default: true
- *               applyToAllMatches:
- *                 type: boolean
- *                 default: false
  *     responses:
  *       200:
  *         description: Series tie-breaking rules set successfully
