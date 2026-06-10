@@ -43,16 +43,26 @@ const workersManager = new WorkersManager();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+function parseCommaSeparatedOrigins(value: string | undefined, fallback: string[]): string[] {
+    if (!value?.trim()) return fallback;
+    const origins = value.split(',').map((origin) => origin.trim()).filter(Boolean);
+    return origins.length > 0 ? origins : fallback;
+}
+
+const productionOrigins = parseCommaSeparatedOrigins(process.env.PRODUCTION_ORIGINS, [
+    'https://scrymzengineservice.site',
+    'https://www.scrymzengineservice.site',
+]);
+
+const developmentOrigins = parseCommaSeparatedOrigins(process.env.ALLOWED_ORIGINS, [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3000',
+]);
+
 // Configure CORS securely
 const corsOptions = {
-    origin:
-        process.env.NODE_ENV === 'production'
-            ? ['https://serverscrymz.me', 'https://www.serverscrymz.me'] // Replace with your frontend domains
-            : [
-                'http://localhost:3000',
-                'http://localhost:3001',
-                'http://127.0.0.1:3000',
-            ], // Dev domains
+    origin: process.env.NODE_ENV === 'production' ? productionOrigins : developmentOrigins,
     credentials: true, // Allow cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

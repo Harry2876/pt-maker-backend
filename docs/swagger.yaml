@@ -10,7 +10,7 @@ info:
 
     Full-stack tournament management system for BGMI (Battlegrounds Mobile India).
     Handles everything from player onboarding to live match results and AI-powered standings image generation.
-    Production: **https://serverscrymz.me**
+    Production: **https://scrymzengineservice.site**
 
     ---
 
@@ -236,7 +236,7 @@ info:
     | Uploads | `/uploads` | File and media upload handling |
 
 servers:
-  - url: https://serverscrymz.me/api/v1
+  - url: https://scrymzengineservice.site/api/v1
     description: Production
   - url: http://localhost:3000/api/v1
     description: Local development
