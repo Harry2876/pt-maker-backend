@@ -4,11 +4,14 @@ import { QueueService } from './queueService';
 import redis from '../config/redis';
 import { randomUUID } from 'crypto';
 import { r2Service } from './cloudflareR2Service';
+import { signedUrlUtility } from './signedUrlUtility';
 import { UploadFile, ScreenshotUploadData } from '../types/upload';
-import { QuickScreenshotCache, QuickScreenshotType } from '../types/quickScreenshot';
+import { QuickScreenshotCache, QuickScreenshotType, QuickScreenshotListResponse } from '../types/quickScreenshot';
 
 export class UnifiedScreenshotService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
+    /** Fresh signed preview URLs regenerated on every list/upload response */
+    private readonly SCREENSHOT_PREVIEW_EXPIRY_MINUTES = 5;
 
     async processScreenshotUpload(
         context: 'tournament' | 'quick-pt',
@@ -518,6 +521,128 @@ export class UnifiedScreenshotService extends BaseService {
         }));
 
         return screenshots;
+    }
+
+    /**
+     * List Quick PT screenshots with fresh signed preview URLs for the client UI.
+     */
+    async listQuickPtScreenshotsForClient(
+        matchId: string,
+        userId: string,
+        filters?: { type?: string; isProcessed?: boolean }
+    ): Promise<QuickScreenshotListResponse> {
+        const screenshots = await this.listQuickPtScreenshots(matchId, userId, filters);
+        return this.buildQuickPtScreenshotListResponse(screenshots);
+    }
+
+    /**
+     * Attach fresh signed preview URLs (5 min TTL) for client display.
+     * Regenerated on every call so list/upload always returns usable URLs.
+     */
+    async attachQuickPtPreviewUrls<T extends { id: string; fileName?: string; storageUrl?: string; type?: string }>(
+        screenshots: T[]
+    ): Promise<Array<T & {
+        r2Key: string | null;
+        previewUrl: string | null;
+        signedUrl: string | null;
+        expiresAt: string | null;
+        previewUrlExpiresInSeconds: number;
+    }>> {
+        return Promise.all(
+            screenshots.map(async (screenshot) => {
+                const r2Key = this.resolveScreenshotR2Key(screenshot);
+                let previewUrl: string | null = null;
+                let signedUrl: string | null = null;
+                let expiresAt: string | null = null;
+                let previewUrlExpiresInSeconds = this.SCREENSHOT_PREVIEW_EXPIRY_MINUTES * 60;
+
+                if (r2Key) {
+                    try {
+                        const signed = await signedUrlUtility.generateSignedUrl(r2Key, {
+                            expiryMinutes: this.SCREENSHOT_PREVIEW_EXPIRY_MINUTES,
+                        });
+                        previewUrl = signed.signedUrl;
+                        signedUrl = signed.signedUrl;
+                        expiresAt = signed.expiresAt.toISOString();
+                        previewUrlExpiresInSeconds = signed.expirySeconds;
+                    } catch (error) {
+                        this.logger.warn(`Failed to generate preview URL for screenshot ${screenshot.id}:`, error);
+                    }
+                }
+
+                return {
+                    ...screenshot,
+                    r2Key,
+                    previewUrl,
+                    signedUrl,
+                    expiresAt,
+                    previewUrlExpiresInSeconds,
+                };
+            })
+        );
+    }
+
+    async buildQuickPtScreenshotListResponse(
+        screenshots: Array<{
+            id: string;
+            quickMatchId: string;
+            originalName: string;
+            fileName: string;
+            storageUrl: string;
+            type: string;
+            pageNumber?: number;
+            isProcessed: boolean;
+            uploadedAt: string;
+            dbStatus?: string;
+        }>
+    ): Promise<QuickScreenshotListResponse> {
+        const withPreviews = await this.attachQuickPtPreviewUrls(screenshots);
+        const attendance = withPreviews.filter((s) => this.isAttendanceScreenshotType(String(s.type)));
+        const result = withPreviews.filter((s) => this.isResultScreenshotType(String(s.type)));
+
+        return {
+            screenshots: withPreviews,
+            attendance,
+            result,
+            count: {
+                total: withPreviews.length,
+                attendance: attendance.length,
+                result: result.length,
+            },
+        };
+    }
+
+    private resolveScreenshotR2Key(screenshot: { fileName?: string; storageUrl?: string }): string | null {
+        if (screenshot.fileName) {
+            let key = screenshot.fileName;
+            if (key.startsWith('pt-maker-screenshots/')) {
+                key = key.substring('pt-maker-screenshots/'.length);
+            }
+            return key;
+        }
+
+        if (!screenshot.storageUrl) {
+            return null;
+        }
+
+        try {
+            const url = new URL(screenshot.storageUrl);
+            const pathParts = url.pathname.split('/').filter(Boolean);
+            if (pathParts.length >= 2 && pathParts[0] === 'pt-maker-screenshots') {
+                return pathParts.slice(1).join('/');
+            }
+            return pathParts.join('/') || null;
+        } catch {
+            return null;
+        }
+    }
+
+    private isAttendanceScreenshotType(type: string): boolean {
+        return type === 'ATTENDANCE' || type === 'ATTENDANCE_IMAGE';
+    }
+
+    private isResultScreenshotType(type: string): boolean {
+        return type === 'RESULT' || type === 'RESULT_IMAGE';
     }
     /**
  * Delete screenshot (context-aware)

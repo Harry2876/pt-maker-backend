@@ -286,11 +286,20 @@ export class QuickPTController {
         const hasErrors = Array.isArray(errors) && errors.length > 0;
         const success = hasSuccessfulUploads && !hasErrors;
 
+        const uploadedWithPreviews = hasSuccessfulUploads
+            ? await unifiedScreenshotService.attachQuickPtPreviewUrls(results)
+            : [];
+
         // Ensure safe response data
         const responseData = {
-            uploaded: Array.isArray(results) ? results : [],
+            uploaded: uploadedWithPreviews,
             errors: Array.isArray(errors) ? errors : [],
-            uploadId: uploadInfo?.uploadId || 'unknown'
+            uploadId: uploadInfo?.uploadId || 'unknown',
+            count: {
+                total: uploadedWithPreviews.length,
+                attendance: uploadedWithPreviews.filter((s) => s.type === 'ATTENDANCE').length,
+                result: uploadedWithPreviews.filter((s) => s.type === 'RESULT').length,
+            },
         };
 
         try {
@@ -335,8 +344,7 @@ export class QuickPTController {
         const userId = req.user!.id;
         const { type, isProcessed } = req.query;
 
-        const screenshots = await unifiedScreenshotService.listScreenshots(
-            'quick-pt',
+        const screenshotData = await unifiedScreenshotService.listQuickPtScreenshotsForClient(
             quickMatchId,
             userId,
             {
@@ -346,10 +354,7 @@ export class QuickPTController {
         );
 
         return res.json(
-            ResponseHelper.success('Screenshots retrieved successfully', {
-                screenshots,
-                count: screenshots.length
-            })
+            ResponseHelper.success('Screenshots retrieved successfully', screenshotData)
         );
     });
 

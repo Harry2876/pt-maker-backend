@@ -555,6 +555,7 @@ paths:
       summary: Upload screenshots
       description: |
         Upload attendance or result screenshots to Cloudflare R2.
+        Response includes fresh signed `previewUrl` for each uploaded file (5 min TTL).
 
         - Pass screenshot type via query param: `?type=ATTENDANCE` or `?type=RESULT`
         - Max 10 files per request, 10 MB each
@@ -628,6 +629,11 @@ paths:
     get:
       tags: [Quick-PT Screenshots]
       summary: List screenshots for a match
+      description: |
+        Returns all uploaded screenshots with **fresh signed preview URLs** (5 min TTL).
+        URLs are regenerated on every request — call again when previews expire.
+
+        Response includes flat `screenshots` array plus grouped `attendance` and `result` lists.
       security:
         - bearerAuth: []
       parameters:
@@ -656,9 +662,7 @@ paths:
                     type: string
                     example: "Screenshots retrieved successfully"
                   data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ScreenshotObject"
+                    $ref: "#/components/schemas/ScreenshotListResponse"
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "401":
@@ -3216,11 +3220,30 @@ components:
           example: "attendance_page1.png"
         fileName:
           type: string
-          example: "quick-pt/abc123/attendance_1733312400.png"
+          example: "quick-pt/ATTENDANCE_IMAGE/match-abc123/1733312400-uuid.png"
+        r2Key:
+          type: string
+          description: "Cloudflare R2 object key"
+          example: "quick-pt/ATTENDANCE_IMAGE/match-abc123/1733312400-uuid.png"
         storageUrl:
           type: string
           format: uri
-          description: "Public or signed URL to the file in Cloudflare R2"
+          description: "Raw R2 storage URL (not for direct browser preview — use previewUrl)"
+        previewUrl:
+          type: string
+          format: uri
+          description: "Fresh signed URL for image preview (5 min TTL, regenerated on each list/upload)"
+        signedUrl:
+          type: string
+          format: uri
+          description: "Same as previewUrl — signed download URL"
+        expiresAt:
+          type: string
+          format: date-time
+          description: "When previewUrl expires; call GET /screenshots again for a fresh URL"
+        previewUrlExpiresInSeconds:
+          type: integer
+          example: 300
         type:
           type: string
           enum: [ATTENDANCE, RESULT]
@@ -3235,6 +3258,33 @@ components:
         uploadedAt:
           type: string
           format: date-time
+
+    ScreenshotListResponse:
+      type: object
+      properties:
+        screenshots:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScreenshotObject"
+        attendance:
+          type: array
+          description: "Attendance screenshots only"
+          items:
+            $ref: "#/components/schemas/ScreenshotObject"
+        result:
+          type: array
+          description: "Result screenshots only"
+          items:
+            $ref: "#/components/schemas/ScreenshotObject"
+        count:
+          type: object
+          properties:
+            total:
+              type: integer
+            attendance:
+              type: integer
+            result:
+              type: integer
 
     # ── Processing ───────────────────────────────────────────
 
