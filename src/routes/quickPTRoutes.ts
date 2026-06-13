@@ -1147,9 +1147,13 @@ quickPTRouter.delete(
  *     summary: Process match screenshots with Python AI
  *     description: |
  *       Unified endpoint for all screenshot processing.
- *       - **ATTENDANCE** — Sends attendance screenshots (≤3) to Python AI; detects slot numbers and player names.
- *       - **RESULT** — Sends result screenshots (≤9) to Python AI; extracts rankings, kills, and calculates points.
- *       - **COMPLETE** (default) — Runs ATTENDANCE then RESULT in sequence.
+ *       - **ATTENDANCE** — batch OCR; detects slot numbers and player rosters.
+ *       - **RESULT** — per-image OCR; extracts ranks, per-player kills, matches slots, saves results.
+ *       - **COMPLETE** (default) — runs ATTENDANCE then RESULT in sequence.
+ *
+ *       **Android — per-player finishes:** After RESULT/COMPLETE, read either:
+ *       - `data.audit.saved[].playerResults[]` (summary audit), or
+ *       - `data.results[].playerResults[]` (full persisted rows, same as GET /results).
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1170,7 +1174,7 @@ quickPTRouter.delete(
  *                 enum: [ATTENDANCE, RESULT, COMPLETE]
  *                 default: COMPLETE
  *                 description: Which processing step to run
- *                 example: "ATTENDANCE"
+ *                 example: "COMPLETE"
  *     responses:
  *       200:
  *         description: Processing completed successfully
@@ -1185,23 +1189,82 @@ quickPTRouter.delete(
  *                 message:
  *                   type: string
  *                 data:
+ *                   oneOf:
+ *                     - type: object
+ *                       title: AttendanceProcessingResult
+ *                       properties:
+ *                         success: { type: boolean }
+ *                         slotsDetected: { type: integer }
+ *                         slotsCreated: { type: integer }
+ *                         warnings: { type: array, items: { type: object } }
+ *                         processingTimeMs: { type: integer }
+ *                         audit:
+ *                           type: object
+ *                           properties:
+ *                             ocrMode: { type: string, enum: [batch] }
+ *                             imagesProcessed: { type: integer }
+ *                             rawTeams: { type: integer }
+ *                             mergedSlots: { type: integer }
+ *                     - type: object
+ *                       title: ResultProcessingResult
+ *                       properties:
+ *                         success: { type: boolean }
+ *                         resultsCreated: { type: integer }
+ *                         resultsProcessed: { type: integer }
+ *                         warnings: { type: array, items: { type: object } }
+ *                         processingTimeMs: { type: integer }
+ *                         audit:
+ *                           type: object
+ *                           properties:
+ *                             ocrMode: { type: string, enum: [per_image, batch, per_image_fallback] }
+ *                             matched: { type: integer }
+ *                             saved:
+ *                               type: array
+ *                               items:
+ *                                 type: object
+ *                                 properties:
+ *                                   slotNumber: { type: integer }
+ *                                   rank: { type: integer }
+ *                                   teamName: { type: string }
+ *                                   totalKills: { type: integer }
+ *                                   matchScore: { type: string, example: "4/4" }
+ *                                   playerResults:
+ *                                     type: array
+ *                                     items:
+ *                                       type: object
+ *                                       properties:
+ *                                         playerName: { type: string }
+ *                                         kills: { type: integer }
+ *                         results:
+ *                           type: array
+ *                           description: Full match results with per-player kills
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id: { type: string }
+ *                               slotNumber: { type: integer }
+ *                               teamName: { type: string }
+ *                               rank: { type: integer }
+ *                               totalKills: { type: integer }
+ *                               totalPoints: { type: integer }
+ *                               playerResults:
+ *                                 type: array
+ *                                 items:
+ *                                   type: object
+ *                                   properties:
+ *                                     playerName: { type: string }
+ *                                     kills: { type: integer }
+ *                     - type: object
+ *                       title: CompleteProcessingResult
+ *                       properties:
+ *                         success: { type: boolean }
+ *                         attendanceResult: { type: object }
+ *                         resultProcessingResult:
+ *                           type: object
+ *                           description: Same shape as ResultProcessingResult (includes results + audit.saved[].playerResults)
+ *                         totalProcessingTimeMs: { type: integer }
+ *                 meta:
  *                   type: object
- *                   properties:
- *                     slotsDetected:
- *                       type: integer
- *                       description: (ATTENDANCE only) number of teams detected
- *                     slotsCreated:
- *                       type: integer
- *                       description: (ATTENDANCE only) new slots created in DB
- *                     resultsCreated:
- *                       type: integer
- *                       description: (RESULT only) results written to DB
- *                     warnings:
- *                       type: array
- *                       items:
- *                         type: object
- *                     processingTimeMs:
- *                       type: number
  *       400:
  *         description: No screenshots found, wrong image type, or invalid type param
  *       404:
@@ -1246,47 +1309,60 @@ quickPTRouter.post(
  *                   type: string
  *                   example: "Match results retrieved successfully"
  *                 data:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       id:
- *                         type: string
- *                       slotNumber:
- *                         type: integer
- *                         example: 1
- *                       teamName:
- *                         type: string
- *                         example: "Team Alpha"
- *                       position:
- *                         type: integer
- *                         example: 1
- *                       kills:
- *                         type: integer
- *                         example: 12
- *                       positionPoints:
- *                         type: integer
- *                         example: 15
- *                       killPoints:
- *                         type: integer
- *                         example: 12
- *                       totalPoints:
- *                         type: integer
- *                         example: 27
- *                       playerNames:
- *                         type: array
- *                         items:
- *                           type: string
- *                         example: ["Player1", "Player2", "Player3", "Player4"]
- *                       matchQuality:
- *                         type: number
- *                         description: Match confidence (0-100)
- *                         example: 95.5
- *                       quickMatchId:
- *                         type: string
- *                       createdAt:
- *                         type: string
- *                         format: date-time
+ *                   type: object
+ *                   properties:
+ *                     results:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           slotNumber:
+ *                             type: integer
+ *                             example: 1
+ *                           teamName:
+ *                             type: string
+ *                             example: "Team Alpha"
+ *                           position:
+ *                             type: integer
+ *                             example: 1
+ *                           rank:
+ *                             type: integer
+ *                             example: 1
+ *                           totalKills:
+ *                             type: integer
+ *                             example: 12
+ *                           positionPoints:
+ *                             type: integer
+ *                             example: 15
+ *                           killPoints:
+ *                             type: integer
+ *                             example: 12
+ *                           totalPoints:
+ *                             type: integer
+ *                             example: 27
+ *                           playerResults:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *                               properties:
+ *                                 playerName:
+ *                                   type: string
+ *                                   example: "Player1"
+ *                                 kills:
+ *                                   type: integer
+ *                                   example: 5
+ *                           status:
+ *                             type: string
+ *                             enum: [PENDING, PROCESSED, VERIFIED, MANUAL_ENTRY]
+ *                           needsReview:
+ *                             type: boolean
+ *                           createdAt:
+ *                             type: string
+ *                             format: date-time
+ *                     count:
+ *                       type: integer
  *       404:
  *         description: Match not found or no results available
  *       401:

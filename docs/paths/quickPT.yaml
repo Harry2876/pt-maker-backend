@@ -745,14 +745,17 @@ paths:
         ### Roster-based team matching (RESULT step)
         Because OCR can vary between image types, teams are matched by comparing **all player names**
         across the result screenshot against the player names stored during the attendance step.
-        The algorithm uses (in order):
-        - Exact normalised match (lowercase, strip non-alphanumeric)
-        - Prefix / substring match (≥ 4 chars)
-        - Proportional Levenshtein distance: ≤ 2 for 6–8 char names, ≤ 3 for 9–11 chars, ≤ 4 for ≥ 12 chars
-        - Bigram similarity ≥ 70 % (Sørensen–Dice) as a final fallback
+        The algorithm uses fuzzy name matching (normalisation, prefix, Levenshtein, bigram similarity).
+        **At least 3 of 4 roster players must match** for a slot assignment (stricter for smaller rosters).
 
-        **Only one matching player is required** — the slot with the highest match count wins.
-        Unmatched teams appear in `warnings`.
+        Result OCR runs **per screenshot** (`ocrMode: per_image`) to avoid scroll-header rank collisions
+        that corrupt kill totals in batch mode. Duplicate rank-1/2 headers across scroll pages are
+        deduped and reported as `DUPLICATE_TEAM` warnings.
+
+        ### Per-player finishes in the response
+        Each saved team includes **`playerResults`** — individual player names and kill counts as
+        detected by OCR. The full persisted rows are also returned in **`results`** (same shape as
+        `GET /quick-pt/matches/{id}/results`).
 
         ### Prerequisites
         - Screenshots must be uploaded before processing (`POST /quick-pt/matches/{id}/screenshots`).
@@ -788,114 +791,154 @@ paths:
                     type: string
                     example: "Attendance processed successfully"
                   data:
-                    type: object
-                    description: "Shape varies by type. See examples below."
                     oneOf:
-                      - title: ATTENDANCE response
-                        properties:
-                          slotsDetected:
-                            type: integer
-                            description: "Teams detected by Python AI across all screenshots"
-                            example: 16
-                          slotsCreated:
-                            type: integer
-                            description: "New slot records created in the database"
-                            example: 14
-                          warnings:
-                            type: array
-                            description: "Non-fatal issues (e.g. slot already exists, low confidence)"
-                            items:
-                              $ref: "#/components/schemas/ProcessingWarning"
-                          processingTimeMs:
-                            type: integer
-                            example: 4250
-                          confidence:
-                            type: object
-                            properties:
-                              overall:
-                                type: number
-                                format: float
-                                minimum: 0
-                                maximum: 1
-                                description: "Fraction of screenshots successfully processed"
-                                example: 1.0
-                              slotExtraction:
-                                type: number
-                                format: float
-                                example: 1.0
-                      - title: RESULT response
-                        properties:
-                          resultsCreated:
-                            type: integer
-                            description: "Result records written to database"
-                            example: 16
-                          resultsProcessed:
-                            type: integer
-                            description: "Teams extracted from all result screenshots"
-                            example: 16
-                          warnings:
-                            type: array
-                            description: "Non-fatal issues (e.g. team not matched to an existing slot)"
-                            items:
-                              $ref: "#/components/schemas/ProcessingWarning"
-                          processingTimeMs:
-                            type: integer
-                            example: 6800
-                          confidence:
-                            type: object
-                            properties:
-                              overall:
-                                type: number
-                                format: float
-                                minimum: 0
-                                maximum: 1
-                                example: 0.88
-                              resultExtraction:
-                                type: number
-                                format: float
-                                example: 0.88
-                      - title: COMPLETE response
-                        properties:
-                          attendanceResult:
-                            type: object
-                            description: "Output from ATTENDANCE step"
-                            properties:
-                              slotsDetected:
-                                type: integer
-                                example: 16
-                              slotsCreated:
-                                type: integer
-                                example: 16
-                              warnings:
-                                type: array
-                                items:
-                                  $ref: "#/components/schemas/ProcessingWarning"
-                              processingTimeMs:
-                                type: integer
-                                example: 4200
-                          resultProcessingResult:
-                            type: object
-                            description: "Output from RESULT step"
-                            properties:
-                              resultsCreated:
-                                type: integer
-                                example: 16
-                              resultsProcessed:
-                                type: integer
-                                example: 16
-                              warnings:
-                                type: array
-                                items:
-                                  $ref: "#/components/schemas/ProcessingWarning"
-                              processingTimeMs:
-                                type: integer
-                                example: 6800
-                          totalProcessingTimeMs:
-                            type: integer
-                            description: "Total wall-clock time for both steps"
-                            example: 11000
+                      - $ref: "#/components/schemas/AttendanceProcessingResult"
+                      - $ref: "#/components/schemas/ResultProcessingResult"
+                      - $ref: "#/components/schemas/CompleteProcessingResult"
                   meta:
                     $ref: "#/components/schemas/MetaObject"
+              examples:
+                attendance:
+                  summary: ATTENDANCE response
+                  value:
+                    success: true
+                    message: "Attendance processed successfully"
+                    data:
+                      success: true
+                      slotsDetected: 19
+                      slotsCreated: 19
+                      warnings: []
+                      processingTimeMs: 20140
+                      confidence:
+                        overall: 1
+                        slotExtraction: 1
+                      audit:
+                        ocrMode: batch
+                        imagesProcessed: 3
+                        rawTeams: 19
+                        mergedSlots: 19
+                        reconciliationWarnings: 0
+                    meta:
+                      timestamp: "2026-06-13T18:00:51.365Z"
+                      version: "1.0"
+                result:
+                  summary: RESULT response (excerpt — rank 1 team)
+                  value:
+                    success: true
+                    message: "Results processed successfully"
+                    data:
+                      success: true
+                      resultsCreated: 19
+                      resultsProcessed: 19
+                      warnings:
+                        - type: DUPLICATE_TEAM
+                          message: "Skipped duplicate roster for rank 1 (scroll header)"
+                          details:
+                            rank: 1
+                            keptRank: 1
+                            players: ["LNeverGivUpL", "RBLxToxiCZop", "LeTMeCoOK", "TTxANMoL"]
+                      processingTimeMs: 27586
+                      confidence:
+                        overall: 0.63
+                        resultExtraction: 1
+                      audit:
+                        ocrMode: per_image
+                        imagesProcessed: 6
+                        rawTeams: 30
+                        afterDedupe: 19
+                        skippedDuplicates: 11
+                        skippedInvalidRanks: 0
+                        matched: 19
+                        unmatched: 0
+                        ambiguous: 0
+                        slotConflicts: 0
+                        deletedProcessedResults: 0
+                        saved:
+                          - slotNumber: 3
+                            rank: 1
+                            teamName: "TTxANMoL"
+                            totalKills: 10
+                            matchScore: "4/4"
+                            playerResults:
+                              - playerName: "LNeverGivUpL"
+                                kills: 0
+                              - playerName: "RBLxToxiCZop"
+                                kills: 1
+                              - playerName: "LeTMeCoOK"
+                                kills: 4
+                              - playerName: "TTxANMoL"
+                                kills: 5
+                      results:
+                        - id: "uuid"
+                          quickMatchId: "uuid"
+                          slotNumber: 3
+                          teamName: "TTxANMoL"
+                          position: 1
+                          rank: 1
+                          totalKills: 10
+                          positionPoints: 15
+                          killPoints: 10
+                          totalPoints: 25
+                          playerResults:
+                            - playerName: "LNeverGivUpL"
+                              kills: 0
+                            - playerName: "RBLxToxiCZop"
+                              kills: 1
+                            - playerName: "LeTMeCoOK"
+                              kills: 4
+                            - playerName: "TTxANMoL"
+                              kills: 5
+                          status: PROCESSED
+                          needsReview: false
+                          createdAt: "2026-06-13T18:00:51.365Z"
+                          updatedAt: "2026-06-13T18:00:51.365Z"
+                          dbStatus: SYNCED
+                    meta:
+                      timestamp: "2026-06-13T18:00:51.365Z"
+                      version: "1.0"
+                complete:
+                  summary: COMPLETE response
+                  value:
+                    success: true
+                    message: "Complete processing finished successfully"
+                    data:
+                      success: true
+                      attendanceResult:
+                        success: true
+                        slotsDetected: 19
+                        slotsCreated: 19
+                        warnings: []
+                        processingTimeMs: 20140
+                      resultProcessingResult:
+                        success: true
+                        resultsCreated: 19
+                        resultsProcessed: 19
+                        warnings: []
+                        processingTimeMs: 27586
+                        audit:
+                          ocrMode: per_image
+                          matched: 19
+                          saved:
+                            - slotNumber: 3
+                              rank: 1
+                              teamName: "TTxANMoL"
+                              totalKills: 10
+                              matchScore: "4/4"
+                              playerResults:
+                                - playerName: "TTxANMoL"
+                                  kills: 5
+                        results:
+                          - slotNumber: 3
+                            rank: 1
+                            teamName: "TTxANMoL"
+                            totalKills: 10
+                            playerResults:
+                              - playerName: "TTxANMoL"
+                                kills: 5
+                      totalProcessingTimeMs: 47728
+                    meta:
+                      timestamp: "2026-06-13T18:00:51.365Z"
+                      version: "1.0"
         "400":
           description: |
             - No screenshots found for the requested type
@@ -3293,15 +3336,229 @@ components:
       properties:
         type:
           type: string
-          enum: [LOW_AI_CONFIDENCE, TEAM_NAME_MISMATCH, SLOT_NOT_FOUND, INVALID_POSITION]
-          example: "TEAM_NAME_MISMATCH"
+          enum:
+            - TEAM_NAME_MISMATCH
+            - SLOT_NOT_FOUND
+            - DUPLICATE_TEAM
+            - MISSING_KILLS
+            - INVALID_POSITION
+            - LOW_AI_CONFIDENCE
+            - AMBIGUOUS_SLOT_MATCH
+            - SLOT_ALREADY_ASSIGNED
+            - SLOT_ROSTER_CONFLICT
+          example: "DUPLICATE_TEAM"
         message:
           type: string
-          example: "Team 'Alpha_GG' not found in attendance slots"
+          example: "Skipped duplicate roster for rank 1 (scroll header)"
         details:
           type: object
           nullable: true
-          description: "Additional context (screenshotId, slotNumber, etc.)"
+          description: "Additional context (rank, players, slotNumber, etc.)"
+
+    PlayerResultItem:
+      type: object
+      required: [playerName, kills]
+      properties:
+        playerName:
+          type: string
+          example: "TTxANMoL"
+        kills:
+          type: integer
+          description: "Per-player finish count detected by OCR"
+          example: 5
+
+    AttendanceProcessingAudit:
+      type: object
+      properties:
+        ocrMode:
+          type: string
+          enum: [batch]
+          example: batch
+        imagesProcessed:
+          type: integer
+          example: 3
+        rawTeams:
+          type: integer
+          description: "Teams returned by OCR before merge"
+          example: 19
+        mergedSlots:
+          type: integer
+          description: "Unique slots after reconciliation"
+          example: 19
+        reconciliationWarnings:
+          type: integer
+          example: 0
+
+    AttendanceProcessingResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        slotsDetected:
+          type: integer
+          description: "Teams detected by Python AI across all screenshots"
+          example: 19
+        slotsCreated:
+          type: integer
+          description: "New slot records created in the database"
+          example: 19
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessingWarning"
+        processingTimeMs:
+          type: integer
+          example: 20140
+        confidence:
+          type: object
+          properties:
+            overall:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+              example: 1
+            slotExtraction:
+              type: number
+              format: float
+              example: 1
+        audit:
+          $ref: "#/components/schemas/AttendanceProcessingAudit"
+
+    ResultProcessingAuditSavedItem:
+      type: object
+      required: [slotNumber, rank, teamName, totalKills, matchScore]
+      properties:
+        slotNumber:
+          type: integer
+          example: 3
+        rank:
+          type: integer
+          description: "In-game placement rank"
+          example: 1
+        teamName:
+          type: string
+          example: "TTxANMoL"
+        totalKills:
+          type: integer
+          description: "Sum of all player kills for the team"
+          example: 10
+        matchScore:
+          type: string
+          description: "Roster match score vs attendance slot (matchedPlayers/rosterSize)"
+          example: "4/4"
+        playerResults:
+          type: array
+          description: "Per-player finishes detected by OCR for this team"
+          items:
+            $ref: "#/components/schemas/PlayerResultItem"
+
+    ResultProcessingAudit:
+      type: object
+      properties:
+        ocrMode:
+          type: string
+          enum: [per_image, batch, per_image_fallback]
+          example: per_image
+        imagesProcessed:
+          type: integer
+          example: 6
+        rawTeams:
+          type: integer
+          description: "Teams extracted across all result screenshots before dedupe"
+          example: 30
+        afterDedupe:
+          type: integer
+          description: "Unique teams after roster-based deduplication"
+          example: 19
+        skippedDuplicates:
+          type: integer
+          description: "Scroll-header duplicates skipped (e.g. rank 1/2 pinned)"
+          example: 11
+        skippedInvalidRanks:
+          type: integer
+          example: 0
+        matched:
+          type: integer
+          description: "Teams successfully matched to attendance slots"
+          example: 19
+        unmatched:
+          type: integer
+          example: 0
+        ambiguous:
+          type: integer
+          example: 0
+        slotConflicts:
+          type: integer
+          example: 0
+        deletedProcessedResults:
+          type: integer
+          description: "Previous PROCESSED rows removed before re-save"
+          example: 0
+        saved:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResultProcessingAuditSavedItem"
+
+    ResultProcessingResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        resultsCreated:
+          type: integer
+          description: "Result records written to database"
+          example: 19
+        resultsProcessed:
+          type: integer
+          description: "Unique teams after dedupe"
+          example: 19
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessingWarning"
+        processingTimeMs:
+          type: integer
+          example: 27586
+        confidence:
+          type: object
+          properties:
+            overall:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+              example: 0.63
+            resultExtraction:
+              type: number
+              format: float
+              example: 1
+        audit:
+          $ref: "#/components/schemas/ResultProcessingAudit"
+        results:
+          type: array
+          description: |
+            Full persisted match results including per-player finishes.
+            Same shape as `GET /quick-pt/matches/{id}/results` items.
+          items:
+            $ref: "#/components/schemas/MatchResultItem"
+
+    CompleteProcessingResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        attendanceResult:
+          $ref: "#/components/schemas/AttendanceProcessingResult"
+        resultProcessingResult:
+          $ref: "#/components/schemas/ResultProcessingResult"
+        totalProcessingTimeMs:
+          type: integer
+          description: "Total wall-clock time for both steps"
+          example: 47728
 
     # ── Results ──────────────────────────────────────────────
 
@@ -3345,14 +3602,23 @@ components:
           example: 27
         status:
           type: string
-          enum: [PENDING, MANUAL_ENTRY, AI_PROCESSED, NEEDS_REVIEW]
-          example: "AI_PROCESSED"
+          enum: [PENDING, PROCESSED, VERIFIED, MANUAL_ENTRY]
+          example: "PROCESSED"
         needsReview:
           type: boolean
           example: false
         warningType:
           type: string
-          enum: [LOW_AI_CONFIDENCE, TEAM_NAME_MISMATCH, SLOT_NOT_FOUND, INVALID_POSITION]
+          enum:
+            - TEAM_NAME_MISMATCH
+            - SLOT_NOT_FOUND
+            - DUPLICATE_TEAM
+            - MISSING_KILLS
+            - INVALID_POSITION
+            - LOW_AI_CONFIDENCE
+            - AMBIGUOUS_SLOT_MATCH
+            - SLOT_ALREADY_ASSIGNED
+            - SLOT_ROSTER_CONFLICT
           nullable: true
         aiConfidence:
           type: number
@@ -3364,15 +3630,16 @@ components:
         playerResults:
           type: array
           nullable: true
+          description: "Per-player finish counts (OCR or manual entry)"
           items:
-            type: object
-            properties:
-              playerName:
-                type: string
-                example: "Player1"
-              kills:
-                type: integer
-                example: 5
+            $ref: "#/components/schemas/PlayerResultItem"
+        updatedAt:
+          type: string
+          format: date-time
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED, ERROR]
+          example: SYNCED
         createdAt:
           type: string
           format: date-time

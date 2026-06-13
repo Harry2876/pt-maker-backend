@@ -91,21 +91,30 @@ info:
     ```
 
     #### Step 6 — Process Results
-    Sends result screenshots to Python AI. Extracts final rankings and kill counts.
-    Teams are matched to slots using **fuzzy roster matching** (Levenshtein distance
-    on all player names across both image types). Points are calculated and written to DB.
+    Sends result screenshots to Python AI (per-image OCR). Extracts final rankings and
+    **per-player kill counts**. Teams are matched to slots using fuzzy roster matching.
+    Points are calculated and written to DB.
     ```
     POST /quick-pt/matches/{id}/process
     { "type": "RESULT" }
-    → { resultsCreated: 16, warnings: [...] }
+    → {
+        resultsCreated: 16,
+        audit: { saved: [{ slotNumber, rank, totalKills, playerResults: [{ playerName, kills }] }] },
+        results: [{ slotNumber, rank, totalKills, playerResults, totalPoints, ... }],
+        warnings: [...]
+      }
     ```
+
+    > **Android:** Use `data.resultProcessingResult.results[].playerResults` (COMPLETE)
+    > or `data.audit.saved[].playerResults` (RESULT). Same `playerResults` shape on
+    > `GET /quick-pt/matches/{id}/results`.
 
     > **Tip:** Run both steps at once with `{ "type": "COMPLETE" }`.
 
     #### Step 7 — View Results
     ```
     GET /quick-pt/matches/{id}/results
-    → sorted array of team results with rank, teamName, totalPoints, etc.
+    → { results: [...], count } — each item includes playerResults[{ playerName, kills }]
     ```
 
     #### Step 8 — Export Standings Image
