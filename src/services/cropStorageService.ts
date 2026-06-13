@@ -10,8 +10,7 @@ import {
 } from '../types/quickCrop';
 import { pythonAIService } from './pythonAIService';
 import { unifiedScreenshotService } from './unifiedScreenshotService';
-import { storageUrlToR2Key } from '../utils/r2UrlUtils';
-import { resolvePythonOcrImageRef, resolvePythonOcrImageRefs } from '../utils/pythonOcrImageRefs';
+import { storageUrlToR2Key, resolvePythonImageRef } from '../utils/r2UrlUtils';
 
 export class CropStorageService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
@@ -29,7 +28,7 @@ export class CropStorageService extends BaseService {
             this.logger.info(`Processing ${typeLabel} crop for match ${quickMatchId}`);
 
             const pyRequest = {
-                image_urls: [await resolvePythonOcrImageRef({ storageUrl: screenshotUrl })],
+                image_urls: [resolvePythonImageRef(screenshotUrl)],
                 cleanup_temp: true,
             };
 
@@ -203,7 +202,7 @@ export class CropStorageService extends BaseService {
                 if (shots.length === 0) return;
 
                 const pyRequest = {
-                    image_urls: await resolvePythonOcrImageRefs(shots),
+                    image_urls: shots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName)),
                     cleanup_temp: true,
                 };
 

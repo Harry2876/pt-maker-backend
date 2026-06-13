@@ -51,8 +51,7 @@ export interface ScoreboardResponse {
 // ===== CROP UPLOAD =====
 
 export interface CropUploadRequest {
-    /** Full raw R2 HTTPS URLs or object keys — Python downloads from R2 directly.
-     *  OCR endpoints receive time-limited signed URLs (private bucket). */
+    /** Full raw R2 HTTPS URLs or object keys — Python downloads from R2 directly */
     image_urls: string[];
     metadata?: Record<string, any> | null;
     cleanup_temp?: boolean;

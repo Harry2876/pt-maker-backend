@@ -16,7 +16,7 @@ import { AttendanceTeam, ResultTeam } from '../types/pythonAI';
 import { quickSeriesService } from './quickSeriesService';
 import { quickResultService } from './quickResultService';
 import { ServiceError, isServiceError } from '../utils/serviceError';
-import { resolvePythonOcrImageRefs } from '../utils/pythonOcrImageRefs';
+import { resolvePythonImageRef } from '../utils/r2UrlUtils';
 import {
     ocrReconciliationService,
     ReconciliationWarning,
@@ -106,11 +106,7 @@ export class QuickProcessingService extends BaseService {
                 processingStep: 'Processing Attendance Screenshots',
             });
 
-            const imageRefs = await resolvePythonOcrImageRefs(screenshots);
-            this.logger.debug('Python OCR image refs prepared', {
-                count: imageRefs.length,
-                sampleKey: screenshots[0]?.fileName,
-            });
+            const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
             const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
             if (response.status !== 'success') {
@@ -283,7 +279,7 @@ export class QuickProcessingService extends BaseService {
                 processingStep: 'Processing Result Screenshots',
             });
 
-            const imageRefs = await resolvePythonOcrImageRefs(screenshots);
+            const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
 
             // Per-image OCR is used for results because Python run_batch merges scroll pages
             // by team_rank only, which corrupts rank-1 kills and drops teams. Single-image
