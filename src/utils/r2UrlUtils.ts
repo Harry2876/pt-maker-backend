@@ -39,20 +39,45 @@ export function storageUrlToR2Key(storageUrl: string): string {
 }
 
 /**
+ * Normalize an object key inside the bucket (no bucket prefix, no leading slash).
+ */
+export function resolveR2ObjectKey(storageUrl?: string, fallbackKey?: string): string | null {
+    const source = (storageUrl || fallbackKey || '').trim();
+    if (!source) {
+        return null;
+    }
+
+    let key = source.startsWith('http')
+        ? storageUrlToR2Key(source)
+        : source.replace(/^\/+/, '');
+
+    if (key.startsWith('pt-maker-screenshots/')) {
+        key = key.substring('pt-maker-screenshots/'.length);
+    }
+
+    return key || null;
+}
+
+/**
  * Build the image reference Python AI uses to download from R2.
  * Uses full raw HTTPS URLs — same pattern as standings/template calls.
  */
 export function resolvePythonImageRef(storageUrl: string, fallbackKey?: string): string {
-    const source = (storageUrl || fallbackKey || '').trim();
-    if (!source) {
+    const trimmedStorageUrl = (storageUrl || '').trim();
+    if (trimmedStorageUrl.startsWith('https://') || trimmedStorageUrl.startsWith('http://')) {
+        return trimmedStorageUrl;
+    }
+
+    const key = resolveR2ObjectKey(undefined, fallbackKey || storageUrl);
+    if (!key) {
         throw new Error('Missing R2 image reference');
     }
 
-    const key = source.startsWith('http')
-        ? storageUrlToR2Key(source)
-        : source.replace(/^\/+/, '');
-
-    return buildRawR2ObjectUrl(key);
+    const url = buildRawR2ObjectUrl(key);
+    if (!url.startsWith('https://')) {
+        throw new Error(`Invalid R2 public URL for key "${key}" — check R2_PUBLIC_URL`);
+    }
+    return url;
 }
 
 /**

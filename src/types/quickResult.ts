@@ -94,6 +94,11 @@ export interface AttendanceProcessingAudit {
     rawTeams: number;
     mergedSlots: number;
     reconciliationWarnings: number;
+    saved: Array<{
+        slotNumber: number;
+        teamName: string;
+        playerNames: string[];
+    }>;
 }
 
 export interface ResultProcessingAudit {

@@ -11,11 +11,12 @@ import {
     ResultProcessingAudit,
     WarningType,
 } from '../types/quickResult';
+import { QuickSlotCache } from '../types/quickSlot';
 import { AttendanceTeam, ResultTeam } from '../types/pythonAI';
 import { quickSeriesService } from './quickSeriesService';
 import { quickResultService } from './quickResultService';
 import { ServiceError, isServiceError } from '../utils/serviceError';
-import { resolvePythonImageRef } from '../utils/r2UrlUtils';
+import { resolvePythonOcrImageRefs } from '../utils/pythonOcrImageRefs';
 import {
     ocrReconciliationService,
     ReconciliationWarning,
@@ -37,6 +38,8 @@ export interface AttendanceProcessingResult {
         slotExtraction: number;
     };
     audit?: AttendanceProcessingAudit;
+    /** Full persisted slot records including player rosters */
+    slots?: QuickSlotCache[];
 }
 
 export interface ResultProcessingResult {
@@ -103,7 +106,11 @@ export class QuickProcessingService extends BaseService {
                 processingStep: 'Processing Attendance Screenshots',
             });
 
-            const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
+            const imageRefs = await resolvePythonOcrImageRefs(screenshots);
+            this.logger.debug('Python OCR image refs prepared', {
+                count: imageRefs.length,
+                sampleKey: screenshots[0]?.fileName,
+            });
             const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
             if (response.status !== 'success') {
@@ -123,11 +130,18 @@ export class QuickProcessingService extends BaseService {
 
             const attendanceTeams = reconciliation.teams;
             let slotsCreated = 0;
+            const savedAudit: AttendanceProcessingAudit['saved'] = [];
 
             for (const team of attendanceTeams) {
                 try {
                     const playerNames = team.players.map(p => p.name).filter(Boolean);
                     const teamName = playerNames[0] || `Slot ${team.slot_number}`;
+
+                    savedAudit.push({
+                        slotNumber: team.slot_number,
+                        teamName,
+                        playerNames,
+                    });
 
                     const existingSlot = await quickSlotService.getSlotByNumber(quickMatchId, team.slot_number);
 
@@ -169,6 +183,7 @@ export class QuickProcessingService extends BaseService {
             });
 
             const processingTimeMs = Date.now() - startTime;
+            const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId);
 
             this.logger.info(`Attendance processing complete for ${quickMatchId}`, {
                 slotsDetected: attendanceTeams.length,
@@ -193,7 +208,9 @@ export class QuickProcessingService extends BaseService {
                     rawTeams: reconciliation.rawTeamCount,
                     mergedSlots: reconciliation.mergedTeamCount,
                     reconciliationWarnings: reconciliation.warnings.length,
+                    saved: savedAudit,
                 },
+                slots,
             };
 
         } catch (error) {
@@ -266,7 +283,7 @@ export class QuickProcessingService extends BaseService {
                 processingStep: 'Processing Result Screenshots',
             });
 
-            const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
+            const imageRefs = await resolvePythonOcrImageRefs(screenshots);
 
             // Per-image OCR is used for results because Python run_batch merges scroll pages
             // by team_rank only, which corrupts rank-1 kills and drops teams. Single-image
