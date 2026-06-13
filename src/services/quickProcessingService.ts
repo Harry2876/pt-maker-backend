@@ -4,9 +4,11 @@ import { quickSlotService } from './quickSlotService';
 import { pythonAIService } from './pythonAIService';
 import { PointsCalculator, ScoringConfig } from '../utils/pointsCalculator';
 import { unifiedScreenshotService } from './unifiedScreenshotService';
-import { QuickSlotCache } from '../types/quickSlot';
 import {
+    AttendanceProcessingAudit,
     CreateQuickMatchResultData,
+    QuickMatchResultCache,
+    ResultProcessingAudit,
     WarningType,
 } from '../types/quickResult';
 import { AttendanceTeam, ResultTeam } from '../types/pythonAI';
@@ -14,7 +16,10 @@ import { quickSeriesService } from './quickSeriesService';
 import { quickResultService } from './quickResultService';
 import { ServiceError, isServiceError } from '../utils/serviceError';
 import { resolvePythonImageRef } from '../utils/r2UrlUtils';
-
+import {
+    ocrReconciliationService,
+    ReconciliationWarning,
+} from './ocrReconciliationService';
 
 // Response interfaces
 export interface AttendanceProcessingResult {
@@ -31,6 +36,7 @@ export interface AttendanceProcessingResult {
         overall: number;
         slotExtraction: number;
     };
+    audit?: AttendanceProcessingAudit;
 }
 
 export interface ResultProcessingResult {
@@ -47,6 +53,9 @@ export interface ResultProcessingResult {
         overall: number;
         resultExtraction: number;
     };
+    audit?: ResultProcessingAudit;
+    /** Full persisted match results including per-player finishes */
+    results?: QuickMatchResultCache[];
 }
 
 export interface CompleteProcessingResult {
@@ -88,14 +97,13 @@ export class QuickProcessingService extends BaseService {
                 );
             }
 
-            this.logger.info(`Sending ${screenshots.length} attendance screenshot(s) to Python AI`);
+            this.logger.info(`Sending ${screenshots.length} attendance screenshot(s) to Python AI (batch)`);
 
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                 processingStep: 'Processing Attendance Screenshots',
             });
 
             const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
-            this.logger.debug('Python OCR image refs', { count: imageRefs.length, sample: imageRefs[0] });
             const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
             if (response.status !== 'success') {
@@ -109,13 +117,16 @@ export class QuickProcessingService extends BaseService {
                 );
             }
 
-            const attendanceTeams = response.data.teams as AttendanceTeam[];
+            const rawTeams = response.data.teams as AttendanceTeam[];
+            const reconciliation = ocrReconciliationService.mergeAttendanceTeams(rawTeams);
+            warnings.push(...this.toProcessingWarnings(reconciliation.warnings));
+
+            const attendanceTeams = reconciliation.teams;
             let slotsCreated = 0;
 
             for (const team of attendanceTeams) {
                 try {
                     const playerNames = team.players.map(p => p.name).filter(Boolean);
-                    // Use first player name as team name placeholder; organiser can rename later
                     const teamName = playerNames[0] || `Slot ${team.slot_number}`;
 
                     const existingSlot = await quickSlotService.getSlotByNumber(quickMatchId, team.slot_number);
@@ -128,7 +139,6 @@ export class QuickProcessingService extends BaseService {
                         });
                         slotsCreated++;
                     } else {
-                        // Slot already exists — update player list and mark detected
                         if (!existingSlot.detectedInAttendance) {
                             await quickSlotService.updateSlot(existingSlot.id, userId, {
                                 playerNames,
@@ -176,6 +186,13 @@ export class QuickProcessingService extends BaseService {
                 confidence: {
                     overall: response.metadata.images_processed / screenshots.length,
                     slotExtraction: response.metadata.images_processed / screenshots.length,
+                },
+                audit: {
+                    ocrMode: 'batch',
+                    imagesProcessed: response.metadata.images_processed,
+                    rawTeams: reconciliation.rawTeamCount,
+                    mergedSlots: reconciliation.mergedTeamCount,
+                    reconciliationWarnings: reconciliation.warnings.length,
                 },
             };
 
@@ -243,58 +260,125 @@ export class QuickProcessingService extends BaseService {
                 );
             }
 
-            this.logger.info(`Sending ${screenshots.length} result screenshot(s) to Python AI`);
+            this.logger.info(`Processing ${screenshots.length} result screenshot(s) via per-image OCR`);
 
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                 processingStep: 'Processing Result Screenshots',
             });
 
             const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
-            this.logger.debug('Python OCR image refs', { count: imageRefs.length, sample: imageRefs[0] });
-            const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
-            if (response.status !== 'success') {
-                throw new Error(`Python AI returned status: ${response.status}`);
+            // Per-image OCR is used for results because Python run_batch merges scroll pages
+            // by team_rank only, which corrupts rank-1 kills and drops teams. Single-image
+            // pipeline.run() matches manual full_pipeline output; backend dedupes by roster.
+            const rawTeams: ResultTeam[] = [];
+            for (let i = 0; i < imageRefs.length; i++) {
+                const ref = imageRefs[i];
+                this.logger.debug(`Result OCR image ${i + 1}/${imageRefs.length}`, { ref });
+                const single = await pythonAIService.processScoreboard(ref);
+                if (single.status !== 'success') {
+                    throw new Error(`Python AI returned status: ${single.status} for result image ${i + 1}`);
+                }
+                if (single.data.layout !== 'compact_layout') {
+                    warnings.push({
+                        type: 'INVALID_POSITION',
+                        message: `Result image ${i + 1} is not compact_layout (${single.data.layout}) — skipped`,
+                        details: { imageIndex: i + 1, layout: single.data.layout },
+                    });
+                    continue;
+                }
+                rawTeams.push(...(single.data.teams as ResultTeam[]));
             }
 
-            if (response.data.layout !== 'compact_layout') {
-                throw new Error(
-                    `Expected result (compact_layout) but received ${response.data.layout}. ` +
-                    'Please make sure only result screenshots are uploaded for this step.'
+            if (rawTeams.length === 0) {
+                throw new ServiceError(
+                    'No result teams detected from result screenshots.',
+                    400,
+                    'NO_RESULT_TEAMS'
                 );
             }
 
-            const resultTeams = response.data.teams as ResultTeam[];
+            const ocrMode: ResultProcessingAudit['ocrMode'] = 'per_image';
+            const reconciliation = ocrReconciliationService.dedupeResultTeams(rawTeams);
+            warnings.push(...this.toProcessingWarnings(reconciliation.warnings));
 
+            const deletedProcessedResults = await quickResultService.deleteProcessedResults(
+                quickMatchId,
+                userId
+            );
+
+            const resultTeams = reconciliation.teams;
             const scoring: ScoringConfig = {
                 positionPointsConfig: quickMatch.positionPointsConfig || [20, 15, 12, 10, 8, 6, 4, 2, 1, 0],
                 killPointsValue: quickMatch.killPointsValue || 1,
             };
 
             let resultsCreated = 0;
+            let unmatched = 0;
+            let ambiguous = 0;
+            let slotConflicts = 0;
+            const assignedSlots = new Set<number>();
+            const savedAudit: ResultProcessingAudit['saved'] = [];
 
             for (const team of resultTeams) {
                 try {
                     const totalKills = team.players.reduce((sum, p) => sum + (p.finishes || 0), 0);
                     const playerNames = team.players.map(p => p.name).filter(Boolean);
 
-                    // Match by all player names against all slots — pick slot with highest overlap
-                    const matchingSlot = this.findMatchingSlotByRoster(slots, playerNames);
+                    const match = ocrReconciliationService.findMatchingSlot(slots, playerNames);
 
-                    if (!matchingSlot) {
+                    if (match.ambiguous) {
+                        ambiguous++;
+                        warnings.push({
+                            type: 'AMBIGUOUS_SLOT_MATCH',
+                            message: `Rank ${team.team_rank}: roster matches multiple slots equally (${match.matchScore}/${match.requiredScore})`,
+                            details: { team_rank: team.team_rank, players: playerNames, matchScore: match.matchScore },
+                        });
+                        continue;
+                    }
+
+                    if (!match.slot) {
+                        unmatched++;
                         warnings.push({
                             type: 'SLOT_NOT_FOUND',
-                            message: `Rank ${team.team_rank}: could not match team to an attendance slot`,
-                            details: { team_rank: team.team_rank, players: playerNames },
+                            message: `Rank ${team.team_rank}: could not match team to an attendance slot (${match.matchScore}/${match.requiredScore} players)`,
+                            details: {
+                                team_rank: team.team_rank,
+                                players: playerNames,
+                                matchScore: match.matchScore,
+                                requiredScore: match.requiredScore,
+                            },
+                        });
+                        continue;
+                    }
+
+                    if (assignedSlots.has(match.slot.slotNumber)) {
+                        slotConflicts++;
+                        warnings.push({
+                            type: 'SLOT_ALREADY_ASSIGNED',
+                            message: `Rank ${team.team_rank}: slot ${match.slot.slotNumber} already has a result — skipped`,
+                            details: {
+                                team_rank: team.team_rank,
+                                slotNumber: match.slot.slotNumber,
+                                players: playerNames,
+                            },
                         });
                         continue;
                     }
 
                     const points = PointsCalculator.calculatePoints(team.team_rank, totalKills, scoring);
+                    const needsReview = reconciliation.warnings.some(
+                        (w) => w.type === 'MISSING_KILLS' && w.details?.rank === team.team_rank
+                    );
+
+                    const playerResults = team.players.map(p => ({
+                        playerName: p.name,
+                        kills: p.finishes || 0,
+                    }));
 
                     const resultData: CreateQuickMatchResultData = {
-                        slotNumber: matchingSlot.slotNumber,
-                        teamName: matchingSlot.teamName,
+                        slotNumber: match.slot.slotNumber,
+                        teamName: match.slot.teamName,
                         detectedTeamName: playerNames[0] || '',
                         position: team.team_rank,
                         rank: team.team_rank,
@@ -302,19 +386,26 @@ export class QuickProcessingService extends BaseService {
                         positionPoints: points.positionPoints,
                         killPoints: points.killPoints,
                         totalPoints: points.totalPoints,
-                        playerResults: team.players.map(p => ({
-                            playerName: p.name,
-                            kills: p.finishes || 0,
-                        })),
-                        needsReview: false,
-                        aiConfidence: 0.9,
+                        playerResults,
+                        needsReview,
+                        aiConfidence: match.matchScore / Math.max(playerNames.length, 1),
                     };
 
                     await quickResultService.persistResult(quickMatchId, userId, resultData, {
                         status: 'PROCESSED',
                         upsert: true,
                     });
+
+                    assignedSlots.add(match.slot.slotNumber);
                     resultsCreated++;
+                    savedAudit.push({
+                        slotNumber: match.slot.slotNumber,
+                        rank: team.team_rank,
+                        teamName: match.slot.teamName,
+                        totalKills,
+                        matchScore: `${match.matchScore}/${playerNames.length}`,
+                        playerResults,
+                    });
 
                 } catch (err) {
                     this.logger.error(`Error creating result for rank ${team.team_rank}:`, err);
@@ -331,13 +422,14 @@ export class QuickProcessingService extends BaseService {
                 warningsCount: (quickMatch.warningsCount || 0) + warnings.length,
             });
 
-            // Trigger series leaderboard update if this match belongs to a series
             await quickSeriesService.onMatchCompleted(quickMatchId, userId);
 
             const processingTimeMs = Date.now() - startTime;
+            const results = await quickResultService.getMatchResults(quickMatchId, userId);
 
             this.logger.info(`Result processing complete for ${quickMatchId}`, {
-                resultsProcessed: resultTeams.length,
+                rawTeams: reconciliation.rawTeamCount,
+                dedupedTeams: reconciliation.dedupedTeamCount,
                 resultsCreated,
                 warnings: warnings.length,
                 processingTimeMs,
@@ -350,9 +442,24 @@ export class QuickProcessingService extends BaseService {
                 warnings,
                 processingTimeMs,
                 confidence: {
-                    overall: response.metadata.images_processed / screenshots.length,
-                    resultExtraction: response.metadata.images_processed / screenshots.length,
+                    overall: reconciliation.dedupedTeamCount / Math.max(reconciliation.rawTeamCount, 1),
+                    resultExtraction: resultsCreated / Math.max(reconciliation.dedupedTeamCount, 1),
                 },
+                audit: {
+                    ocrMode,
+                    imagesProcessed: screenshots.length,
+                    rawTeams: reconciliation.rawTeamCount,
+                    afterDedupe: reconciliation.dedupedTeamCount,
+                    skippedDuplicates: reconciliation.skippedDuplicates,
+                    skippedInvalidRanks: reconciliation.skippedInvalidRanks,
+                    matched: resultsCreated,
+                    unmatched,
+                    ambiguous,
+                    slotConflicts,
+                    deletedProcessedResults,
+                    saved: savedAudit,
+                },
+                results,
             };
 
         } catch (error) {
@@ -368,7 +475,6 @@ export class QuickProcessingService extends BaseService {
 
     /**
      * Process both attendance and results in sequence.
-     * Skips the result OCR step when results already exist and no result screenshots are uploaded.
      */
     async processComplete(
         quickMatchId: string,
@@ -379,10 +485,7 @@ export class QuickProcessingService extends BaseService {
         try {
             this.logger.info(`Starting complete processing for Quick Match ${quickMatchId}`);
 
-            // Process attendance first
             const attendanceResult = await this.processAttendance(quickMatchId, userId);
-
-            // Then process results
             const resultProcessingResult = await this.processResults(quickMatchId, userId);
 
             const totalProcessingTimeMs = Date.now() - startTime;
@@ -404,131 +507,14 @@ export class QuickProcessingService extends BaseService {
         }
     }
 
-    /**
-     * Normalise a player name for comparison: lowercase, strip spaces and
-     * common OCR noise characters so "GWxORIGERI" and "GWxDRIGERI" still
-     * match on a prefix basis.
-     */
-    private normaliseName(name: string): string {
-        return name.toLowerCase().replace(/[^a-z0-9]/g, '');
-    }
-
-    /**
-     * Return true if two normalised player names are considered the same.
-     * Rules (in order):
-     *   1. Exact normalised match
-     *   2. One is a prefix/substring of the other (min 4 chars) — handles OCR truncation
-     *   3. Levenshtein distance ≤ proportional threshold:
-     *        ≤ 2  for names  6–8 chars
-     *        ≤ 3  for names  9–11 chars
-     *        ≤ 4  for names ≥ 12 chars
-     *      This accounts for OCR substitutions on longer names (e.g. kuicurusan→kaizurusan).
-     *   4. Character overlap ratio ≥ 70 % (bigram similarity) as a final safety net
-     */
-    private namesMatch(a: string, b: string): boolean {
-        const na = this.normaliseName(a);
-        const nb = this.normaliseName(b);
-        if (!na || !nb) return false;
-        if (na === nb) return true;
-
-        const shorter = na.length < nb.length ? na : nb;
-        const longer  = na.length < nb.length ? nb : na;
-
-        // Rule 2: prefix / substring
-        if (shorter.length >= 4 && longer.startsWith(shorter)) return true;
-        if (shorter.length >= 4 && longer.includes(shorter)) return true;
-
-        if (shorter.length > 5) {
-            // Rule 3: proportional Levenshtein threshold
-            const maxDist = shorter.length >= 12 ? 4 : shorter.length >= 9 ? 3 : 2;
-            const dist = this.levenshtein(na, nb);
-            if (dist <= maxDist) return true;
-
-            // Rule 4: bigram overlap ratio — catches swapped / inserted characters
-            const bigramOverlap = this.bigramSimilarity(na, nb);
-            if (bigramOverlap >= 0.70) return true;
-        }
-
-        return false;
-    }
-
-    /** Sørensen–Dice bigram similarity in [0, 1]. */
-    private bigramSimilarity(a: string, b: string): number {
-        const bigrams = (s: string) => {
-            const set = new Map<string, number>();
-            for (let i = 0; i < s.length - 1; i++) {
-                const bg = s.slice(i, i + 2);
-                set.set(bg, (set.get(bg) ?? 0) + 1);
-            }
-            return set;
-        };
-        const ba = bigrams(a);
-        const bb = bigrams(b);
-        let intersection = 0;
-        for (const [bg, count] of ba) {
-            intersection += Math.min(count, bb.get(bg) ?? 0);
-        }
-        const totalA = a.length - 1;
-        const totalB = b.length - 1;
-        if (totalA <= 0 || totalB <= 0) return 0;
-        return (2 * intersection) / (totalA + totalB);
-    }
-
-    private levenshtein(a: string, b: string): number {
-        const m = a.length, n = b.length;
-        const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-            Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-        );
-        for (let i = 1; i <= m; i++) {
-            for (let j = 1; j <= n; j++) {
-                dp[i][j] = a[i - 1] === b[j - 1]
-                    ? dp[i - 1][j - 1]
-                    : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
-            }
-        }
-        return dp[m][n];
-    }
-
-    /**
-     * Match a result team (identified by its roster) to a slot.
-     * Scores each slot by how many result-team players appear in the slot's
-     * playerNames list (from attendance). Returns the highest-scoring slot
-     * if at least 1 player matches.
-     */
-    private findMatchingSlotByRoster(
-        slots: QuickSlotCache[],
-        resultPlayerNames: string[]
-    ): QuickSlotCache | null {
-        let bestSlot: QuickSlotCache | null = null;
-        let bestScore = 0;
-
-        for (const slot of slots) {
-            if (!slot.playerNames || slot.playerNames.length === 0) continue;
-
-            let score = 0;
-            for (const resultPlayer of resultPlayerNames) {
-                for (const slotPlayer of slot.playerNames) {
-                    if (this.namesMatch(resultPlayer, slotPlayer)) {
-                        score++;
-                        break; // count each result-player at most once
-                    }
-                }
-            }
-
-            if (score > bestScore) {
-                bestScore = score;
-                bestSlot = slot;
-            }
-        }
-
-        if (bestSlot && bestScore > 0) {
-            this.logger.info(
-                `Roster-matched ${bestScore}/${resultPlayerNames.length} player(s) → slot ${bestSlot.slotNumber} (${bestSlot.teamName})`
-            );
-            return bestSlot;
-        }
-
-        return null;
+    private toProcessingWarnings(
+        reconciliationWarnings: ReconciliationWarning[]
+    ): Array<{ type: WarningType; message: string; details?: any }> {
+        return reconciliationWarnings.map((w) => ({
+            type: w.type,
+            message: w.message,
+            details: w.details,
+        }));
     }
 }
 

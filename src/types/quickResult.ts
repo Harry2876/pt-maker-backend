@@ -77,4 +77,43 @@ export type WarningType =
     | 'DUPLICATE_TEAM'
     | 'MISSING_KILLS'
     | 'INVALID_POSITION'
-    | 'LOW_AI_CONFIDENCE';
+    | 'LOW_AI_CONFIDENCE'
+    | 'AMBIGUOUS_SLOT_MATCH'
+    | 'SLOT_ALREADY_ASSIGNED'
+    | 'SLOT_ROSTER_CONFLICT';
+
+export interface ProcessingAuditWarning {
+    type: WarningType;
+    message: string;
+    details?: Record<string, unknown>;
+}
+
+export interface AttendanceProcessingAudit {
+    ocrMode: 'batch';
+    imagesProcessed: number;
+    rawTeams: number;
+    mergedSlots: number;
+    reconciliationWarnings: number;
+}
+
+export interface ResultProcessingAudit {
+    ocrMode: 'per_image' | 'batch' | 'per_image_fallback';
+    imagesProcessed: number;
+    rawTeams: number;
+    afterDedupe: number;
+    skippedDuplicates: number;
+    skippedInvalidRanks: number;
+    matched: number;
+    unmatched: number;
+    ambiguous: number;
+    slotConflicts: number;
+    deletedProcessedResults: number;
+    saved: Array<{
+        slotNumber: number;
+        rank: number;
+        teamName: string;
+        totalKills: number;
+        matchScore: string;
+        playerResults?: PlayerResult[];
+    }>;
+}

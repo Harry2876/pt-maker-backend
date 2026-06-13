@@ -104,6 +104,42 @@ export class QuickResultService extends BaseService {
     }
 
     /**
+     * Remove AI-processed results before a fresh OCR run.
+     * Manual entries (MANUAL_ENTRY, VERIFIED) are preserved.
+     */
+    async deleteProcessedResults(quickMatchId: string, userId: string): Promise<number> {
+        const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+        if (!quickMatch) {
+            throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
+        }
+
+        const processed = await this.db.quickMatchResult.findMany({
+            where: { quickMatchId, status: 'PROCESSED' },
+            select: { id: true },
+        });
+
+        if (processed.length === 0) {
+            return 0;
+        }
+
+        await this.db.quickMatchResult.deleteMany({
+            where: { quickMatchId, status: 'PROCESSED' },
+        });
+
+        await Promise.all(processed.map((r) => redis.delete(`quickResult:${r.id}`)));
+        const remainingIds = await redis.smembers(`quickMatch:${quickMatchId}:results`);
+        const processedIdSet = new Set(processed.map((r) => r.id));
+        await Promise.all(
+            remainingIds
+                .filter((id) => processedIdSet.has(id))
+                .map((id) => redis.srem(`quickMatch:${quickMatchId}:results`, id))
+        );
+
+        this.logger.info(`Deleted ${processed.length} PROCESSED result(s) for match ${quickMatchId}`);
+        return processed.length;
+    }
+
+    /**
      * Get all results for a match — always reads from Postgres (source of truth).
      */
     async getMatchResults(quickMatchId: string, userId: string): Promise<QuickMatchResultCache[]> {
