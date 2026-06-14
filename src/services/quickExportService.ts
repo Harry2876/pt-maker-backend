@@ -6,7 +6,7 @@ import { quickResultService } from './quickResultService';
 import { templateService } from './templateService';
 import { tieBreakingService } from './tieBreakingService';
 import { signedUrlUtility } from './signedUrlUtility';
-import { QuickPointsTableCache } from '../types/quickResult';
+import { QuickPointsTableCache, QuickMatchResultCache } from '../types/quickResult';
 import { pythonAIService } from './pythonAIService';
 import { StandingsTeamData, StandingsExportOptions } from '../types/pythonAI';
 import { ServiceError } from '../utils/serviceError';
@@ -193,11 +193,11 @@ export class QuickExportService extends BaseService {
                 );
             }
 
-            // 4. Build team_data (rank order)
-            const sortedResults = [...results].sort((a, b) => (a.rank ?? a.position) - (b.rank ?? b.position));
+            // 4. Build team_data — standings rank by total points (highest first)
+            const sortedResults = this.sortResultsForStandings(results);
 
-            const teamData: StandingsTeamData[] = sortedResults.map(r => ({
-                rank: r.rank ?? r.position,
+            const teamData: StandingsTeamData[] = sortedResults.map((r, index) => ({
+                rank: index + 1,
                 slot_number: r.slotNumber,
                 team_name: r.teamName,
                 matches_played: 1,
@@ -955,6 +955,18 @@ export class QuickExportService extends BaseService {
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + 7); // 7 days
         return expiryDate.toISOString();
+    }
+
+    /**
+     * Order teams for the PT standings image: highest total points first.
+     * Tie-break: more kills, then better in-game placement.
+     */
+    private sortResultsForStandings(results: QuickMatchResultCache[]): QuickMatchResultCache[] {
+        return [...results].sort((a, b) => {
+            if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+            if (b.totalKills !== a.totalKills) return b.totalKills - a.totalKills;
+            return (a.rank ?? a.position) - (b.rank ?? b.position);
+        });
     }
 
     /**
