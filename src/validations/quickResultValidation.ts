@@ -136,7 +136,30 @@ const footerSchema = z.object({
     }).optional()
 }).optional();
 
-// Export points table with enhanced customization
+const fontRoleConfigSchema = z.object({
+    font_file: z.string().optional(),
+    family: z.string().optional(),
+    weight: z.string().optional(),
+    size: z.number().optional(),
+    color: z.string().optional(),
+    alignment: z.string().optional(),
+}).optional();
+
+const fontCustomizationSchema = z.object({
+    header_font: fontRoleConfigSchema,
+    sponsor_font: fontRoleConfigSchema,
+    organiser_font: fontRoleConfigSchema,
+    table_header_font: fontRoleConfigSchema,
+    table_data_font: fontRoleConfigSchema,
+    team_name_font: fontRoleConfigSchema,
+    slot_number_font: fontRoleConfigSchema,
+    rank_font: fontRoleConfigSchema,
+    footer_font: fontRoleConfigSchema,
+    branding_font: fontRoleConfigSchema,
+    global_size_multiplier: z.number().min(0.1).max(10).optional(),
+}).optional().nullable();
+
+// Export points table with full customization
 export const exportPointsTableSchema = z.object({
     format: z.enum(['PNG', 'CSV', 'BOTH'] as const)
         .optional()
@@ -161,11 +184,22 @@ export const exportPointsTableSchema = z.object({
         .regex(/^[\w\-_.]+\.png$/, 'Output filename must be a valid PNG filename')
         .optional(),
 
+    // Table styling
     tableFontSize: z.number().nullable().optional(),
     tableHeaderFontSize: z.number().nullable().optional(),
-    tableHeaderLabelMode: z.enum(['full', 'abbr', 'initial']).nullable().optional(),
+    tableHeaderLabelMode: z.enum(['full', 'abbr', 'initial', 'compact']).nullable().optional(),
+    tableHeaderColumnPadding: z.number().nullable().optional(),
     rowHeightAdjust: z.number().nullable().optional(),
 
+    // Logo + layout
+    teamLogoSize: z.number().min(8).max(200).nullable().optional(),
+    teamLogoSizeAdjust: z.number().min(-80).max(80).nullable().optional(),
+    teamLogoGap: z.number().min(0).max(80).nullable().optional(),
+    teamShiftRight: z.number().min(0).max(500).nullable().optional(),
+    chickenDinnerIconSize: z.number().min(8).max(200).nullable().optional(),
+    chickenIconGap: z.number().min(0).max(40).nullable().optional(),
+
+    // Header text overrides
     eventName: z.string()
         .min(1, 'Event name cannot be empty')
         .max(200, 'Event name must be at most 200 characters')
@@ -179,7 +213,10 @@ export const exportPointsTableSchema = z.object({
         .max(200, 'Sponsor name must be at most 200 characters')
         .optional(),
 
+    // Override objects
     elementOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
     columnOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
+    fontCustomization: fontCustomizationSchema,
     advancedConfig: z.record(z.string(), z.any()).nullable().optional(),
+    showBranding: z.boolean().optional(),
 });

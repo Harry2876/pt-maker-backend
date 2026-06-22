@@ -38,26 +38,25 @@ export interface ExportPointsTableRequest {
     /** Custom output filename for the generated PNG */
     outputFilename?: string;
     // ---- Standings API pass-through fields ----
-    /** Global font size for all table DATA rows */
     tableFontSize?: number | null;
-    /** Global font size for all table HEADER rows */
     tableHeaderFontSize?: number | null;
-    /** Header label mode: 'full' | 'abbr' | 'initial' */
     tableHeaderLabelMode?: string | null;
-    /** Pixels to add/subtract from row height */
+    tableHeaderColumnPadding?: number | null;
     rowHeightAdjust?: number | null;
-    /** Header overlay text sent to Python as event_name */
+    teamLogoSize?: number | null;
+    teamLogoSizeAdjust?: number | null;
+    teamLogoGap?: number | null;
+    teamShiftRight?: number | null;
+    chickenDinnerIconSize?: number | null;
+    chickenIconGap?: number | null;
     eventName?: string | null;
-    /** Header overlay text sent to Python as organiser_name */
     organiserName?: string | null;
-    /** Header overlay text sent to Python as sponsor_name */
     sponsorName?: string | null;
-    /** Per-element font/color overrides (event_name, organiser_name, sponsor_name, etc.) */
     elementOverrides?: Record<string, Record<string, any>> | null;
-    /** Per-column font/color overrides (rank, team, position, kills, total, etc.) */
     columnOverrides?: Record<string, Record<string, any>> | null;
-    /** Advanced config for header/organiser text position overrides */
+    fontCustomization?: Record<string, any> | null;
     advancedConfig?: Record<string, any> | null;
+    showBranding?: boolean;
 }
 
 export interface ExportSeriesLeaderboardRequest extends StandingsExportOptions {
@@ -127,37 +126,9 @@ export class QuickExportService extends BaseService {
         request: ExportPointsTableRequest
     ): Promise<ExportPointsTableResponse> {
         const startTime = Date.now();
-        const {
-            quickMatchId,
-            userId,
-            template,
-            formatType,
-            outputFilename,
-            tableFontSize,
-            tableHeaderFontSize,
-            tableHeaderLabelMode,
-            rowHeightAdjust,
-            eventName,
-            organiserName,
-            sponsorName,
-            elementOverrides,
-            columnOverrides,
-            advancedConfig,
-        } = request;
+        const { quickMatchId, userId, template, formatType } = request;
 
-        const stylingOptions = this.pickStylingOptions({
-            outputFilename,
-            eventName,
-            organiserName,
-            sponsorName,
-            tableFontSize,
-            tableHeaderFontSize,
-            tableHeaderLabelMode,
-            rowHeightAdjust,
-            elementOverrides,
-            columnOverrides,
-            advancedConfig,
-        });
+        const stylingOptions = this.pickStylingOptions(request);
 
         try {
             // 1. Verify match ownership and completion
@@ -196,6 +167,15 @@ export class QuickExportService extends BaseService {
             // 4. Build team_data — standings rank by total points (highest first)
             const sortedResults = this.sortResultsForStandings(results);
 
+            // Fetch slot logos for this match
+            const slots = await this.db.quickSlotAssignment.findMany({
+                where: { quickMatchId },
+                include: { logoPresetEntry: { select: { logoStorageUrl: true } } },
+            });
+            const slotLogoMap = new Map(
+                slots.map(s => [s.slotNumber, s.matchLogoStorageUrl ?? s.logoPresetEntry?.logoStorageUrl ?? null])
+            );
+
             const teamData: StandingsTeamData[] = sortedResults.map((r, index) => ({
                 rank: index + 1,
                 slot_number: r.slotNumber,
@@ -205,6 +185,7 @@ export class QuickExportService extends BaseService {
                 position_points: r.positionPoints,
                 finish_points: r.killPoints,
                 wwcd: (r.rank ?? r.position) === 1 ? 1 : 0,
+                team_logo_url: slotLogoMap.get(r.slotNumber) ?? null,
             }));
 
             const generatedImages = await this.generateStandingsImages({
@@ -396,23 +377,7 @@ export class QuickExportService extends BaseService {
         request: ExportSeriesLeaderboardRequest
     ): Promise<ExportSeriesLeaderboardResponse> {
         const startTime = Date.now();
-        const {
-            seriesId,
-            userId,
-            template,
-            formatType,
-            outputFilename,
-            eventName,
-            organiserName,
-            sponsorName,
-            tableFontSize,
-            tableHeaderFontSize,
-            tableHeaderLabelMode,
-            rowHeightAdjust,
-            elementOverrides,
-            columnOverrides,
-            advancedConfig,
-        } = request;
+        const { seriesId, userId, template, formatType } = request;
 
         try {
             const series = await quickSeriesService.getTournamentSeriesById(seriesId, userId);
@@ -447,17 +412,8 @@ export class QuickExportService extends BaseService {
 
             const teamData = await this.buildSeriesTeamData(standings, userId);
             const stylingOptions = this.pickStylingOptions({
-                outputFilename,
-                eventName: eventName ?? series.seriesName,
-                organiserName,
-                sponsorName,
-                tableFontSize,
-                tableHeaderFontSize,
-                tableHeaderLabelMode,
-                rowHeightAdjust,
-                elementOverrides,
-                columnOverrides,
-                advancedConfig,
+                ...request,
+                eventName: request.eventName ?? series.seriesName,
             });
 
             const generatedImages = await this.generateStandingsImages({
@@ -684,10 +640,19 @@ export class QuickExportService extends BaseService {
             tableFontSize: options.tableFontSize,
             tableHeaderFontSize: options.tableHeaderFontSize,
             tableHeaderLabelMode: options.tableHeaderLabelMode,
+            tableHeaderColumnPadding: options.tableHeaderColumnPadding,
             rowHeightAdjust: options.rowHeightAdjust,
+            teamLogoSize: options.teamLogoSize,
+            teamLogoSizeAdjust: options.teamLogoSizeAdjust,
+            teamLogoGap: options.teamLogoGap,
+            teamShiftRight: options.teamShiftRight,
+            chickenDinnerIconSize: options.chickenDinnerIconSize,
+            chickenIconGap: options.chickenIconGap,
             elementOverrides: options.elementOverrides,
             columnOverrides: options.columnOverrides,
+            fontCustomization: options.fontCustomization,
             advancedConfig: options.advancedConfig,
+            showBranding: options.showBranding,
         };
     }
 

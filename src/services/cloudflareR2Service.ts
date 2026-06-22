@@ -93,6 +93,35 @@ export class CloudflareR2Service extends BaseService {
         }
     }
 
+    /**
+     * Upload any logo buffer to a specific R2 key path.
+     * Used for team logo presets and per-match slot logos.
+     */
+    async uploadLogoBuffer(
+        buffer: Buffer,
+        r2Key: string,
+        mimeType: string
+    ): Promise<{ url: string; key: string }> {
+        try {
+            const command = new PutObjectCommand({
+                Bucket: this.bucketName,
+                Key: r2Key,
+                Body: buffer,
+                ContentType: mimeType,
+                ACL: 'public-read',
+            });
+
+            await this.s3Client.send(command);
+
+            const fileUrl = `${this.publicUrl}/${r2Key}`;
+            this.logger.info(`Logo uploaded to R2: ${r2Key}`);
+            return { url: fileUrl, key: r2Key };
+        } catch (error) {
+            this.logger.error(`Failed to upload logo to R2: ${r2Key}`, error);
+            throw new Error('Logo upload failed');
+        }
+    }
+
     async listTemplateImages(prefix: string = 'templates/'): Promise<Array<{ key: string; url: string }>> {
         try {
             const command = new ListObjectsV2Command({

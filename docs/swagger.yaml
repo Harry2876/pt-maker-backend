@@ -340,6 +340,94 @@ components:
           type: boolean
           example: true
 
+    FontRoleConfig:
+      type: object
+      description: |
+        Font override for a single role. Obtain valid `font_file` values from `GET /quick-pt/fonts`.
+      properties:
+        font_file:
+          type: string
+          description: Font filename or ID from the bundled font list
+          example: "akira_expanded.otf"
+        family:
+          type: string
+          example: "Roboto Condensed"
+        weight:
+          type: string
+          example: "bold"
+        size:
+          type: number
+          description: Override font size (px)
+          example: 48
+        color:
+          type: string
+          description: Hex color code
+          example: "#FFB74D"
+        alignment:
+          type: string
+          enum: [left, center, right]
+          example: "center"
+
+    GraphicsOptions:
+      type: object
+      description: Output/render options forwarded directly to the Python AI service
+      properties:
+        upload_to_r2:
+          type: boolean
+          default: true
+          description: Always true in production; false only for local debug
+        compress_image:
+          type: boolean
+          default: false
+        image_quality:
+          type: number
+          minimum: 50
+          maximum: 95
+          description: JPEG quality when compress_image is true
+          example: 90
+        render_scale:
+          type: number
+          nullable: true
+          description: "null/0 = auto supersample; 1 = off; 2/3 = force multiplier"
+        local_debug_path:
+          type: string
+          nullable: true
+          description: Server-side debug copy path (dev only)
+          example: "debug/slot_list.png"
+
+    FontCustomization:
+      type: object
+      description: |
+        Font overrides per role. All roles optional.
+        Use font IDs from `GET /quick-pt/fonts` as the `font_file` value.
+      properties:
+        header_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        sponsor_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        organiser_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        table_header_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        table_data_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        team_name_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        slot_number_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        rank_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        footer_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        branding_font:
+          $ref: '#/components/schemas/FontRoleConfig'
+        global_size_multiplier:
+          type: number
+          minimum: 0.1
+          maximum: 10
+          description: Multiply all rendered font sizes by this factor
+          example: 1.0
+
     MetaObject:
       type: object
       properties:

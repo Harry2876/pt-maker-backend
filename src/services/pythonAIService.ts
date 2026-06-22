@@ -7,6 +7,11 @@ import {
     CropUploadResponse,
     StandingsRequest,
     StandingsResponse,
+    SlotListRequest,
+    TeamListRequest,
+    Top10Request,
+    GraphicsResponse,
+    FontsListResponse,
 } from '../types/pythonAI';
 import { buildPythonStandingsPayload } from '../utils/standingsPayloadBuilder';
 import { extractPythonErrorDetail } from '../utils/pythonErrorUtils';
@@ -158,6 +163,91 @@ export class PythonAIService {
     async getSupportedFormats(): Promise<any> {
         const { data } = await this.client.get('/api/v1/standings/formats');
         return data;
+    }
+
+    /** GET /api/v1/fonts/list */
+    async getFontsList(): Promise<FontsListResponse> {
+        try {
+            const { data } = await this.client.get<FontsListResponse>('/api/v1/fonts/list');
+            return data;
+        } catch (err: any) {
+            this.throwPythonServiceError(err, 'Fonts list failed');
+        }
+    }
+
+    /** POST /api/v1/slot-list/generate */
+    async generateSlotList(request: SlotListRequest): Promise<GraphicsResponse> {
+        try {
+            const { data } = await this.client.post<GraphicsResponse>(
+                '/api/v1/slot-list/generate',
+                request
+            );
+            return data;
+        } catch (err: any) {
+            if (!err.response) {
+                throw new ServiceError(
+                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
+                    503,
+                    'PYTHON_AI_UNAVAILABLE'
+                );
+            }
+            const detail = extractPythonErrorDetail(err);
+            throw new ServiceError(
+                `Slot list generation failed: ${detail}`,
+                err.response.status >= 500 ? 502 : 400,
+                'PYTHON_AI_ERROR'
+            );
+        }
+    }
+
+    /** POST /api/v1/team-list/generate (Roster) */
+    async generateTeamList(request: TeamListRequest): Promise<GraphicsResponse> {
+        try {
+            const { data } = await this.client.post<GraphicsResponse>(
+                '/api/v1/team-list/generate',
+                request
+            );
+            return data;
+        } catch (err: any) {
+            if (!err.response) {
+                throw new ServiceError(
+                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
+                    503,
+                    'PYTHON_AI_UNAVAILABLE'
+                );
+            }
+            const detail = extractPythonErrorDetail(err);
+            throw new ServiceError(
+                `Team roster generation failed: ${detail}`,
+                err.response.status >= 500 ? 502 : 400,
+                'PYTHON_AI_ERROR'
+            );
+        }
+    }
+
+    /** POST /api/v1/top-10-rankings/generate */
+    async generateTop10Rankings(request: Top10Request): Promise<GraphicsResponse> {
+        try {
+            const { data } = await this.client.post<GraphicsResponse>(
+                '/api/v1/top-10-rankings/generate',
+                request
+            );
+            return data;
+        } catch (err: any) {
+            if (!err.response) {
+                throw new ServiceError(
+                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
+                    503,
+                    'PYTHON_AI_UNAVAILABLE'
+                );
+            }
+            const detail = extractPythonErrorDetail(err);
+            throw new ServiceError(
+                `Top 10 rankings generation failed: ${detail}`,
+                err.response.status >= 500 ? 502 : 400,
+                'PYTHON_AI_ERROR'
+            );
+        }
     }
 }
 

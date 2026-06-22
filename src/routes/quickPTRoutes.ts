@@ -60,6 +60,23 @@ import {
     cropParamsSchema
 } from '../validations/cropValidation';
 import { excelExportParamsSchema, excelExportSchema, excelExportSeriesParamsSchema } from '../validations/excelExportValidation';
+import { QuickGraphicsController } from '../controllers/quickGraphicsController';
+import { TeamLogoPresetController } from '../controllers/teamLogoPresetController';
+import { slotListGraphicSchema, rosterGraphicSchema, top10GraphicSchema } from '../validations/graphicsValidation';
+import { assignPresetEntrySchema } from '../validations/teamLogoPresetValidation';
+import multer from 'multer';
+
+const logoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    fileFilter: (_req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (!allowed.includes(file.mimetype)) {
+            return cb(new Error('Invalid file type. Allowed: jpeg, png, webp'));
+        }
+        cb(null, true);
+    },
+});
 
 /**
  * @swagger
@@ -1383,23 +1400,23 @@ quickPTRouter.get(
  * /api/v1/quick-pt/matches/{id}/export:
  *   post:
  *     tags: [Quick-PT]
- *     summary: Generate and export standings table
+ *     summary: Generate and export standings image (full customization)
  *     description: |
- *       Generate professional standings table using advanced templating system.
- *       
- *       **New Features:**
- *       - Advanced template system with multiple formats
- *       - Support for 16_teams, 24_teams, 32_teams formats
- *       - Professional branding and styling options
- *       - Signed URLs for secure access (30-minute expiry)
- *       - Enhanced metadata and processing information
- *       
- *       **Template Options:**
- *       - `24_teams/template1` - Modern dark theme
- *       - `24_teams/template2` - Light professional theme  
- *       - `16_teams/template1` - Compact format for smaller tournaments
- *       
- *       **Security:** Returns signed URLs valid for 30 minutes
+ *       Generate a professional standings / points-table PNG by calling the Python AI service.
+ *       Team logos are resolved automatically — match-specific logo takes priority over any preset logo.
+ *
+ *       **Logo resolution order:** match logo → preset entry logo → no logo (API placeholder)
+ *
+ *       **`tableHeaderLabelMode` values:**
+ *       - `full`    — MATCHES / POSITION / FINISHES / TOTAL
+ *       - `abbr`    — MAT / POS / FIN / TOT
+ *       - `initial` — M / P / F / T
+ *       - `compact` — M / PP / FP / T — hides WWCD column; chicken icons render inline after team name
+ *
+ *       **`font_customization` role keys:** `header_font`, `sponsor_font`, `organiser_font`,
+ *       `table_header_font`, `table_data_font`, `team_name_font`, `footer_font`, `branding_font`
+ *
+ *       **Signed URLs** are valid for 30 minutes.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -1408,6 +1425,7 @@ quickPTRouter.get(
  *         required: true
  *         schema:
  *           type: string
+ *         description: Quick Match ID
  *         example: "clx123abc456"
  *     requestBody:
  *       content:
@@ -1417,19 +1435,154 @@ quickPTRouter.get(
  *             properties:
  *               template:
  *                 type: string
- *                 example: "24_teams/template1"
- *                 description: "Template with format (format_type/template_name)"
+ *                 default: "tmplate_1"
+ *                 description: Template name stored in R2 (e.g. tmplate_1, tmplate_2)
+ *                 example: "tmplate_2"
  *               formatType:
  *                 type: string
- *                 example: "24_teams"  
- *                 description: "Format type based on team count"
+ *                 default: "24_teams"
+ *                 enum: ["8_teams", "16_teams", "24_teams"]
+ *                 description: Must match actual number of teams in the match
  *               outputFilename:
  *                 type: string
- *                 example: "tournament_standings_final.png"
- *                 description: "Custom output filename"
+ *                 description: Custom PNG output filename
+ *                 example: "day1_standings.png"
+ *               tableFontSize:
+ *                 type: number
+ *                 description: Font size for all data-row columns (px)
+ *                 example: 75
+ *               tableHeaderFontSize:
+ *                 type: number
+ *                 description: Font size for header row (px)
+ *                 example: 65
+ *               tableHeaderLabelMode:
+ *                 type: string
+ *                 enum: ["full", "abbr", "initial", "compact"]
+ *                 description: Header label preset — use compact to show chicken icons inline
+ *                 example: "compact"
+ *               tableHeaderColumnPadding:
+ *                 type: number
+ *                 description: Minimum spacing between header labels (0–80)
+ *                 example: 12
+ *               rowHeightAdjust:
+ *                 type: number
+ *                 description: Add/subtract px from each row height (-200 to 200)
+ *                 example: -30
+ *               teamLogoSize:
+ *                 type: number
+ *                 description: Square logo size in px (8–200)
+ *                 example: 155
+ *               teamLogoSizeAdjust:
+ *                 type: number
+ *                 description: Fine-tune logo size after teamLogoSize (-80 to 80)
+ *                 example: 0
+ *               teamLogoGap:
+ *                 type: number
+ *                 description: Gap between logo and team name (0–80)
+ *                 example: 4
+ *               teamShiftRight:
+ *                 type: number
+ *                 description: Shift logo + name + icon block to the right (0–500)
+ *                 example: 80
+ *               chickenDinnerIconSize:
+ *                 type: number
+ *                 description: Win icon size in px (8–200)
+ *                 example: 140
+ *               chickenIconGap:
+ *                 type: number
+ *                 description: Gap after team name before win icon (0–40)
+ *                 example: 8
+ *               eventName:
+ *                 type: string
+ *                 description: Override event name text
+ *                 example: "BGMI FINALS — DAY 2"
+ *               organiserName:
+ *                 type: string
+ *                 description: Override organiser name text
+ *                 example: "Scrymz Esports"
+ *               sponsorName:
+ *                 type: string
+ *                 description: Override sponsor name text
+ *                 example: "Powered by XYZ"
+ *               elementOverrides:
+ *                 type: object
+ *                 description: |
+ *                   Patch font size/color on named header/footer elements.
+ *                   Valid keys: event_name, sponsor_name, organiser_name, week_info, day_info, live_indicator
+ *                 example:
+ *                   event_name: { size: 85, color: "#FFFFFF" }
+ *                   sponsor_name: { size: 55, color: "#FFD700" }
+ *               columnOverrides:
+ *                 type: object
+ *                 description: |
+ *                   Per-column font/color for headers and data rows.
+ *                   Valid keys: rank, team_name, team, matches, position, kills, total
+ *                 example:
+ *                   rank: { color: "#E0E0E0" }
+ *                   team_name: { color: "#FFB74D", weight: "bold" }
+ *                   total: { color: "#FFD700", weight: "bold" }
+ *               fontCustomization:
+ *                 type: object
+ *                 description: |
+ *                   Override fonts per role. Use font IDs from GET /api/v1/quick-pt/fonts.
+ *                   Each role supports: font_file, family, weight, size, color, alignment.
+ *                 properties:
+ *                   header_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "built_titling_bd.ttf" }
+ *                       color: { type: string, example: "#FFFFFF" }
+ *                   sponsor_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "agency.ttf" }
+ *                       color: { type: string, example: "#FFD700" }
+ *                   organiser_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "california.otf" }
+ *                   table_header_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "akira_expanded.otf" }
+ *                   table_data_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "coolvetica_rg.ttf" }
+ *                   team_name_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "roboto_condensed_black.ttf" }
+ *                       color: { type: string, example: "#FFB74D" }
+ *                   footer_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "coolvetica_rg.ttf" }
+ *                   branding_font:
+ *                     type: object
+ *                     properties:
+ *                       font_file: { type: string, example: "agency_bold.ttf" }
+ *                   global_size_multiplier:
+ *                     type: number
+ *                     minimum: 0.1
+ *                     maximum: 10
+ *                     description: Multiply all rendered font sizes
+ *                     example: 1.0
+ *               advancedConfig:
+ *                 type: object
+ *                 description: |
+ *                   Partial JSON merged on top of templateConfigUrl. Use for one-off tweaks
+ *                   without re-uploading coordinate JSON.
+ *                 example:
+ *                   header:
+ *                     event_name: { text: "FINALS DAY 2", enabled: true }
+ *               showBranding:
+ *                 type: boolean
+ *                 description: Show/hide the branding line defined in coordinate JSON
+ *                 example: true
  *     responses:
  *       200:
- *         description: Standings table generated and exported successfully
+ *         description: Standings image generated and exported successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1440,36 +1593,38 @@ quickPTRouter.get(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Standings table exported successfully"
+ *                   example: "Standings exported successfully"
  *                 data:
  *                   type: object
  *                   properties:
  *                     pointsTableId:
  *                       type: string
- *                       example: "table_abc123"
  *                     signedImageUrl:
  *                       type: string
- *                       example: "https://storage.com/signed?token=..."
- *                       description: "Signed URL valid for 30 minutes"
- *                     originalImageUrl:
+ *                       description: Signed URL for the first image (valid 30 min)
+ *                     imageCount:
+ *                       type: integer
+ *                       description: 1 for ≤16 teams, 2 for 17-24 teams (overflow page)
+ *                       example: 1
+ *                     images:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           part: { type: integer }
+ *                           label: { type: string, enum: [main, overflow] }
+ *                           signedUrl: { type: string }
+ *                           teamCount: { type: integer }
+ *                     totalTeams:
+ *                       type: integer
+ *                     template:
  *                       type: string
- *                       example: "https://r2.com/standings/table.png"
- *                     templateUsed:
- *                       type: string
- *                       example: "24_teams/template1"
  *                     formatType:
  *                       type: string
- *                       example: "24_teams"
- *                     teamsProcessed:
+ *                     generationTimeMs:
  *                       type: integer
- *                       example: 24
- *                     quickMatchId:
- *                       type: string
- *                     createdAt:
- *                       type: string
- *                       format: date-time
  *       400:
- *         description: No results available or export failed
+ *         description: No results available or validation error
  *       404:
  *         description: Match not found
  *       401:
@@ -2507,6 +2662,157 @@ quickPTRouter.get('/series/:id/leaderboard',
  *         description: No leaderboard data
  */
 
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/export:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Export series overall standings image (full customization)
+ *     description: |
+ *       Generates a standings PNG for the full series leaderboard by calling the Python AI service.
+ *       Same customization surface as match export — all logo, font, layout, and override fields apply.
+ *       Team logos are resolved per slot (match logo → preset logo → none).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Series ID
+ *         example: "clx123series456"
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               template:
+ *                 type: string
+ *                 default: "tmplate_1"
+ *                 example: "tmplate_2"
+ *               formatType:
+ *                 type: string
+ *                 default: "24_teams"
+ *                 enum: ["8_teams", "16_teams", "24_teams"]
+ *               outputFilename:
+ *                 type: string
+ *                 example: "series_overall_standings.png"
+ *               tableFontSize:
+ *                 type: number
+ *                 example: 75
+ *               tableHeaderFontSize:
+ *                 type: number
+ *                 example: 65
+ *               tableHeaderLabelMode:
+ *                 type: string
+ *                 enum: ["full", "abbr", "initial", "compact"]
+ *                 example: "compact"
+ *               tableHeaderColumnPadding:
+ *                 type: number
+ *                 example: 12
+ *               rowHeightAdjust:
+ *                 type: number
+ *                 example: -30
+ *               teamLogoSize:
+ *                 type: number
+ *                 description: Square logo size in px (8–200)
+ *                 example: 155
+ *               teamLogoSizeAdjust:
+ *                 type: number
+ *                 description: Fine-tune after teamLogoSize (-80 to 80)
+ *                 example: 0
+ *               teamLogoGap:
+ *                 type: number
+ *                 description: Gap between logo and team name (0–80)
+ *                 example: 4
+ *               teamShiftRight:
+ *                 type: number
+ *                 description: Shift logo+name block right (0–500)
+ *                 example: 80
+ *               chickenDinnerIconSize:
+ *                 type: number
+ *                 description: Win icon size in px (8–200)
+ *                 example: 140
+ *               chickenIconGap:
+ *                 type: number
+ *                 description: Gap after team name before win icon (0–40)
+ *                 example: 8
+ *               eventName:
+ *                 type: string
+ *                 example: "OVERALL STANDINGS — SERIES 1"
+ *               organiserName:
+ *                 type: string
+ *                 example: "Scrymz Esports"
+ *               sponsorName:
+ *                 type: string
+ *                 example: "Powered by XYZ"
+ *               elementOverrides:
+ *                 type: object
+ *                 description: "Valid keys: event_name, sponsor_name, organiser_name, week_info, day_info, live_indicator"
+ *                 example:
+ *                   event_name: { size: 85, color: "#FFFFFF" }
+ *               columnOverrides:
+ *                 type: object
+ *                 description: "Valid keys: rank, team_name, team, matches, position, kills, total"
+ *                 example:
+ *                   total: { color: "#FFD700", weight: "bold" }
+ *               fontCustomization:
+ *                 type: object
+ *                 description: Override fonts per role. Get font IDs from GET /api/v1/quick-pt/fonts
+ *                 properties:
+ *                   header_font: { type: object, properties: { font_file: { type: string }, color: { type: string } } }
+ *                   sponsor_font: { type: object, properties: { font_file: { type: string }, color: { type: string } } }
+ *                   organiser_font: { type: object, properties: { font_file: { type: string }, color: { type: string } } }
+ *                   table_header_font: { type: object, properties: { font_file: { type: string } } }
+ *                   table_data_font: { type: object, properties: { font_file: { type: string } } }
+ *                   team_name_font: { type: object, properties: { font_file: { type: string }, color: { type: string } } }
+ *                   footer_font: { type: object, properties: { font_file: { type: string } } }
+ *                   branding_font: { type: object, properties: { font_file: { type: string } } }
+ *                   global_size_multiplier: { type: number, minimum: 0.1, maximum: 10, example: 1.0 }
+ *               advancedConfig:
+ *                 type: object
+ *                 description: Partial JSON merged on top of coordinate config for one-off tweaks
+ *               showBranding:
+ *                 type: boolean
+ *                 example: true
+ *     responses:
+ *       200:
+ *         description: Series standings image generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 message: { type: string, example: "Series standings exported successfully" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     seriesId: { type: string }
+ *                     signedImageUrl: { type: string, description: "Signed URL valid 30 min" }
+ *                     imageCount: { type: integer, example: 1 }
+ *                     images:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           part: { type: integer }
+ *                           label: { type: string, enum: [main, overflow] }
+ *                           signedUrl: { type: string }
+ *                           teamCount: { type: integer }
+ *                     totalTeams: { type: integer }
+ *                     template: { type: string }
+ *                     formatType: { type: string }
+ *                     generationTimeMs: { type: integer }
+ *       400:
+ *         description: No leaderboard data or validation error
+ *       404:
+ *         description: Series not found
+ *       401:
+ *         description: Unauthorized
+ */
 quickPTRouter.post('/series/:id/export',
     validateRequest(quickSeriesParamsSchema, 'params'),
     validateRequest(exportPointsTableSchema),
@@ -4103,5 +4409,788 @@ quickPTRouter.get(
     validateRequest(excelExportSchema, 'query'),
     QuickPTController.exportToExcel
 );
+
+// ========================================
+// GRAPHICS — FONTS, LOGOS & NEW GRAPHIC TYPES
+// ========================================
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/fonts:
+ *   get:
+ *     tags: [Quick-PT Graphics]
+ *     summary: List all bundled fonts available for customization
+ *     description: |
+ *       Returns all fonts bundled in the Python AI service that can be used in
+ *       `fontCustomization.*.font_file` for standings, slot-list, roster, and top-10 graphics.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Font list retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     fonts:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id: { type: string, example: "akira_expanded" }
+ *                           filename: { type: string, example: "akira_expanded.otf" }
+ *                           display_name: { type: string, example: "Akira Expanded" }
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.get('/fonts', QuickGraphicsController.getFontsList);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/slots/{slotNumber}/logo:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Upload a match-specific team logo for a slot
+ *     description: |
+ *       Uploads a logo image for a specific slot in a match.
+ *       This logo overrides any preset logo assigned to the slot during standings/graphic generation.
+ *       Stored in R2 under `logos/matches/{matchId}/slot_{slotNumber}.{ext}`.
+ *
+ *       **Logo resolution priority:** match logo > preset entry logo > no logo
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *       - in: path
+ *         name: slotNumber
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Slot number (1-based)
+ *         example: 3
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [logo]
+ *             properties:
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *                 description: Team logo image (JPEG, PNG, or WebP — max 5 MB)
+ *     responses:
+ *       200:
+ *         description: Logo uploaded and attached to slot
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 message: { type: string, example: "Match logo attached" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     slotId: { type: string }
+ *                     slotNumber: { type: integer }
+ *                     matchLogoStorageUrl: { type: string, description: "Public CDN URL of uploaded logo" }
+ *       400:
+ *         description: No file uploaded or invalid file type
+ *       404:
+ *         description: Slot not found
+ *       401:
+ *         description: Unauthorized
+ *   delete:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Remove the match-specific logo from a slot
+ *     description: Deletes the match-specific logo from R2 and clears the logo reference on the slot. The preset logo (if any) will be used instead.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *       - in: path
+ *         name: slotNumber
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Slot number
+ *     responses:
+ *       200:
+ *         description: Match logo removed
+ *       404:
+ *         description: Slot not found
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.post(
+    '/matches/:id/slots/:slotNumber/logo',
+    logoUpload.single('logo'),
+    QuickGraphicsController.attachMatchLogo
+);
+quickPTRouter.delete(
+    '/matches/:id/slots/:slotNumber/logo',
+    QuickGraphicsController.removeMatchLogo
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/slots/{slotId}/preset:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Assign a preset entry logo to a slot
+ *     description: |
+ *       Links a `TeamLogoPresetEntry` (from a user-owned preset) to a slot.
+ *       The entry's logo will be used when generating graphics unless a match-specific logo is also present.
+ *
+ *       Preset entries are managed via `POST /api/v1/quick-pt/logo-presets/{presetId}/entries`.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *       - in: path
+ *         name: slotId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Slot Assignment ID (not slot number)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [presetEntryId]
+ *             properties:
+ *               presetEntryId:
+ *                 type: string
+ *                 description: ID of the TeamLogoPresetEntry to assign
+ *                 example: "entry_abc123"
+ *     responses:
+ *       200:
+ *         description: Preset entry assigned to slot
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 message: { type: string, example: "Preset entry assigned to slot" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     slotId: { type: string }
+ *                     presetEntryId: { type: string }
+ *                     teamName: { type: string }
+ *                     logoUrl: { type: string }
+ *       400:
+ *         description: Validation error
+ *       404:
+ *         description: Slot or preset entry not found
+ *       401:
+ *         description: Unauthorized
+ *   delete:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Remove the preset entry assignment from a slot
+ *     description: Unlinks the preset entry from the slot. Match-specific logo (if any) is unaffected.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *       - in: path
+ *         name: slotId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Slot Assignment ID
+ *     responses:
+ *       200:
+ *         description: Preset entry removed from slot
+ *       404:
+ *         description: Slot not found
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.post(
+    '/matches/:id/slots/:slotId/preset',
+    validateRequest(assignPresetEntrySchema),
+    TeamLogoPresetController.assignPresetEntry
+);
+quickPTRouter.delete(
+    '/matches/:id/slots/:slotId/preset',
+    TeamLogoPresetController.removePresetEntry
+);
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     FontRoleConfig:
+ *       type: object
+ *       description: Font override for a single role. Use font IDs from GET /api/v1/quick-pt/fonts.
+ *       properties:
+ *         font_file:
+ *           type: string
+ *           description: Font filename or ID from the bundled fonts list
+ *           example: "akira_expanded.otf"
+ *         family:
+ *           type: string
+ *           example: "Roboto"
+ *         weight:
+ *           type: string
+ *           example: "bold"
+ *         size:
+ *           type: number
+ *           description: Override font size (px)
+ *           example: 48
+ *         color:
+ *           type: string
+ *           description: Hex color code
+ *           example: "#FFB74D"
+ *         alignment:
+ *           type: string
+ *           enum: [left, center, right]
+ *           example: "center"
+ *     FontCustomization:
+ *       type: object
+ *       description: Font overrides per role. All roles are optional.
+ *       properties:
+ *         header_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         sponsor_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         organiser_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         table_header_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         table_data_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         team_name_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         slot_number_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         rank_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         footer_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         branding_font:
+ *           $ref: '#/components/schemas/FontRoleConfig'
+ *         global_size_multiplier:
+ *           type: number
+ *           minimum: 0.1
+ *           maximum: 10
+ *           description: Multiply all rendered font sizes by this factor
+ *           example: 1.0
+ *     GraphicsOptions:
+ *       type: object
+ *       description: Output/render options passed directly to the Python AI service
+ *       properties:
+ *         upload_to_r2:
+ *           type: boolean
+ *           default: true
+ *           description: Upload generated PNG to R2 (always true in production)
+ *         compress_image:
+ *           type: boolean
+ *           default: false
+ *         image_quality:
+ *           type: number
+ *           minimum: 50
+ *           maximum: 95
+ *           description: JPEG quality when compress_image is true
+ *           example: 90
+ *         render_scale:
+ *           type: number
+ *           nullable: true
+ *           description: "null/0 = auto supersample; 1 = off; 2/3 = force"
+ *           example: null
+ *         local_debug_path:
+ *           type: string
+ *           nullable: true
+ *           description: Server-side debug copy path (dev only)
+ *           example: "debug/slot_list.png"
+ *     GraphicsResponse:
+ *       type: object
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         message: { type: string }
+ *         data:
+ *           type: object
+ *           properties:
+ *             imageUrl:
+ *               type: string
+ *               description: Signed CDN URL of the generated graphic (valid 30 min)
+ *             r2Key:
+ *               type: string
+ *               description: R2 object key of the stored graphic
+ *             generationTimeMs:
+ *               type: integer
+ *             teamCount:
+ *               type: integer
+ */
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/graphics/slot-list:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Generate slot-list graphic for a match
+ *     description: |
+ *       Generates a slot-list image showing all teams and their assigned slot numbers.
+ *       Teams and logos are pulled from the match's slot assignments.
+ *
+ *       Pass `templateUrl` and `templateConfigUrl` (from your Coordinate Marker export uploaded to R2).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [templateUrl, templateConfigUrl]
+ *             properties:
+ *               templateUrl:
+ *                 type: string
+ *                 format: uri
+ *                 description: Public HTTPS URL of the background PNG template in R2
+ *                 example: "https://pub-xxx.r2.dev/templates/slot_list/tmplate_1.png"
+ *               templateConfigUrl:
+ *                 type: string
+ *                 format: uri
+ *                 description: Public HTTPS URL of the coordinate JSON config in R2
+ *                 example: "https://pub-xxx.r2.dev/templates/slot_list/templateConfig_1.json"
+ *               slotNumberFontSize:
+ *                 type: number
+ *                 description: Font size for slot number text (px)
+ *                 example: 60
+ *               teamNameFontSize:
+ *                 type: number
+ *                 description: Font size for team name text (px)
+ *                 example: 48
+ *               slotNumberColor:
+ *                 type: string
+ *                 description: Hex color for slot numbers
+ *                 example: "#FFFFFF"
+ *               teamNameColor:
+ *                 type: string
+ *                 description: Hex color for team names
+ *                 example: "#FFB74D"
+ *               teamLogoSize:
+ *                 type: number
+ *                 description: Team logo size in px
+ *                 example: 100
+ *               teamLogoGap:
+ *                 type: number
+ *                 description: Gap between logo and team name (px)
+ *                 example: 8
+ *               headerOverrides:
+ *                 type: object
+ *                 description: Patch header text elements (same shape as elementOverrides in standings)
+ *                 example:
+ *                   event_name: { text: "SLOT LIST — SERIES 1 MATCH 1" }
+ *               gridOverrides:
+ *                 type: object
+ *                 description: Low-level grid layout overrides passed directly to Python
+ *                 example:
+ *                   columns: 2
+ *               fontCustomization:
+ *                 $ref: '#/components/schemas/FontCustomization'
+ *               outputFilename:
+ *                 type: string
+ *                 description: Custom PNG filename
+ *                 example: "match1_slot_list.png"
+ *               options:
+ *                 $ref: '#/components/schemas/GraphicsOptions'
+ *     responses:
+ *       200:
+ *         description: Slot-list graphic generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GraphicsResponse'
+ *       400:
+ *         description: Validation error or no slots found
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.post(
+    '/graphics/slot-list',
+    validateRequest(slotListGraphicSchema),
+    QuickGraphicsController.generateSlotList
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/graphics/slot-list:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Generate slot-list graphic for a series
+ *     description: |
+ *       Generates a slot-list graphic for the series.
+ *       Uses the slot assignments from the series' source match (slotSourceQuickMatchId).
+ *       All customization fields are identical to the match slot-list endpoint.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Series ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [templateUrl, templateConfigUrl]
+ *             properties:
+ *               templateUrl:
+ *                 type: string
+ *                 format: uri
+ *                 example: "https://pub-xxx.r2.dev/templates/slot_list/tmplate_1.png"
+ *               templateConfigUrl:
+ *                 type: string
+ *                 format: uri
+ *                 example: "https://pub-xxx.r2.dev/templates/slot_list/templateConfig_1.json"
+ *               slotNumberFontSize:
+ *                 type: number
+ *                 example: 60
+ *               teamNameFontSize:
+ *                 type: number
+ *                 example: 48
+ *               slotNumberColor:
+ *                 type: string
+ *                 example: "#FFFFFF"
+ *               teamNameColor:
+ *                 type: string
+ *                 example: "#FFB74D"
+ *               teamLogoSize:
+ *                 type: number
+ *                 example: 100
+ *               teamLogoGap:
+ *                 type: number
+ *                 example: 8
+ *               headerOverrides:
+ *                 type: object
+ *                 example:
+ *                   event_name: { text: "SERIES 1 — SLOT LIST" }
+ *               gridOverrides:
+ *                 type: object
+ *                 description: Low-level grid layout overrides
+ *               fontCustomization:
+ *                 $ref: '#/components/schemas/FontCustomization'
+ *               outputFilename:
+ *                 type: string
+ *                 example: "series1_slot_list.png"
+ *               options:
+ *                 $ref: '#/components/schemas/GraphicsOptions'
+ *     responses:
+ *       200:
+ *         description: Slot-list graphic generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GraphicsResponse'
+ *       400:
+ *         description: Validation error or no slot data found
+ *       404:
+ *         description: Series not found
+ *       401:
+ *         description: Unauthorized
+ */
+// series slot-list unified into POST /graphics/slot-list (sourceType: "series")
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/graphics/roster:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Generate team roster graphic for a match
+ *     description: |
+ *       Generates a team roster / participant-list graphic for a match.
+ *       Teams, slot numbers, and logos are sourced from the match slot assignments.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [templateUrl, templateConfigUrl]
+ *             properties:
+ *               templateUrl:
+ *                 type: string
+ *                 format: uri
+ *                 description: Background PNG template URL in R2
+ *                 example: "https://pub-xxx.r2.dev/templates/roster/tmplate_1.png"
+ *               templateConfigUrl:
+ *                 type: string
+ *                 format: uri
+ *                 description: Coordinate JSON config URL in R2
+ *                 example: "https://pub-xxx.r2.dev/templates/roster/templateConfig_1.json"
+ *               teamLogoSize:
+ *                 type: number
+ *                 description: Team logo size in px
+ *                 example: 120
+ *               teamNameFontSize:
+ *                 type: number
+ *                 description: Team name font size (px)
+ *                 example: 52
+ *               teamNameColor:
+ *                 type: string
+ *                 description: Hex color for team names
+ *                 example: "#FFFFFF"
+ *               headerOverrides:
+ *                 type: object
+ *                 description: Patch named header text elements
+ *                 example:
+ *                   event_name: { text: "BGMI SCRIMS — ROSTER" }
+ *               headerStyle:
+ *                 type: object
+ *                 description: Style overrides for the header section
+ *                 example:
+ *                   background_color: "#1A1A2E"
+ *               footerOverrides:
+ *                 type: object
+ *                 description: Patch named footer text elements
+ *                 example:
+ *                   organiser_name: { text: "Scrymz Esports" }
+ *               footerStyle:
+ *                 type: object
+ *                 description: Style overrides for the footer section
+ *               cardOverrides:
+ *                 type: object
+ *                 description: Style overrides for individual team card elements
+ *                 example:
+ *                   border_color: "#FFD700"
+ *                   background_opacity: 0.8
+ *               fontCustomization:
+ *                 $ref: '#/components/schemas/FontCustomization'
+ *               showBranding:
+ *                 type: boolean
+ *                 description: Show/hide the branding element from coordinate JSON
+ *                 example: true
+ *               outputFilename:
+ *                 type: string
+ *                 example: "match1_roster.png"
+ *               options:
+ *                 $ref: '#/components/schemas/GraphicsOptions'
+ *     responses:
+ *       200:
+ *         description: Roster graphic generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GraphicsResponse'
+ *       400:
+ *         description: Validation error or no slots found
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.post(
+    '/graphics/roster',
+    validateRequest(rosterGraphicSchema),
+    QuickGraphicsController.generateRoster
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/graphics/top-10:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Generate Top 10 rankings graphic for a match
+ *     description: |
+ *       Generates a Top 10 standings graphic for a single match.
+ *       Rankings are derived from match results. If fewer than 10 teams exist, all teams are included.
+ *
+ *       Team logos are resolved automatically (match logo → preset logo → none).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [templateUrl, templateConfigUrl]
+ *             properties:
+ *               templateUrl:
+ *                 type: string
+ *                 format: uri
+ *                 example: "https://pub-xxx.r2.dev/templates/top10/tmplate_1.png"
+ *               templateConfigUrl:
+ *                 type: string
+ *                 format: uri
+ *                 example: "https://pub-xxx.r2.dev/templates/top10/templateConfig_1.json"
+ *               headerOverrides:
+ *                 type: object
+ *                 description: Patch named header text elements
+ *                 example:
+ *                   event_name: { text: "MATCH 1 — TOP 10" }
+ *               footerOverrides:
+ *                 type: object
+ *                 description: Patch named footer text elements
+ *               cardOverrides:
+ *                 type: object
+ *                 description: Style overrides for rank card elements
+ *                 example:
+ *                   rank_1_color: "#FFD700"
+ *                   rank_2_color: "#C0C0C0"
+ *                   rank_3_color: "#CD7F32"
+ *               fontCustomization:
+ *                 $ref: '#/components/schemas/FontCustomization'
+ *               showBranding:
+ *                 type: boolean
+ *                 example: true
+ *               outputFilename:
+ *                 type: string
+ *                 example: "match1_top10.png"
+ *               options:
+ *                 $ref: '#/components/schemas/GraphicsOptions'
+ *     responses:
+ *       200:
+ *         description: Top 10 graphic generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GraphicsResponse'
+ *       400:
+ *         description: Validation error or no results found
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.post(
+    '/graphics/top-10',
+    validateRequest(top10GraphicSchema),
+    QuickGraphicsController.generateTop10
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/graphics/top-10:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Generate Top 10 rankings graphic for a series
+ *     description: |
+ *       Generates a Top 10 standings graphic for the overall series leaderboard.
+ *       Rankings are derived from cumulative series standings.
+ *       If fewer than 10 teams exist, all teams are included.
+ *
+ *       All customization fields are identical to the match top-10 endpoint.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Series ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [templateUrl, templateConfigUrl]
+ *             properties:
+ *               templateUrl:
+ *                 type: string
+ *                 format: uri
+ *                 example: "https://pub-xxx.r2.dev/templates/top10/tmplate_1.png"
+ *               templateConfigUrl:
+ *                 type: string
+ *                 format: uri
+ *                 example: "https://pub-xxx.r2.dev/templates/top10/templateConfig_1.json"
+ *               headerOverrides:
+ *                 type: object
+ *                 example:
+ *                   event_name: { text: "OVERALL TOP 10 — SERIES 1" }
+ *               footerOverrides:
+ *                 type: object
+ *               cardOverrides:
+ *                 type: object
+ *                 description: Style overrides for rank card elements
+ *               fontCustomization:
+ *                 $ref: '#/components/schemas/FontCustomization'
+ *               showBranding:
+ *                 type: boolean
+ *                 example: true
+ *               outputFilename:
+ *                 type: string
+ *                 example: "series1_top10.png"
+ *               options:
+ *                 $ref: '#/components/schemas/GraphicsOptions'
+ *     responses:
+ *       200:
+ *         description: Series Top 10 graphic generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GraphicsResponse'
+ *       400:
+ *         description: Validation error or no leaderboard data
+ *       404:
+ *         description: Series not found
+ *       401:
+ *         description: Unauthorized
+ */
+// series top-10 unified into POST /graphics/top-10 (sourceType: "series")
 
 export default quickPTRouter;

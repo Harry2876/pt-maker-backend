@@ -75,6 +75,7 @@ export interface StandingsTeamData {
     position_points?: number;
     finish_points?: number;
     wwcd?: number;
+    team_logo_url?: string | null;
 }
 
 export interface StandingsRequest {
@@ -91,16 +92,27 @@ export interface StandingsRequest {
     table_font_size?: number | null;
     table_header_font_size?: number | null;
     table_header_label_mode?: string | null;
+    table_header_column_padding?: number | null;
     row_height_adjust?: number | null;
+    team_logo_size?: number | null;
+    team_logo_size_adjust?: number | null;
+    team_logo_gap?: number | null;
+    team_shift_right?: number | null;
+    chicken_dinner_icon_size?: number | null;
+    chicken_icon_gap?: number | null;
     element_overrides?: Record<string, Record<string, any>> | null;
     column_overrides?: Record<string, Record<string, any>> | null;
+    font_customization?: FontCustomization | null;
     advanced_config?: Record<string, any> | null;
+    show_branding?: boolean;
     output_filename?: string;
     options?: {
         cleanup_temp?: boolean;
         upload_to_r2?: boolean;
         compress_image?: boolean;
         image_quality?: number;
+        render_scale?: number | null;
+        local_debug_path?: string | null;
     } | null;
 }
 
@@ -112,10 +124,19 @@ export interface StandingsExportOptions {
     tableFontSize?: number | null;
     tableHeaderFontSize?: number | null;
     tableHeaderLabelMode?: string | null;
+    tableHeaderColumnPadding?: number | null;
     rowHeightAdjust?: number | null;
+    teamLogoSize?: number | null;
+    teamLogoSizeAdjust?: number | null;
+    teamLogoGap?: number | null;
+    teamShiftRight?: number | null;
+    chickenDinnerIconSize?: number | null;
+    chickenIconGap?: number | null;
     elementOverrides?: Record<string, Record<string, any>> | null;
     columnOverrides?: Record<string, Record<string, any>> | null;
+    fontCustomization?: FontCustomization | null;
     advancedConfig?: Record<string, any> | null;
+    showBranding?: boolean;
     outputFilename?: string;
 }
 
@@ -142,4 +163,116 @@ export interface StandingsResponse {
     timestamp: string;
     data: Record<string, any>;
     metadata: StandingsResponseMetadata;
+}
+
+// ===== GRAPHICS GENERATION =====
+
+export interface FontRoleConfig {
+    font_file?: string;
+    family?: string;
+    weight?: string;
+    size?: number;
+    color?: string;
+    alignment?: string;
+}
+
+export interface FontCustomization {
+    header_font?: FontRoleConfig;
+    sponsor_font?: FontRoleConfig;
+    organiser_font?: FontRoleConfig;
+    table_header_font?: FontRoleConfig;
+    table_data_font?: FontRoleConfig;
+    team_name_font?: FontRoleConfig;
+    slot_number_font?: FontRoleConfig;
+    rank_font?: FontRoleConfig;
+    footer_font?: FontRoleConfig;
+    branding_font?: FontRoleConfig;
+    global_size_multiplier?: number;
+}
+
+export interface GraphicsOptions {
+    upload_to_r2?: boolean;
+    compress_image?: boolean;
+    image_quality?: number;
+    render_scale?: number | null;
+    local_debug_path?: string | null;
+}
+
+/** POST /api/v1/slot-list/generate */
+export interface SlotListRequest {
+    template_url: string;
+    template_config_url: string;
+    slot_data: Array<{
+        slot_number: number;
+        team_name: string;
+        team_logo_url?: string | null;
+    }>;
+    header_overrides?: Record<string, any> | null;
+    slot_number_font_size?: number | null;
+    team_name_font_size?: number | null;
+    slot_number_color?: string | null;
+    team_name_color?: string | null;
+    team_logo_gap?: number | null;
+    team_logo_size?: number | null;
+    grid_overrides?: Record<string, any> | null;
+    font_customization?: FontCustomization | null;
+    output_filename?: string;
+    options?: GraphicsOptions | null;
+}
+
+/** POST /api/v1/team-list/generate (Roster List) */
+export interface TeamListRequest {
+    template_url: string;
+    template_config_url: string;
+    team_data: Array<{
+        slot: number;
+        team_name: string;
+        team_logo_url?: string | null;
+    }>;
+    header_overrides?: Record<string, any> | null;
+    header_style?: Record<string, any> | null;
+    footer_overrides?: Record<string, any> | null;
+    footer_style?: Record<string, any> | null;
+    team_logo_size?: number | null;
+    team_name_font_size?: number | null;
+    team_name_color?: string | null;
+    card_overrides?: Record<string, any> | null;
+    font_customization?: FontCustomization | null;
+    show_branding?: boolean;
+    output_filename?: string;
+    options?: GraphicsOptions | null;
+}
+
+/** POST /api/v1/top-10-rankings/generate */
+export interface Top10Request {
+    template_url: string;
+    template_config_url: string;
+    rank_data: Array<{
+        rank: number;
+        team_name: string;
+        total_points: number;
+        team_logo_url?: string | null;
+    }>;
+    header_overrides?: Record<string, any> | null;
+    footer_overrides?: Record<string, any> | null;
+    card_overrides?: Record<string, any> | null;
+    font_customization?: FontCustomization | null;
+    show_branding?: boolean;
+    output_filename?: string;
+    options?: GraphicsOptions | null;
+}
+
+export interface GraphicsResponse {
+    status: 'success' | 'error';
+    request_id?: string | null;
+    data?: Record<string, any>;
+    metadata?: Record<string, any>;
+    error?: { code: string; message: string };
+}
+
+export interface FontsListResponse {
+    status: 'success' | 'error';
+    count: number;
+    fonts: Array<{ id: string; file: string; label: string }>;
+    usage?: Record<string, any>;
 }

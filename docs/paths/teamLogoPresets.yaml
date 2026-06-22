@@ -1,0 +1,437 @@
+paths:
+
+  # ══════════════════════════════════════════════════════════════════════
+  # TEAM LOGO PRESETS
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/logo-presets:
+    post:
+      tags: [Quick-PT Logo Presets]
+      summary: Create a new team logo preset
+      description: |
+        Creates an empty named preset collection. Add team entries with logos via
+        `POST /logo-presets/{presetId}/entries`.
+
+        **Presets are private** — scoped to the authenticated user only.
+        Other users cannot see or use your presets.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Display name for the preset
+                  example: "BGMI Pro League Season 2"
+      responses:
+        "201":
+          description: Preset created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Preset created"
+                  data:
+                    $ref: "#/components/schemas/TeamLogoPreset"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    get:
+      tags: [Quick-PT Logo Presets]
+      summary: List all presets owned by the authenticated user
+      description: |
+        Returns all the user's presets with entry count.
+        Entries are not included — use `GET /logo-presets/{presetId}` for full detail with logos.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Presets retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamLogoPreset"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /quick-pt/logo-presets/suggest:
+    post:
+      tags: [Quick-PT Logo Presets]
+      summary: Suggest matching preset entries for a list of team names
+      description: |
+        Searches the authenticated user's presets for entries whose `teamName` **exactly matches**
+        (case-insensitive) one of the provided names.
+
+        Returns grouped suggestions so the client can let the user choose which entry to assign
+        to each slot. **No automatic assignment is made.**
+
+        **Typical usage:** after a match's slots are uploaded, send all slot team names here,
+        then show the user which preset logo matches each team.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamNames]
+              properties:
+                teamNames:
+                  type: array
+                  minItems: 1
+                  maxItems: 25
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 100
+                  description: Team names to look up across all user presets
+                  example: ["Team Soul", "GODL", "OR Esports", "TSM"]
+      responses:
+        "200":
+          description: Suggestions returned (empty array if no matches found)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    description: One item per queried name that has at least one matching entry
+                    items:
+                      type: object
+                      properties:
+                        teamName:
+                          type: string
+                          example: "Team Soul"
+                        matches:
+                          type: array
+                          description: All preset entries with this team name (across all presets)
+                          items:
+                            type: object
+                            properties:
+                              entryId:
+                                type: string
+                                description: Use this ID to assign the entry to a slot
+                              teamName:
+                                type: string
+                                example: "Team Soul"
+                              presetId:
+                                type: string
+                              presetName:
+                                type: string
+                                example: "BGMI Pro League S2"
+                              logoStorageUrl:
+                                type: string
+                                example: "https://pub-xxx.r2.dev/logos/presets/clxPreset/entry_clx789.png"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /quick-pt/logo-presets/{presetId}:
+    get:
+      tags: [Quick-PT Logo Presets]
+      summary: Get a single preset with all its entries
+      description: Returns the preset with its full list of entries including logo URLs.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PresetId"
+      responses:
+        "200":
+          description: Preset with entries retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/TeamLogoPresetDetail"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      tags: [Quick-PT Logo Presets]
+      summary: Rename a preset
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PresetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  example: "BGMI Pro League Season 3"
+      responses:
+        "200":
+          description: Preset renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/TeamLogoPreset"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      tags: [Quick-PT Logo Presets]
+      summary: Delete a preset and all its entries
+      description: |
+        Deletes the preset, all its entries, and all uploaded logos from Cloudflare R2.
+        Any slot assignments using this preset's entries are automatically unlinked.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PresetId"
+      responses:
+        "200":
+          description: Preset deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Preset deleted"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /quick-pt/logo-presets/{presetId}/entries:
+    post:
+      tags: [Quick-PT Logo Presets]
+      summary: Add a team + logo entry to a preset
+      description: |
+        Uploads a logo image to R2 (`logos/presets/{presetId}/{entryId}.{ext}`) and
+        creates a new `TeamLogoPresetEntry` in the preset.
+
+        **Limits:**
+        - Max **25 entries** per preset
+        - Team names **can be duplicated** — entries are differentiated by their unique `id`
+        - Max file size: **5 MB** per logo
+
+        Use the returned `entry.id` when assigning to a match slot via
+        `POST /matches/{id}/slots/{slotId}/preset`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PresetId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [logo, teamName]
+              properties:
+                logo:
+                  type: string
+                  format: binary
+                  description: Logo image (JPEG/PNG/WebP — max 5 MB)
+                teamName:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Display name for this team entry
+                  example: "Team Soul"
+      responses:
+        "201":
+          description: Entry added to preset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Entry added to preset"
+                  data:
+                    $ref: "#/components/schemas/TeamLogoPresetEntry"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          description: No file uploaded, invalid file type, or preset is full (25 entries)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /quick-pt/logo-presets/{presetId}/entries/{entryId}:
+    delete:
+      tags: [Quick-PT Logo Presets]
+      summary: Delete an entry from a preset
+      description: |
+        Removes the entry and deletes its logo from Cloudflare R2.
+        Any match slot assignments that referenced this entry are automatically unlinked.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PresetId"
+        - in: path
+          name: entryId
+          required: true
+          schema:
+            type: string
+          description: Entry ID (returned when the entry was created)
+          example: "entry_clx789def"
+      responses:
+        "200":
+          description: Entry deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Entry deleted"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+# ══════════════════════════════════════════════════════════════════════
+# COMPONENT SCHEMAS + PARAMETERS (logo-preset-specific)
+# ══════════════════════════════════════════════════════════════════════
+
+components:
+  parameters:
+    PresetId:
+      in: path
+      name: presetId
+      required: true
+      schema:
+        type: string
+      description: Team Logo Preset ID
+      example: "clx_preset_abc123"
+
+  schemas:
+    TeamLogoPreset:
+      type: object
+      description: A named collection of team logo entries owned by a single user
+      properties:
+        id:
+          type: string
+          example: "clx_preset_abc123"
+        name:
+          type: string
+          example: "BGMI Pro League Season 2"
+        userId:
+          type: string
+        entriesCount:
+          type: integer
+          description: Number of entries currently in this preset (max 25)
+          example: 8
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TeamLogoPresetDetail:
+      allOf:
+        - $ref: "#/components/schemas/TeamLogoPreset"
+        - type: object
+          properties:
+            entries:
+              type: array
+              items:
+                $ref: "#/components/schemas/TeamLogoPresetEntry"
+
+    TeamLogoPresetEntry:
+      type: object
+      description: |
+        A single team + logo entry inside a preset.
+        The `id` field is used when assigning this entry to a match slot.
+      properties:
+        id:
+          type: string
+          description: Unique entry ID — use this when assigning to a slot
+          example: "entry_clx789def"
+        teamName:
+          type: string
+          example: "Team Soul"
+        logoStorageUrl:
+          type: string
+          description: Public CDN URL of the uploaded logo
+          example: "https://pub-xxx.r2.dev/logos/presets/clx_preset_abc123/entry_clx789def.png"
+        r2Key:
+          type: string
+          description: R2 object key (internal reference)
+          example: "logos/presets/clx_preset_abc123/entry_clx789def.png"
+        presetId:
+          type: string
+          example: "clx_preset_abc123"
+        createdAt:
+          type: string
+          format: date-time

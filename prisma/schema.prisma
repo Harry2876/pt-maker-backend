@@ -38,6 +38,7 @@ model User {
   quickTournamentSeries QuickTournamentSeries[]
   tieBreakingConfigs    TieBreakingConfig[]
   resolvedConflicts     ConflictGroup[]
+  teamLogoPresets       TeamLogoPreset[]
 
   @@map("users")
 }
@@ -459,9 +460,10 @@ model QuickTournamentSeries {
   finalStandings     Json? // Array of team standings
 
   // Metadata
-  userId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  userId                 String
+  slotSourceQuickMatchId String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   // Relations
   user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -560,16 +562,21 @@ model QuickSlotAssignment {
   playerNames          Json? // Array of player names
   status               SlotStatus @default(PENDING)
   detectedInAttendance Boolean    @default(false)
+  logoPresetEntryId    String?
+  matchLogoR2Key       String?
+  matchLogoStorageUrl  String?
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
   // Relations
-  quickMatch QuickMatch @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+  quickMatch      QuickMatch           @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+  logoPresetEntry TeamLogoPresetEntry? @relation(fields: [logoPresetEntryId], references: [id], onDelete: SetNull)
 
   // Indexes
   @@unique([quickMatchId, slotNumber])
   @@index([quickMatchId, status])
   @@index([quickMatchId, teamName])
+  @@index([logoPresetEntryId])
   @@map("quick_slot_assignments")
 }
 
@@ -877,4 +884,39 @@ model ManualTieBreaking {
   @@unique([conflictGroupId, resultId])
   @@unique([conflictGroupId, finalPosition])
   @@map("manual_tie_breaking")
+}
+
+// ========================================
+// TEAM LOGO PRESETS
+// ========================================
+
+model TeamLogoPreset {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries TeamLogoPresetEntry[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("team_logo_presets")
+}
+
+model TeamLogoPresetEntry {
+  id             String   @id @default(cuid())
+  presetId       String
+  teamName       String
+  logoR2Key      String
+  logoStorageUrl String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  preset          TeamLogoPreset        @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  slotAssignments QuickSlotAssignment[]
+
+  @@index([presetId, sortOrder])
+  @@map("team_logo_preset_entries")
 }

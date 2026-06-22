@@ -1,0 +1,1146 @@
+paths:
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FONTS
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/fonts:
+    get:
+      tags: [Quick-PT Graphics]
+      summary: List all bundled fonts
+      description: |
+        Returns every font bundled in the Python AI service.
+        Use the `id` or `filename` as the value of `font_file` inside any
+        `fontCustomization` object when calling any graphics generation endpoint.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Font list retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      fonts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string, example: "akira_expanded" }
+                            filename: { type: string, example: "akira_expanded.otf" }
+                            display_name: { type: string, example: "Akira Expanded" }
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  # ══════════════════════════════════════════════════════════════════════
+  # MATCH-SPECIFIC SLOT LOGOS
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/matches/{id}/slots/{slotNumber}/logo:
+    post:
+      tags: [Quick-PT Graphics]
+      summary: Upload a match-specific team logo for a slot
+      description: |
+        Uploads a logo image for a specific slot and stores it in R2 under
+        `logos/matches/{matchId}/slot_{slotNumber}.{ext}`.
+
+        This logo **overrides** any preset logo during all graphic generation.
+
+        **Logo resolution order:** match logo → preset entry logo → no logo
+
+        Allowed formats: JPEG, PNG, WebP — max **5 MB**.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: path
+          name: slotNumber
+          required: true
+          schema:
+            type: integer
+          description: Slot number (1-based)
+          example: 3
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [logo]
+              properties:
+                logo:
+                  type: string
+                  format: binary
+                  description: Team logo image (JPEG/PNG/WebP, max 5 MB)
+      responses:
+        "200":
+          description: Logo uploaded and attached to slot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: "Match logo attached" }
+                  data:
+                    type: object
+                    properties:
+                      slotId: { type: string }
+                      slotNumber: { type: integer, example: 3 }
+                      matchLogoStorageUrl:
+                        type: string
+                        description: Public CDN URL of the uploaded logo
+                        example: "https://pub-xxx.r2.dev/logos/matches/clx123/slot_3.png"
+        "400":
+          description: No file uploaded or invalid file type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      tags: [Quick-PT Graphics]
+      summary: Remove the match-specific logo from a slot
+      description: Deletes the logo from R2. The preset logo (if any) will be used instead.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: path
+          name: slotNumber
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Match logo removed
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  # ══════════════════════════════════════════════════════════════════════
+  # PRESET LOGO ASSIGNMENT TO SLOT
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/matches/{id}/slots/{slotId}/preset:
+    post:
+      tags: [Quick-PT Graphics]
+      summary: Assign a preset entry logo to a slot
+      description: |
+        Links a `TeamLogoPresetEntry` to a match slot.
+        The entry's logo is used for all graphics unless a match-specific logo also exists.
+
+        Get entry IDs from `GET /quick-pt/logo-presets/{presetId}` or
+        `POST /quick-pt/logo-presets/suggest`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: path
+          name: slotId
+          required: true
+          schema:
+            type: string
+          description: Slot Assignment ID (not slot number)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [presetEntryId]
+              properties:
+                presetEntryId:
+                  type: string
+                  description: ID of the TeamLogoPresetEntry to assign
+                  example: "entry_clx789def"
+      responses:
+        "200":
+          description: Preset entry assigned to slot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      slotId: { type: string }
+                      presetEntryId: { type: string }
+                      teamName: { type: string, example: "Team Soul" }
+                      logoUrl: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      tags: [Quick-PT Graphics]
+      summary: Remove the preset entry assignment from a slot
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: path
+          name: slotId
+          required: true
+          schema:
+            type: string
+          description: Slot Assignment ID
+      responses:
+        "200":
+          description: Preset entry removed from slot
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  # ══════════════════════════════════════════════════════════════════════
+  # UNIFIED GRAPHICS GENERATION
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/graphics/slot-list:
+    post:
+      tags: [Quick-PT Graphics]
+      summary: Generate slot-list graphic
+      description: |
+        Generates a slot-list image showing all team slots, names, and logos.
+
+        Use `sourceType: "match"` to draw slots from a single match, or
+        `sourceType: "series"` to use the series' slot-source match.
+
+        **Logo resolution per slot:** match logo → preset entry logo → none
+
+        **Options default:** `upload_to_r2: true`, `render_scale: 0` (auto supersample).
+        Override by passing an `options` object.
+
+        ### Tuning tips
+        | Problem | Fix |
+        |---------|-----|
+        | Everything too high | `gridOverrides.row_offset_y: 6` |
+        | Only team names too high | `gridOverrides.team_name.offset_y: 5` |
+        | Bigger text | `teamNameFontSize: 28` |
+        | Darker team names | `teamNameColor: "#000000"` |
+        | More logo gap | `teamLogoGap: 18` |
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SlotListRequest"
+            example:
+              sourceType: "match"
+              sourceId: "clx_match_abc123"
+              templateUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl1.png"
+              templateConfigUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl_1config.json"
+              headerOverrides:
+                extra_text_info: "BGMI SCRIMS"
+                information: "Group A — Day 1"
+              slotNumberFontSize: 26
+              teamNameFontSize: 24
+              slotNumberColor: "#1A1A1A"
+              teamNameColor: "#003366"
+              teamLogoGap: 14
+              teamLogoSize: 52
+              gridOverrides:
+                row_offset_y: 5
+                team_name:
+                  offset_y: 3
+                  font_size: 24
+                  color: "#003366"
+                slot_number:
+                  font_size: 26
+                  color: "#1A1A1A"
+              fontCustomization:
+                header_font: { font_file: "built_titling_bd.ttf" }
+                slot_number_font: { font_file: "agency_bold.ttf", color: "#1A1A1A" }
+                team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#003366" }
+                footer_font: { font_file: "coolvetica_rg.ttf" }
+                branding_font: { font_file: "coolvetica_rg.ttf", color: "#888888" }
+                global_size_multiplier: 1.0
+              outputFilename: "slot_list_match1.png"
+              options:
+                upload_to_r2: true
+                render_scale: 0
+      responses:
+        "200":
+          description: Slot-list graphic generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphicsGenerateResponse"
+        "400":
+          description: Validation error or no slots found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /quick-pt/graphics/roster:
+    post:
+      tags: [Quick-PT Graphics]
+      summary: Generate team roster graphic
+      description: |
+        Generates a participant roster graphic for a match.
+        `sourceType` must be `"match"` — roster is match-only.
+
+        Teams, slot numbers, and logos come from the match's slot assignments.
+
+        **Options default:** `upload_to_r2: true`, `render_scale: 0` (auto supersample).
+
+        ### Card override rules
+        - Top-level shortcuts (`teamLogoSize`, `teamNameFontSize`, `teamNameColor`) apply to every card.
+        - `cardOverrides.logo`, `cardOverrides.team_name` nudge all cards globally.
+        - `cardOverrides.slots["1"]` wins over global — per-slot override.
+        - `+` = right / down, `-` = left / up for all `offset_x` / `offset_y` values.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RosterRequest"
+            example:
+              sourceType: "match"
+              sourceId: "clx_match_abc123"
+              templateUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster1.png"
+              templateConfigUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster_Config1.json"
+              headerOverrides:
+                event_name: "BGMI Championship"
+                title: "TEAM ROSTER"
+                sponsor_name: "Sponsored by XYZ"
+                organiser_name: "Scrymz Esports"
+                sponsor_logo_url: "https://your-cdn.com/sponsor.png"
+                org_logo_url: "https://your-cdn.com/org.png"
+              headerStyle:
+                event_name_color: "#1A1A1A"
+                event_name_font_size: 28
+                title_color: "#000000"
+                title_font_size: 40
+                sponsor_name_color: "#444444"
+                organiser_name_color: "#444444"
+                sponsor_logo_size: 70
+                organiser_logo_size: 70
+                sponsor_logo_offset_x: 5
+                sponsor_logo_offset_y: 0
+                organiser_logo_offset_x: -5
+                organiser_logo_offset_y: 0
+              footerOverrides:
+                instagram_handle: "@scrymz"
+                discord_handle: "discord.gg/scrymz"
+                youtube_enabled: false
+              footerStyle:
+                social_font_size: 14
+                social_text_color: "#333333"
+                social_offset_y: 0
+                social_icon_size: 32
+                instagram_text_color: "#E1306C"
+                discord_text_color: "#5865F2"
+              teamLogoSize: 72
+              teamNameFontSize: 17
+              teamNameColor: "#1A1A1A"
+              cardOverrides:
+                offset_y: 3
+                logo: { offset_x: 0, offset_y: -4 }
+                team_name: { offset_x: 0, offset_y: 6 }
+                slots:
+                  "1": { logo: { offset_x: -6 }, team_logo_size: 80 }
+                  "8": { team_name: { offset_y: 10 }, team_name_color: "#003366" }
+              fontCustomization:
+                header_font: { font_file: "built_titling_bd.ttf", color: "#000000" }
+                sponsor_font: { font_file: "agency.ttf", color: "#444444" }
+                organiser_font: { font_file: "california.otf", color: "#444444" }
+                team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#1A1A1A" }
+                footer_font: { font_file: "coolvetica_rg.ttf", color: "#333333" }
+                branding_font: { font_file: "coolvetica_rg.ttf", color: "#888888" }
+                global_size_multiplier: 1.0
+              showBranding: true
+              outputFilename: "team_roster_match1.png"
+              options:
+                upload_to_r2: true
+                render_scale: 0
+      responses:
+        "200":
+          description: Roster graphic generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphicsGenerateResponse"
+        "400":
+          description: Validation error, no slots, or sourceType is not "match"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /quick-pt/graphics/top-10:
+    post:
+      tags: [Quick-PT Graphics]
+      summary: Generate Top 10 rankings graphic
+      description: |
+        Generates a Top 10 standings graphic.
+
+        - `sourceType: "match"` — uses single-match results
+        - `sourceType: "series"` — uses cumulative series leaderboard
+
+        If fewer than 10 teams exist, all teams are included (they are all in top 10).
+        Team logos resolved automatically per team (match logo → preset logo → none).
+
+        **Options default:** `upload_to_r2: true`, `render_scale: 0` (auto supersample).
+
+        ### How to tune tilted cards
+        1. Call without `cardOverrides` first — see base layout from your template JSON.
+        2. Nudge positions with small `offset_x`/`offset_y` values (try ±5, ±10).
+        3. Add `rotation_deg` only on ranks that need it (e.g. `"2": { "rotation_deg": -7 }`).
+        4. Adjust `team_logo_size` if logos are too big/small.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Top10Request"
+            example:
+              sourceType: "match"
+              sourceId: "clx_match_abc123"
+              templateUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_1.png"
+              templateConfigUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_Config_1.json"
+              headerOverrides:
+                title_enabled: false
+                event_name_enabled: false
+              footerOverrides:
+                instagram_handle: "@scrymz"
+                discord_handle: "discord.gg/scrymz"
+                youtube_enabled: false
+              cardOverrides:
+                team_logo_size: 58
+                team_name_font_size: 15
+                points_font_size: 13
+                logo: { offset_x: 0, offset_y: 0 }
+                team_name: { offset_x: 0, offset_y: 0 }
+                total_points: { offset_x: 0, offset_y: 0 }
+                ranks:
+                  "2":
+                    rotation_deg: -7
+                    logo: { offset_x: 0, offset_y: -4 }
+                    team_name: { offset_x: 2, offset_y: 6 }
+                    total_points: { offset_y: 4 }
+                  "6":
+                    rotation_deg: 7
+                    logo: { offset_y: -6 }
+                    team_name: { offset_y: 8 }
+              fontCustomization:
+                header_font: { font_file: "built_titling_bd.ttf" }
+                team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#1A1A1A" }
+                rank_font: { font_file: "bomberescort.ttf", color: "#FF6B00" }
+                footer_font: { font_file: "coolvetica_rg.ttf", color: "#333333" }
+                branding_font: { font_file: "coolvetica_rg.ttf", color: "#888888" }
+                global_size_multiplier: 1.0
+              showBranding: true
+              outputFilename: "top10_match1.png"
+              options:
+                upload_to_r2: true
+                render_scale: 0
+      responses:
+        "200":
+          description: Top 10 graphic generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphicsGenerateResponse"
+        "400":
+          description: Validation error or no results/leaderboard found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+# ══════════════════════════════════════════════════════════════════════
+# COMPONENT SCHEMAS
+# ══════════════════════════════════════════════════════════════════════
+
+components:
+  schemas:
+
+    SlotListRequest:
+      type: object
+      required: [sourceType, sourceId, templateUrl, templateConfigUrl]
+      description: |
+        Request body for slot-list graphic generation (match or series).
+
+        All fields except `sourceType`, `sourceId`, `templateUrl`, and `templateConfigUrl`
+        are optional. The slot data (team names + logos) is pulled automatically from DB.
+      properties:
+        sourceType:
+          type: string
+          enum: [match, series]
+          description: Whether sourceId refers to a match or a series
+          example: "match"
+        sourceId:
+          type: string
+          description: Quick Match ID or Series ID depending on sourceType
+          example: "clx_match_abc123"
+        templateUrl:
+          type: string
+          format: uri
+          description: Public HTTPS URL of the background PNG template in R2
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl1.png"
+        templateConfigUrl:
+          type: string
+          format: uri
+          description: Public HTTPS URL of the coordinate JSON config in R2
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl_1config.json"
+
+        # ── Shortcut styling ─────────────────────────────────────────
+        slotNumberFontSize:
+          type: number
+          nullable: true
+          description: Font size (px) for all slot number labels
+          example: 26
+        teamNameFontSize:
+          type: number
+          nullable: true
+          description: Font size (px) for all team name labels
+          example: 24
+        slotNumberColor:
+          type: string
+          nullable: true
+          description: Hex color for all slot number labels
+          example: "#1A1A1A"
+        teamNameColor:
+          type: string
+          nullable: true
+          description: Hex color for all team name labels
+          example: "#003366"
+        teamLogoSize:
+          type: number
+          nullable: true
+          description: Logo square size (px)
+          example: 52
+        teamLogoGap:
+          type: number
+          nullable: true
+          description: Gap (px) between logo and team name
+          example: 14
+
+        # ── Header text overrides ────────────────────────────────────
+        headerOverrides:
+          type: object
+          nullable: true
+          description: |
+            Patch named text fields in the template header.
+            Keys forwarded as-is to Python — use snake_case.
+          properties:
+            extra_text_info:
+              type: string
+              description: Extra line shown in the header (e.g. tournament name)
+              example: "BGMI SCRIMS"
+            information:
+              type: string
+              description: Sub-header info line (e.g. group/day)
+              example: "Group A — Day 1"
+          additionalProperties: true
+
+        # ── Grid / layout overrides ──────────────────────────────────
+        gridOverrides:
+          type: object
+          nullable: true
+          description: |
+            Fine-grained grid layout controls forwarded directly to Python.
+
+            **Top-level keys:**
+            - `row_offset_y` — shift every row up/down
+            - `team_name` — object with `offset_y`, `font_size`, `color` for all team names
+            - `slot_number` — object with `font_size`, `color` for all slot numbers
+          properties:
+            row_offset_y:
+              type: number
+              description: Shift all rows vertically (+ = down, - = up)
+              example: 5
+            team_name:
+              type: object
+              description: Global override for team name cells
+              properties:
+                offset_y: { type: number, example: 3 }
+                font_size: { type: number, example: 24 }
+                color: { type: string, example: "#003366" }
+              additionalProperties: true
+            slot_number:
+              type: object
+              description: Global override for slot number cells
+              properties:
+                font_size: { type: number, example: 26 }
+                color: { type: string, example: "#1A1A1A" }
+              additionalProperties: true
+          additionalProperties: true
+          example:
+            row_offset_y: 5
+            team_name: { offset_y: 3, font_size: 24, color: "#003366" }
+            slot_number: { font_size: 26, color: "#1A1A1A" }
+
+        # ── Font customization ───────────────────────────────────────
+        fontCustomization:
+          type: object
+          nullable: true
+          description: |
+            Per-role font overrides. Use font `id` or `filename` from `GET /quick-pt/fonts`.
+
+            **Roles for slot-list:**
+            - `header_font` — header area text
+            - `slot_number_font` — slot number labels
+            - `team_name_font` — team name labels
+            - `footer_font` — footer area text
+            - `branding_font` — branding line
+            - `global_size_multiplier` — multiply all rendered font sizes (0.1–10)
+          properties:
+            header_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            slot_number_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            team_name_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            footer_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            branding_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            global_size_multiplier:
+              type: number
+              minimum: 0.1
+              maximum: 10
+              example: 1.0
+          example:
+            header_font: { font_file: "built_titling_bd.ttf" }
+            slot_number_font: { font_file: "agency_bold.ttf", color: "#1A1A1A" }
+            team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#003366" }
+            footer_font: { font_file: "coolvetica_rg.ttf" }
+            branding_font: { font_file: "coolvetica_rg.ttf", color: "#888888" }
+            global_size_multiplier: 1.0
+
+        outputFilename:
+          type: string
+          description: Custom PNG output filename
+          example: "slot_list_match1.png"
+        options:
+          $ref: "#/components/schemas/GraphicsOptions"
+
+    # ────────────────────────────────────────────────────────────────────
+    RosterRequest:
+      type: object
+      required: [sourceType, sourceId, templateUrl, templateConfigUrl]
+      description: |
+        Request body for the team roster / team-list graphic. Match-only.
+        Team data and logos are pulled automatically from DB slot assignments.
+      properties:
+        sourceType:
+          type: string
+          enum: [match]
+          description: Must be `"match"` — roster is match-only
+          example: "match"
+        sourceId:
+          type: string
+          description: Quick Match ID
+          example: "clx_match_abc123"
+        templateUrl:
+          type: string
+          format: uri
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster1.png"
+        templateConfigUrl:
+          type: string
+          format: uri
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster_Config1.json"
+
+        # ── Shortcut styling ─────────────────────────────────────────
+        teamLogoSize:
+          type: number
+          nullable: true
+          description: Team logo size (px) applied to all cards
+          example: 72
+        teamNameFontSize:
+          type: number
+          nullable: true
+          description: Team name font size (px) applied to all cards
+          example: 17
+        teamNameColor:
+          type: string
+          nullable: true
+          description: Hex color for all team names
+          example: "#1A1A1A"
+
+        # ── Header overrides ─────────────────────────────────────────
+        headerOverrides:
+          type: object
+          nullable: true
+          description: |
+            Override named fields in the template header.
+            Keys forwarded as-is to Python — use snake_case.
+          properties:
+            event_name: { type: string, example: "BGMI Championship" }
+            title: { type: string, example: "TEAM ROSTER" }
+            sponsor_name: { type: string, example: "Sponsored by XYZ" }
+            organiser_name: { type: string, example: "Scrymz Esports" }
+            sponsor_logo_url:
+              type: string
+              format: uri
+              description: URL of sponsor logo to render in header
+              example: "https://your-cdn.com/sponsor.png"
+            org_logo_url:
+              type: string
+              format: uri
+              description: URL of organiser logo to render in header
+              example: "https://your-cdn.com/org.png"
+          additionalProperties: true
+          example:
+            event_name: "BGMI Championship"
+            title: "TEAM ROSTER"
+            sponsor_name: "Sponsored by XYZ"
+            organiser_name: "Scrymz Esports"
+
+        # ── Header style ─────────────────────────────────────────────
+        headerStyle:
+          type: object
+          nullable: true
+          description: |
+            Fine-tune header element sizes and positions.
+            All keys forwarded as-is to Python — use snake_case.
+          properties:
+            event_name_color: { type: string, example: "#1A1A1A" }
+            event_name_font_size: { type: number, example: 28 }
+            title_color: { type: string, example: "#000000" }
+            title_font_size: { type: number, example: 40 }
+            sponsor_name_color: { type: string, example: "#444444" }
+            organiser_name_color: { type: string, example: "#444444" }
+            sponsor_logo_size: { type: number, example: 70 }
+            organiser_logo_size: { type: number, example: 70 }
+            sponsor_logo_offset_x: { type: number, example: 5 }
+            sponsor_logo_offset_y: { type: number, example: 0 }
+            organiser_logo_offset_x: { type: number, example: -5 }
+            organiser_logo_offset_y: { type: number, example: 0 }
+          additionalProperties: true
+          example:
+            event_name_color: "#1A1A1A"
+            event_name_font_size: 28
+            title_color: "#000000"
+            title_font_size: 40
+            sponsor_logo_size: 70
+            organiser_logo_size: 70
+            sponsor_logo_offset_x: 5
+            organiser_logo_offset_x: -5
+
+        # ── Footer overrides ─────────────────────────────────────────
+        footerOverrides:
+          type: object
+          nullable: true
+          description: |
+            Show/hide and set social handles in the footer.
+            Keys forwarded as-is to Python — use snake_case.
+          properties:
+            instagram_handle: { type: string, example: "@scrymz" }
+            discord_handle: { type: string, example: "discord.gg/scrymz" }
+            youtube_enabled: { type: boolean, example: false }
+          additionalProperties: true
+          example:
+            instagram_handle: "@scrymz"
+            discord_handle: "discord.gg/scrymz"
+            youtube_enabled: false
+
+        # ── Footer style ─────────────────────────────────────────────
+        footerStyle:
+          type: object
+          nullable: true
+          description: |
+            Fine-tune footer text sizes, colors, and positions.
+            All keys forwarded as-is to Python — use snake_case.
+          properties:
+            social_font_size: { type: number, example: 14 }
+            social_text_color: { type: string, example: "#333333" }
+            social_offset_y: { type: number, example: 0 }
+            social_icon_size: { type: number, example: 32 }
+            instagram_text_color: { type: string, example: "#E1306C" }
+            discord_text_color: { type: string, example: "#5865F2" }
+          additionalProperties: true
+          example:
+            social_font_size: 14
+            social_text_color: "#333333"
+            social_offset_y: 0
+            social_icon_size: 32
+            instagram_text_color: "#E1306C"
+            discord_text_color: "#5865F2"
+
+        # ── Card overrides ───────────────────────────────────────────
+        cardOverrides:
+          type: object
+          nullable: true
+          description: |
+            Style overrides for team card elements.
+
+            **Group shortcuts** (apply to all cards):
+            - `offset_y` — shift all cards vertically
+            - `logo.offset_x / offset_y` — nudge logos on all cards
+            - `team_name.offset_x / offset_y` — nudge team names on all cards
+            - `team_logo_size`, `team_name_font_size`, `team_name_color` — override on all cards
+
+            **Per-slot overrides** under `slots["<slotNumber>"]` win over global:
+            - Each slot key is a string slot number (`"1"`, `"2"`, etc.)
+            - Supports the same fields: `logo`, `team_name`, `team_logo_size`, `team_name_color`, etc.
+
+            Offset rule: `+` = right/down, `-` = left/up
+          properties:
+            offset_y:
+              type: number
+              description: Shift all cards vertically
+              example: 3
+            team_logo_size:
+              type: number
+              description: Logo size override for all cards
+              example: 72
+            team_name_font_size:
+              type: number
+              description: Team name font size override for all cards
+              example: 17
+            team_name_color:
+              type: string
+              description: Team name color override for all cards
+              example: "#1A1A1A"
+            logo:
+              type: object
+              description: Global nudge for logos on all cards
+              properties:
+                offset_x: { type: number, example: 0 }
+                offset_y: { type: number, example: -4 }
+            team_name:
+              type: object
+              description: Global nudge for team names on all cards
+              properties:
+                offset_x: { type: number, example: 0 }
+                offset_y: { type: number, example: 6 }
+            slots:
+              type: object
+              description: Per-slot overrides keyed by slot number string
+              additionalProperties:
+                type: object
+                additionalProperties: true
+          additionalProperties: true
+          example:
+            offset_y: 3
+            logo: { offset_x: 0, offset_y: -4 }
+            team_name: { offset_x: 0, offset_y: 6 }
+            slots:
+              "1": { logo: { offset_x: -6 }, team_logo_size: 80 }
+              "8": { team_name: { offset_y: 10 }, team_name_color: "#003366" }
+
+        # ── Font customization ───────────────────────────────────────
+        fontCustomization:
+          type: object
+          nullable: true
+          description: |
+            Per-role font overrides. Use font `id` or `filename` from `GET /quick-pt/fonts`.
+
+            **Roles for roster:**
+            - `header_font` — event name, title
+            - `sponsor_font` — sponsor name
+            - `organiser_font` — organiser name
+            - `team_name_font` — team names on cards
+            - `footer_font` — social handles / footer
+            - `branding_font` — branding line
+            - `global_size_multiplier` — multiply all rendered font sizes (0.1–10)
+          properties:
+            header_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            sponsor_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            organiser_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            team_name_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            footer_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            branding_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            global_size_multiplier:
+              type: number
+              minimum: 0.1
+              maximum: 10
+              example: 1.0
+          example:
+            header_font: { font_file: "built_titling_bd.ttf", color: "#000000" }
+            sponsor_font: { font_file: "agency.ttf", color: "#444444" }
+            organiser_font: { font_file: "california.otf", color: "#444444" }
+            team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#1A1A1A" }
+            footer_font: { font_file: "coolvetica_rg.ttf", color: "#333333" }
+            branding_font: { font_file: "coolvetica_rg.ttf", color: "#888888" }
+            global_size_multiplier: 1.0
+
+        showBranding:
+          type: boolean
+          description: Show/hide the branding element defined in the coordinate JSON
+          example: true
+        outputFilename:
+          type: string
+          description: Custom PNG output filename
+          example: "team_roster_match1.png"
+        options:
+          $ref: "#/components/schemas/GraphicsOptions"
+
+    # ────────────────────────────────────────────────────────────────────
+    Top10Request:
+      type: object
+      required: [sourceType, sourceId, templateUrl, templateConfigUrl]
+      description: |
+        Request body for Top 10 rankings graphic (match or series).
+        Rank data is pulled automatically from DB — for match: match results,
+        for series: series leaderboard. If fewer than 10 teams exist, all are shown.
+      properties:
+        sourceType:
+          type: string
+          enum: [match, series]
+          description: Whether sourceId is a match or series
+          example: "match"
+        sourceId:
+          type: string
+          description: Quick Match ID or Series ID
+          example: "clx_match_abc123"
+        templateUrl:
+          type: string
+          format: uri
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_1.png"
+        templateConfigUrl:
+          type: string
+          format: uri
+          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_Config_1.json"
+
+        # ── Header overrides ─────────────────────────────────────────
+        headerOverrides:
+          type: object
+          nullable: true
+          description: |
+            Enable/disable header elements or override header text.
+            Keys forwarded as-is to Python — use snake_case.
+          properties:
+            title_enabled:
+              type: boolean
+              description: Show/hide the title element in the header
+              example: false
+            event_name_enabled:
+              type: boolean
+              description: Show/hide the event name element in the header
+              example: false
+          additionalProperties: true
+          example:
+            title_enabled: false
+            event_name_enabled: false
+
+        # ── Footer overrides ─────────────────────────────────────────
+        footerOverrides:
+          type: object
+          nullable: true
+          description: |
+            Show/hide and set social handles in the footer.
+            Keys forwarded as-is to Python — use snake_case.
+          properties:
+            instagram_handle: { type: string, example: "@scrymz" }
+            discord_handle: { type: string, example: "discord.gg/scrymz" }
+            youtube_enabled: { type: boolean, example: false }
+          additionalProperties: true
+          example:
+            instagram_handle: "@scrymz"
+            discord_handle: "discord.gg/scrymz"
+            youtube_enabled: false
+
+        # ── Card overrides ───────────────────────────────────────────
+        cardOverrides:
+          type: object
+          nullable: true
+          description: |
+            Style and position overrides for rank card elements.
+
+            **Global shortcuts** (apply to all rank cards):
+            - `team_logo_size` — logo size (px)
+            - `team_name_font_size` — team name font size (px)
+            - `points_font_size` — points text font size (px)
+            - `logo.offset_x / offset_y` — nudge logo position
+            - `team_name.offset_x / offset_y` — nudge team name position
+            - `total_points.offset_x / offset_y` — nudge points position
+
+            **Per-rank overrides** under `ranks["<rank>"]` win over global:
+            - Each rank key is a string rank number (`"1"`, `"2"`, etc.)
+            - Supports `rotation_deg`, `logo`, `team_name`, `total_points`
+            - `rotation_deg` tilts the card (e.g. some templates have tilted podium cards)
+
+            Offset rule: `+` = right/down, `-` = left/up
+          properties:
+            team_logo_size:
+              type: number
+              description: Logo size override for all cards
+              example: 58
+            team_name_font_size:
+              type: number
+              description: Team name font size for all cards
+              example: 15
+            points_font_size:
+              type: number
+              description: Total points font size for all cards
+              example: 13
+            logo:
+              type: object
+              properties:
+                offset_x: { type: number, example: 0 }
+                offset_y: { type: number, example: 0 }
+            team_name:
+              type: object
+              properties:
+                offset_x: { type: number, example: 0 }
+                offset_y: { type: number, example: 0 }
+            total_points:
+              type: object
+              properties:
+                offset_x: { type: number, example: 0 }
+                offset_y: { type: number, example: 0 }
+            ranks:
+              type: object
+              description: Per-rank overrides keyed by rank number string
+              additionalProperties:
+                type: object
+                properties:
+                  rotation_deg:
+                    type: number
+                    description: Card rotation in degrees (+ = clockwise, - = counter-clockwise)
+                    example: -7
+                  logo:
+                    type: object
+                    properties:
+                      offset_x: { type: number }
+                      offset_y: { type: number }
+                  team_name:
+                    type: object
+                    properties:
+                      offset_x: { type: number }
+                      offset_y: { type: number }
+                  total_points:
+                    type: object
+                    properties:
+                      offset_x: { type: number }
+                      offset_y: { type: number }
+                additionalProperties: true
+          additionalProperties: true
+          example:
+            team_logo_size: 58
+            team_name_font_size: 15
+            points_font_size: 13
+            logo: { offset_x: 0, offset_y: 0 }
+            team_name: { offset_x: 0, offset_y: 0 }
+            total_points: { offset_x: 0, offset_y: 0 }
+            ranks:
+              "2":
+                rotation_deg: -7
+                logo: { offset_x: 0, offset_y: -4 }
+                team_name: { offset_x: 2, offset_y: 6 }
+                total_points: { offset_y: 4 }
+              "6":
+                rotation_deg: 7
+                logo: { offset_y: -6 }
+                team_name: { offset_y: 8 }
+
+        # ── Font customization ───────────────────────────────────────
+        fontCustomization:
+          type: object
+          nullable: true
+          description: |
+            Per-role font overrides. Use font `id` or `filename` from `GET /quick-pt/fonts`.
+
+            **Roles for top-10:**
+            - `header_font` — header area text
+            - `team_name_font` — team names on rank cards
+            - `rank_font` — rank number labels
+            - `footer_font` — social handles / footer
+            - `branding_font` — branding line
+            - `global_size_multiplier` — multiply all rendered font sizes (0.1–10)
+          properties:
+            header_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            team_name_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            rank_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            footer_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            branding_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            global_size_multiplier:
+              type: number
+              minimum: 0.1
+              maximum: 10
+              example: 1.0
+          example:
+            header_font: { font_file: "built_titling_bd.ttf" }
+            team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#1A1A1A" }
+            rank_font: { font_file: "bomberescort.ttf", color: "#FF6B00" }
+            footer_font: { font_file: "coolvetica_rg.ttf", color: "#333333" }
+            branding_font: { font_file: "coolvetica_rg.ttf", color: "#888888" }
+            global_size_multiplier: 1.0
+
+        showBranding:
+          type: boolean
+          description: Show/hide the branding element defined in the coordinate JSON
+          example: true
+        outputFilename:
+          type: string
+          description: Custom PNG output filename
+          example: "top10_match1.png"
+        options:
+          $ref: "#/components/schemas/GraphicsOptions"
+
+    # ────────────────────────────────────────────────────────────────────
+    GraphicsGenerateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Slot list generated successfully"
+        data:
+          type: object
+          properties:
+            signedUrl:
+              type: string
+              format: uri
+              description: Signed CDN URL of the generated graphic (valid 30 min)
+            imageUrl:
+              type: string
+              format: uri
+              description: Raw R2 URL of the stored graphic
+            generationTimeMs:
+              type: integer
+              example: 2400
+        meta:
+          $ref: "#/components/schemas/MetaObject"

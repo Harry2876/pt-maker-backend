@@ -1410,7 +1410,7 @@ paths:
 
   /quick-pt/matches/{id}/export:
     post:
-      tags: [Quick-PT Export]
+      tags: [Quick-PT Graphics]
       summary: Generate standings table image (Python AI)
       description: |
         Generates a professional tournament standings PNG using the Python AI image service.
@@ -1466,6 +1466,53 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ExportRequest"
+            example:
+              template: "tmplate_2"
+              formatType: "16_teams"
+              outputFilename: "scrims_day1_standings.png"
+              eventName: "OVERALL STANDINGS"
+              organiserName: "Scrymz Esports"
+              sponsorName: "Sponsored by XYZ"
+              tableFontSize: 75
+              tableHeaderFontSize: 65
+              tableHeaderLabelMode: "compact"
+              tableHeaderColumnPadding: 12
+              rowHeightAdjust: -30
+              teamLogoSize: 155
+              teamLogoSizeAdjust: 0
+              teamLogoGap: 4
+              teamShiftRight: 80
+              chickenDinnerIconSize: 140
+              chickenIconGap: 8
+              elementOverrides:
+                event_name: { size: 85, color: "#FFFFFF" }
+                sponsor_name: { size: 55, color: "#FFD700" }
+                organiser_name: { size: 65, color: "#FFFFFF" }
+              columnOverrides:
+                rank: { color: "#E0E0E0" }
+                team_name: { color: "#FFB74D", weight: "bold" }
+                matches: { color: "#E0E0E0" }
+                position: { color: "#87CEEB" }
+                kills: { color: "#FF6B6B" }
+                total: { color: "#FFD700", weight: "bold" }
+              fontCustomization:
+                header_font: { font_file: "built_titling_bd.ttf" }
+                sponsor_font: { font_file: "agency.ttf", color: "#FFD700" }
+                organiser_font: { font_file: "california.otf", color: "#FFFFFF" }
+                table_header_font: { font_file: "akira_expanded.otf" }
+                table_data_font: { font_file: "coolvetica_rg.ttf" }
+                team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#FFB74D" }
+                footer_font: { font_file: "coolvetica_rg.ttf" }
+                global_size_multiplier: 1.0
+              advancedConfig:
+                header:
+                  event_name: { text: "FINALS DAY 2", enabled: true }
+              showBranding: true
+              options:
+                uploadToR2: true
+                compressImage: false
+                imageQuality: 95
+                renderScale: null
       responses:
         "200":
           description: Standings image generated and uploaded to R2
@@ -1553,7 +1600,7 @@ paths:
 
   /quick-pt/matches/{id}/points-table:
     get:
-      tags: [Quick-PT Export]
+      tags: [Quick-PT Graphics]
       summary: Get points table for a match
       description: |
         Returns the last generated export in the same shape as `POST /export`.
@@ -1591,7 +1638,7 @@ paths:
 
   /quick-pt/matches/{id}/points-table/regenerate:
     post:
-      tags: [Quick-PT Export]
+      tags: [Quick-PT Graphics]
       summary: Regenerate standings image (clear cache + re-export)
       description: |
         Deletes the cached export and regenerates the standings image. Accepts the same fields as `POST /export`.
@@ -1605,6 +1652,53 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ExportRequest"
+            example:
+              template: "tmplate_2"
+              formatType: "16_teams"
+              outputFilename: "scrims_day1_standings.png"
+              eventName: "OVERALL STANDINGS"
+              organiserName: "Scrymz Esports"
+              sponsorName: "Sponsored by XYZ"
+              tableFontSize: 75
+              tableHeaderFontSize: 65
+              tableHeaderLabelMode: "compact"
+              tableHeaderColumnPadding: 12
+              rowHeightAdjust: -30
+              teamLogoSize: 155
+              teamLogoSizeAdjust: 0
+              teamLogoGap: 4
+              teamShiftRight: 80
+              chickenDinnerIconSize: 140
+              chickenIconGap: 8
+              elementOverrides:
+                event_name: { size: 85, color: "#FFFFFF" }
+                sponsor_name: { size: 55, color: "#FFD700" }
+                organiser_name: { size: 65, color: "#FFFFFF" }
+              columnOverrides:
+                rank: { color: "#E0E0E0" }
+                team_name: { color: "#FFB74D", weight: "bold" }
+                matches: { color: "#E0E0E0" }
+                position: { color: "#87CEEB" }
+                kills: { color: "#FF6B6B" }
+                total: { color: "#FFD700", weight: "bold" }
+              fontCustomization:
+                header_font: { font_file: "built_titling_bd.ttf" }
+                sponsor_font: { font_file: "agency.ttf", color: "#FFD700" }
+                organiser_font: { font_file: "california.otf", color: "#FFFFFF" }
+                table_header_font: { font_file: "akira_expanded.otf" }
+                table_data_font: { font_file: "coolvetica_rg.ttf" }
+                team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#FFB74D" }
+                footer_font: { font_file: "coolvetica_rg.ttf" }
+                global_size_multiplier: 1.0
+              advancedConfig:
+                header:
+                  event_name: { text: "FINALS DAY 2", enabled: true }
+              showBranding: true
+              options:
+                uploadToR2: true
+                compressImage: false
+                imageQuality: 95
+                renderScale: null
       responses:
         "200":
           description: Points table regenerated
@@ -1634,7 +1728,7 @@ paths:
 
   /quick-pt/points-table/{pointsTableId}:
     delete:
-      tags: [Quick-PT Export]
+      tags: [Quick-PT Graphics]
       summary: Delete a points table record
       security:
         - bearerAuth: []
@@ -2449,7 +2543,7 @@ paths:
 
   /quick-pt/series/{id}/export:
     post:
-      tags: [Quick-PT Series]
+      tags: [Quick-PT Graphics]
       summary: Export series leaderboard as standings PNG
       description: |
         Generates a professional tournament standings PNG from the aggregated series leaderboard.
@@ -2470,6 +2564,53 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ExportRequest"
+            example:
+              template: "tmplate_2"
+              formatType: "16_teams"
+              outputFilename: "series_overall_standings.png"
+              eventName: "OVERALL STANDINGS"
+              organiserName: "Scrymz Esports"
+              sponsorName: "Sponsored by XYZ"
+              tableFontSize: 75
+              tableHeaderFontSize: 65
+              tableHeaderLabelMode: "compact"
+              tableHeaderColumnPadding: 12
+              rowHeightAdjust: -30
+              teamLogoSize: 155
+              teamLogoSizeAdjust: 0
+              teamLogoGap: 4
+              teamShiftRight: 80
+              chickenDinnerIconSize: 140
+              chickenIconGap: 8
+              elementOverrides:
+                event_name: { size: 85, color: "#FFFFFF" }
+                sponsor_name: { size: 55, color: "#FFD700" }
+                organiser_name: { size: 65, color: "#FFFFFF" }
+              columnOverrides:
+                rank: { color: "#E0E0E0" }
+                team_name: { color: "#FFB74D", weight: "bold" }
+                matches: { color: "#E0E0E0" }
+                position: { color: "#87CEEB" }
+                kills: { color: "#FF6B6B" }
+                total: { color: "#FFD700", weight: "bold" }
+              fontCustomization:
+                header_font: { font_file: "built_titling_bd.ttf" }
+                sponsor_font: { font_file: "agency.ttf", color: "#FFD700" }
+                organiser_font: { font_file: "california.otf", color: "#FFFFFF" }
+                table_header_font: { font_file: "akira_expanded.otf" }
+                table_data_font: { font_file: "coolvetica_rg.ttf" }
+                team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#FFB74D" }
+                footer_font: { font_file: "coolvetica_rg.ttf" }
+                global_size_multiplier: 1.0
+              advancedConfig:
+                header:
+                  event_name: { text: "SERIES FINALS", enabled: true }
+              showBranding: true
+              options:
+                uploadToR2: true
+                compressImage: false
+                imageQuality: 95
+                renderScale: null
       responses:
         "200":
           description: Series standings image generated
@@ -2790,107 +2931,133 @@ components:
         All other fields are optional styling overrides.
 
         > **Important:** Use the field name `template` (not `templateName`) when sending the request body.
+
+        **Logo resolution order:** match-specific logo → preset entry logo → no logo (API renders placeholder)
+
+        **`tableHeaderLabelMode` values:**
+        - `full` — MATCHES / POSITION / FINISHES / TOTAL
+        - `abbr` — MAT / POS / FIN / TOT
+        - `initial` — M / P / F / T
+        - `compact` — M / PP / FP / T — hides WWCD column; chicken-dinner icons render inline after team name
+
+        **`fontCustomization` role keys:** call `GET /quick-pt/fonts` to list available `font_file` values.
       properties:
         template:
           type: string
-          description: |
-            Template name from `GET /quick-pt/templates`.
-            Must be the exact `name` field of a template object (e.g. `tmplate_2`).
+          description: Template name from `GET /quick-pt/templates` (e.g. `tmplate_2`)
           example: "tmplate_2"
         formatType:
           type: string
           enum: [8_teams, 16_teams, 24_teams]
-          description: |
-            Category key from `GET /quick-pt/templates` (top-level key of the `templates` object).
-            Must match the category the chosen template belongs to.
+          description: Category key from `GET /quick-pt/templates`; must match team count
           example: "16_teams"
         outputFilename:
           type: string
-          description: "Custom filename for the generated PNG stored in R2. Defaults to a timestamp-based name."
+          description: Custom filename for the generated PNG stored in R2
           example: "scrims_day1_standings.png"
+
+        # ── Table layout ─────────────────────────────────────────
         tableFontSize:
           type: number
           nullable: true
-          description: "Global font size (px) for all table data rows. Leave null to use the template default."
+          description: Font size (px) for all data rows
           example: 75
         tableHeaderFontSize:
           type: number
           nullable: true
-          description: "Global font size (px) for the table header row."
+          description: Font size (px) for the header row
           example: 65
         tableHeaderLabelMode:
           type: string
           nullable: true
-          enum: [full, abbr, initial]
-          description: |
-            Controls how column headers are labelled:
-            - `full` — full text (e.g. "Total Points")
-            - `abbr` — abbreviated (e.g. "Pts")
-            - `initial` — first letter only (e.g. "P")
-          example: "abbr"
+          enum: [full, abbr, initial, compact]
+          description: Header label preset (compact enables inline chicken-dinner icons)
+          example: "compact"
+        tableHeaderColumnPadding:
+          type: number
+          nullable: true
+          description: Minimum spacing (px) between header labels (0–80)
+          example: 12
         rowHeightAdjust:
           type: number
           nullable: true
-          description: "Pixels to add (positive) or subtract (negative) from each table row height."
-          example: -35
+          description: Add/subtract px from each row height (-200 to 200)
+          example: -30
+
+        # ── Logo & icon layout ────────────────────────────────────
+        teamLogoSize:
+          type: number
+          nullable: true
+          description: Square team logo size in px (8–200)
+          example: 155
+        teamLogoSizeAdjust:
+          type: number
+          nullable: true
+          description: Fine-tune logo size after teamLogoSize (-80 to 80)
+          example: 0
+        teamLogoGap:
+          type: number
+          nullable: true
+          description: Gap between logo and team name (0–80)
+          example: 4
+        teamShiftRight:
+          type: number
+          nullable: true
+          description: Shift entire logo + name + icon block to the right (0–500)
+          example: 80
+        chickenDinnerIconSize:
+          type: number
+          nullable: true
+          description: Chicken-dinner win icon size in px (8–200)
+          example: 140
+        chickenIconGap:
+          type: number
+          nullable: true
+          description: Gap after team name before win icon (0–40)
+          example: 8
+
+        # ── Header text overrides ─────────────────────────────────
         eventName:
           type: string
-          description: |
-            Event title rendered in the template header overlay.
-            Sent to Python as `event_name`. Defaults to the template config value when omitted.
-          example: "BATTLEGROUNDS CHAMPIONSHIP"
+          description: Event title rendered in the template header overlay
+          example: "BATTLEGROUNDS CHAMPIONSHIP — DAY 2"
         organiserName:
           type: string
-          description: |
-            Organiser line rendered in the template header overlay.
-            Sent to Python as `organiser_name`.
+          description: Organiser line in the header overlay
           example: "Organized by Nodwin Gaming"
         sponsorName:
           type: string
-          description: |
-            Sponsor line rendered in the template header overlay.
-            Sent to Python as `sponsor_name`.
+          description: Sponsor line in the header overlay
           example: "Powered by Intel"
+
+        # ── Override objects ──────────────────────────────────────
         elementOverrides:
           type: object
           nullable: true
           description: |
-            Override rendering of named template elements (text overlays defined in the template config).
-
-            **Common element keys:** `event_name`, `organiser_name`, `sponsor_name`, `week_info`, `day_info`
-
-            Each value is a flat object — supported sub-keys depend on the element, but typical ones are:
-            - `size` — font size in px
-            - `color` — hex color string (`"#FFFFFF"`)
-            - `weight` — `"bold"` or `"normal"`
-            - `text` — override the displayed text
-            - `enabled` — `false` to hide the element entirely
+            Patch font size/color on named header/footer elements.
+            **Valid keys:** `event_name`, `organiser_name`, `sponsor_name`, `week_info`, `day_info`, `live_indicator`
+            Each value supports: `size` (px), `color` (hex), `weight` (`bold`/`normal`), `text`, `enabled` (false = hide)
           additionalProperties:
             type: object
             additionalProperties: true
           example:
             event_name:
-              size: 16
+              size: 85
               color: "#FFFFFF"
             sponsor_name:
-              size: 14
+              size: 55
               color: "#FFD700"
             organiser_name:
-              size: 14
+              size: 65
+              color: "#FFFFFF"
         columnOverrides:
           type: object
           nullable: true
           description: |
-            Override the appearance of individual table columns.
-
-            **Column keys** (defined in the template config — common ones):
-            `rank`, `team_name`, `slot_number`, `matches`, `position`, `kills`,
-            `total`, `chicken_dinner` (WWCD icon column)
-
-            Each value is a flat object with optional sub-keys:
-            - `color` — hex text color
-            - `weight` — `"bold"` or `"normal"`
-            - `size` — font size override for this column only
+            Per-column font/color for table headers and data rows.
+            **Valid keys:** `rank`, `team_name`, `team`, `matches`, `position`, `kills`, `total`
+            Each value supports: `color` (hex), `weight` (`bold`/`normal`), `size` (px)
           additionalProperties:
             type: object
             additionalProperties: true
@@ -2898,41 +3065,76 @@ components:
             rank:
               color: "#E0E0E0"
             team_name:
-              color: "#000000"
+              color: "#FFB74D"
               weight: "bold"
-            chicken_dinner:
-              color: "#FF6B35"
-            matches:
-              color: "#000000"
-            position:
-              color: "#000000"
             kills:
-              color: "#000000"
+              color: "#FF6B6B"
             total:
               color: "#FFD700"
               weight: "bold"
+        fontCustomization:
+          type: object
+          nullable: true
+          description: |
+            Override fonts per role. Use font filename or ID from `GET /quick-pt/fonts`.
+            Each role supports: `font_file`, `family`, `weight`, `size`, `color`, `alignment`.
+          properties:
+            header_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            sponsor_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            organiser_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            table_header_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            table_data_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            team_name_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            footer_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            branding_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            global_size_multiplier:
+              type: number
+              minimum: 0.1
+              maximum: 10
+              description: Multiply all rendered font sizes by this factor
+              example: 1.0
+          example:
+            header_font:
+              font_file: "built_titling_bd.ttf"
+            sponsor_font:
+              font_file: "agency.ttf"
+              color: "#FFD700"
+            organiser_font:
+              font_file: "california.otf"
+              color: "#FFFFFF"
+            table_header_font:
+              font_file: "akira_expanded.otf"
+            table_data_font:
+              font_file: "coolvetica_rg.ttf"
+            team_name_font:
+              font_file: "roboto_condensed_black.ttf"
+              color: "#FFB74D"
+            footer_font:
+              font_file: "coolvetica_rg.ttf"
+            global_size_multiplier: 1.0
         advancedConfig:
           type: object
           nullable: true
           description: |
-            Fine-grained layout overrides passed to Python as `advanced_config`.
-            Use `header` and `organiser` blocks to reposition overlay text elements.
+            Partial JSON merged on top of `templateConfigUrl`. Use for one-off tweaks without re-uploading coordinate JSON.
           additionalProperties: true
           example:
             header:
               event_name:
-                position:
-                  x: 2048
-                  y: 235
-              sponsor_name:
-                position:
-                  x: 2048
-                  y: 400
-            organiser:
-              name:
-                position:
-                  x: 100
-                  y: 240
+                text: "FINALS DAY 2"
+                enabled: true
+        showBranding:
+          type: boolean
+          description: Show/hide the branding line defined in the coordinate JSON
+          example: true
 
     PythonStandingsGenerateRequest:
       type: object
@@ -2976,24 +3178,87 @@ components:
           example: 40
         table_header_label_mode:
           type: string
-          enum: [full, abbr, initial]
-          example: "abbr"
+          enum: [full, abbr, initial, compact]
+          description: compact = inline chicken-dinner icons, hides WWCD column
+          example: "compact"
+        table_header_column_padding:
+          type: number
+          description: Min spacing (px) between header labels (0–80)
+          example: 12
         row_height_adjust:
           type: number
-          example: -35
+          example: -30
+        team_logo_size:
+          type: number
+          description: Square logo size in px (8–200)
+          example: 155
+        team_logo_size_adjust:
+          type: number
+          description: Fine-tune logo size (-80 to 80)
+          example: 0
+        team_logo_gap:
+          type: number
+          description: Gap between logo and team name (0–80)
+          example: 4
+        team_shift_right:
+          type: number
+          description: Shift logo+name+icon block right (0–500)
+          example: 80
+        chicken_dinner_icon_size:
+          type: number
+          description: Win icon size in px (8–200)
+          example: 140
+        chicken_icon_gap:
+          type: number
+          description: Gap after team name before win icon (0–40)
+          example: 8
         element_overrides:
           type: object
           additionalProperties:
             type: object
             additionalProperties: true
+          example:
+            event_name: { size: 85, color: "#FFFFFF" }
+            sponsor_name: { size: 55, color: "#FFD700" }
         column_overrides:
           type: object
           additionalProperties:
             type: object
             additionalProperties: true
+          example:
+            team_name: { color: "#FFB74D", weight: "bold" }
+            total: { color: "#FFD700", weight: "bold" }
+        font_customization:
+          type: object
+          description: Override fonts per role using bundled font filenames
+          properties:
+            header_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            sponsor_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            organiser_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            table_header_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            table_data_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            team_name_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            footer_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            branding_font:
+              $ref: "#/components/schemas/FontRoleConfig"
+            global_size_multiplier:
+              type: number
+              minimum: 0.1
+              maximum: 10
+              example: 1.0
         advanced_config:
           type: object
           additionalProperties: true
+        show_branding:
+          type: boolean
+          example: true
         team_data:
           type: array
           items:
@@ -3016,6 +3281,11 @@ components:
                 type: integer
               wwcd:
                 type: integer
+              team_logo_url:
+                type: string
+                nullable: true
+                description: Public HTTPS URL to team logo (resolved automatically by Node)
+                example: "https://pub-xxx.r2.dev/logos/matches/clx123/slot_3.png"
         output_filename:
           type: string
           description: Optional — Node adds this when the client sends outputFilename
@@ -3024,7 +3294,22 @@ components:
           properties:
             upload_to_r2:
               type: boolean
-              example: true
+              default: true
+            compress_image:
+              type: boolean
+              default: false
+            image_quality:
+              type: number
+              minimum: 50
+              maximum: 95
+              example: 90
+            render_scale:
+              type: number
+              nullable: true
+              description: "null/0 = auto supersample; 1 = off; 2/3 = force"
+            local_debug_path:
+              type: string
+              nullable: true
 
     ExportResponse:
       type: object

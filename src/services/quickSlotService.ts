@@ -13,6 +13,9 @@ import {
 import { quickPtSyncQueue } from '../config/queues';
 import { SlotTextParser, ParseResult } from '../utils/slotTextParser';
 import { quickMatchService } from './quickMatchService';
+import { r2Service } from './cloudflareR2Service';
+import { signedUrlUtility } from './signedUrlUtility';
+import { ServiceError } from '../utils/serviceError';
 
 export class QuickSlotService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
@@ -453,6 +456,100 @@ export class QuickSlotService extends BaseService {
             this.handleError(error, 'Mark Slots Detected');
             throw error;
         }
+    }
+
+    /**
+     * Upload and attach a match-specific logo to a slot.
+     * Stored at match-logos/{matchId}/slot-{slotNumber}-{uuid}.{ext}
+     */
+    async attachMatchLogo(
+        userId: string,
+        quickMatchId: string,
+        slotNumber: number,
+        fileBuffer: Buffer,
+        mimeType: string
+    ): Promise<{ logoStorageUrl: string; signedLogoUrl: string }> {
+        const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+        if (!quickMatch) {
+            throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
+        }
+
+        const slot = await this.db.quickSlotAssignment.findFirst({
+            where: { quickMatchId, slotNumber },
+        });
+        if (!slot) {
+            throw new ServiceError(`Slot ${slotNumber} not found in match`, 404, 'NOT_FOUND');
+        }
+
+        const extMap: Record<string, string> = {
+            'image/jpeg': 'jpg', 'image/jpg': 'jpg',
+            'image/png': 'png', 'image/webp': 'webp',
+        };
+        const ext = extMap[mimeType];
+        if (!ext) {
+            throw new ServiceError('Invalid logo type. Allowed: jpeg, png, webp.', 400, 'INVALID_FILE_TYPE');
+        }
+
+        if (fileBuffer.length > 5 * 1024 * 1024) {
+            throw new ServiceError('Logo file too large. Maximum size is 5MB.', 400, 'FILE_TOO_LARGE');
+        }
+
+        // Delete old logo if present
+        if (slot.matchLogoR2Key) {
+            await r2Service.deleteFile(slot.matchLogoR2Key).catch(() => {});
+        }
+
+        const r2Key = `match-logos/${quickMatchId}/slot-${slotNumber}-${randomUUID()}.${ext}`;
+        const { url } = await r2Service.uploadLogoBuffer(fileBuffer, r2Key, mimeType);
+
+        await this.db.quickSlotAssignment.update({
+            where: { id: slot.id },
+            data: { matchLogoR2Key: r2Key, matchLogoStorageUrl: url },
+        });
+
+        const signed = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+        this.logger.info(`Match logo attached to slot ${slotNumber} in match ${quickMatchId}`);
+
+        return { logoStorageUrl: url, signedLogoUrl: signed.signedUrl };
+    }
+
+    /**
+     * Remove the match-specific logo from a slot.
+     */
+    async removeMatchLogo(userId: string, quickMatchId: string, slotNumber: number): Promise<void> {
+        const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
+        if (!quickMatch) {
+            throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
+        }
+
+        const slot = await this.db.quickSlotAssignment.findFirst({
+            where: { quickMatchId, slotNumber },
+        });
+        if (!slot) {
+            throw new ServiceError(`Slot ${slotNumber} not found in match`, 404, 'NOT_FOUND');
+        }
+
+        if (slot.matchLogoR2Key) {
+            await r2Service.deleteFile(slot.matchLogoR2Key).catch(() => {});
+        }
+
+        await this.db.quickSlotAssignment.update({
+            where: { id: slot.id },
+            data: { matchLogoR2Key: null, matchLogoStorageUrl: null },
+        });
+
+        this.logger.info(`Match logo removed from slot ${slotNumber} in match ${quickMatchId}`);
+    }
+
+    /**
+     * Resolve the effective logo URL for a slot.
+     * Priority: matchLogoStorageUrl > logoPresetEntry.logoStorageUrl > null
+     */
+    resolveLogoUrl(slot: {
+        matchLogoStorageUrl?: string | null;
+        logoPresetEntry?: { logoStorageUrl: string } | null;
+    }): string | null {
+        return slot.matchLogoStorageUrl ?? slot.logoPresetEntry?.logoStorageUrl ?? null;
     }
 }
 
