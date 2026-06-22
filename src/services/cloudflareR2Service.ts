@@ -127,7 +127,7 @@ export class CloudflareR2Service extends BaseService {
             const command = new ListObjectsV2Command({
                 Bucket: this.bucketName,
                 Prefix: prefix,
-                MaxKeys: 1000 // Limit for safety
+                MaxKeys: 1000
             });
 
             const response = await this.s3Client.send(command);
@@ -136,12 +136,8 @@ export class CloudflareR2Service extends BaseService {
                 return [];
             }
 
-            // Filter for image files and create URLs
             const templateImages = response.Contents
-                .filter(obj => {
-                    const key = obj.Key || '';
-                    return key.match(/\.(png|jpg|jpeg)$/i);
-                })
+                .filter(obj => (obj.Key || '').match(/\.(png|jpg|jpeg)$/i))
                 .map(obj => ({
                     key: obj.Key!,
                     url: `${this.publicUrl}/${obj.Key!}`
@@ -152,6 +148,37 @@ export class CloudflareR2Service extends BaseService {
         } catch (error) {
             this.logger.error('Failed to list template images from R2:', error);
             throw new Error('Failed to fetch template images');
+        }
+    }
+
+    /**
+     * List ALL files (images + JSON configs) under a prefix.
+     * Used by templateService to pair template images with their config JSONs.
+     */
+    async listAllTemplateFiles(prefix: string = 'templates/'): Promise<Array<{ key: string; isImage: boolean; isConfig: boolean }>> {
+        try {
+            const command = new ListObjectsV2Command({
+                Bucket: this.bucketName,
+                Prefix: prefix,
+                MaxKeys: 1000
+            });
+
+            const response = await this.s3Client.send(command);
+
+            if (!response.Contents) {
+                return [];
+            }
+
+            return response.Contents
+                .filter(obj => obj.Key && (obj.Key.match(/\.(png|jpg|jpeg)$/i) || obj.Key.endsWith('.json')))
+                .map(obj => ({
+                    key: obj.Key!,
+                    isImage: /\.(png|jpg|jpeg)$/i.test(obj.Key!),
+                    isConfig: obj.Key!.endsWith('.json'),
+                }));
+        } catch (error) {
+            this.logger.error('Failed to list all template files from R2:', error);
+            throw new Error('Failed to fetch template files');
         }
     }
 }

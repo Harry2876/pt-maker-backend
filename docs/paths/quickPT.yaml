@@ -2824,23 +2824,33 @@ paths:
   /quick-pt/templates:
     get:
       tags: [Quick-PT System]
-      summary: Get all available PT template images
+      summary: Get all available template images (all graphic types)
       description: |
-        Templates are organized by format category: `8_teams`, `16_teams`, `24_teams`.
-        Each template has a `name` (e.g. `tmplate_1`) and URLs for preview and export.
+        Returns **all** templates organized by category. This includes:
 
-        **For export:** pass `name` as `template` and the category key as `formatType` in `POST /matches/{id}/export`.
-        Node resolves the paired config automatically:
-        - `tmplate_1` → config file `templateConfig_1.json` in the same folder
-        - `tmplate_2` → `templateConfig_2.json`, etc.
+        | Category | Used for |
+        |---|---|
+        | `8_teams` | Standings export (≤8 teams) |
+        | `16_teams` | Standings export (≤16 teams) |
+        | `24_teams` | Standings export (≤24 teams) |
+        | `slot_list` | `POST /graphics/slot-list` |
+        | `team_roster` | `POST /graphics/roster` |
+        | `top_10` | `POST /graphics/top-10` |
+
+        Each template entry has two URL types:
 
         | Field | Use |
         |-------|-----|
-        | `signedUrl` / `previewUrl` | Display in the app (expire in 30 min) |
-        | `rawTemplateUrl` | Raw R2 URL sent to Python as `template_url` (internal) |
-        | `rawConfigUrl` | Raw R2 URL sent to Python as `template_config_url` (internal) |
+        | `signedUrl` / `previewUrl` | Show template thumbnail in the app (expire in 30 min) |
+        | `rawTemplateUrl` | Send as `templateUrl` in graphics/export body |
+        | `rawConfigUrl` | Send as `templateConfigUrl` in graphics/export body |
+        | `configUrl` | Config JSON signed URL (for previewing layout in app) |
 
-        Signed URLs expire in 30 minutes. Results are Redis-cached for 1 hour.
+        **For standings export** (`POST /matches/{id}/export`): pass `name` as `template` and the category key as `formatType`.
+
+        **For graphics** (`POST /graphics/slot-list` etc.): pass `rawTemplateUrl` as `templateUrl` and `rawConfigUrl` as `templateConfigUrl` in the body.
+
+        Signed URLs expire in 30 minutes. Results are Redis-cached for 1 hour — the signed URLs are always refreshed on read.
       security:
         - bearerAuth: []
       responses:
@@ -2862,7 +2872,10 @@ paths:
                     properties:
                       templates:
                         type: object
-                        description: "Keys are format categories (e.g. '8_teams', '16_teams', '24_teams')"
+                        description: |
+                          Keys are category folder names:
+                          `8_teams`, `16_teams`, `24_teams` (standings),
+                          `slot_list`, `team_roster`, `top_10` (graphics)
                         additionalProperties:
                           type: array
                           items:
@@ -2870,14 +2883,44 @@ paths:
                         example:
                           "16_teams":
                             - name: "tmplate_1"
-                              signedUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800..."
-                              previewUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800..."
-                              configUrl: "https://pub-xxx.r2.dev/templates/16_teams/templateConfig_1.json?X-Amz-Expires=1800..."
+                              signedUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800"
+                              previewUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800"
+                              configUrl: "https://pub-xxx.r2.dev/templates/16_teams/templateConfig_1.json?X-Amz-Expires=1800"
                               rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/tmplate_1.jpeg"
                               rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/templateConfig_1.json"
                               category: "16_teams"
                               fullPath: "16_teams/tmplate_1"
                               originalExtension: "jpeg"
+                          "slot_list":
+                            - name: "sl1"
+                              signedUrl: "https://pub-xxx.r2.dev/templates/slot_list/sl1.png?X-Amz-Expires=1800"
+                              previewUrl: "https://pub-xxx.r2.dev/templates/slot_list/sl1.png?X-Amz-Expires=1800"
+                              configUrl: "https://pub-xxx.r2.dev/templates/slot_list/sl_1config.json?X-Amz-Expires=1800"
+                              rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl1.png"
+                              rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl_1config.json"
+                              category: "slot_list"
+                              fullPath: "slot_list/sl1"
+                              originalExtension: "png"
+                          "team_roster":
+                            - name: "team_roster1"
+                              signedUrl: "https://pub-xxx.r2.dev/templates/team_roster/team_roster1.png?X-Amz-Expires=1800"
+                              previewUrl: "https://pub-xxx.r2.dev/templates/team_roster/team_roster1.png?X-Amz-Expires=1800"
+                              configUrl: "https://pub-xxx.r2.dev/templates/team_roster/team_roster_Config1.json?X-Amz-Expires=1800"
+                              rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster1.png"
+                              rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster_Config1.json"
+                              category: "team_roster"
+                              fullPath: "team_roster/team_roster1"
+                              originalExtension: "png"
+                          "top_10":
+                            - name: "t10template_1"
+                              signedUrl: "https://pub-xxx.r2.dev/templates/top_10/t10template_1.png?X-Amz-Expires=1800"
+                              previewUrl: "https://pub-xxx.r2.dev/templates/top_10/t10template_1.png?X-Amz-Expires=1800"
+                              configUrl: "https://pub-xxx.r2.dev/templates/top_10/t10template_Config_1.json?X-Amz-Expires=1800"
+                              rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_1.png"
+                              rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_Config_1.json"
+                              category: "top_10"
+                              fullPath: "top_10/t10template_1"
+                              originalExtension: "png"
                       totalTemplates:
                         type: integer
                         example: 6
