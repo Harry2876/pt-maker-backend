@@ -181,6 +181,25 @@ export class CloudflareR2Service extends BaseService {
             throw new Error('Failed to fetch template files');
         }
     }
+
+    /** Read and parse a JSON object from R2 by key. */
+    async getObjectJson<T = Record<string, unknown>>(key: string): Promise<T> {
+        try {
+            const command = new GetObjectCommand({
+                Bucket: this.bucketName,
+                Key: key,
+            });
+            const response = await this.s3Client.send(command);
+            const body = await response.Body?.transformToString();
+            if (!body) {
+                throw new Error('Empty template config object');
+            }
+            return JSON.parse(body) as T;
+        } catch (error) {
+            this.logger.error(`Failed to read JSON from R2: ${key}`, error);
+            throw new Error('Failed to read template config');
+        }
+    }
 }
 
 export const r2Service = new CloudflareR2Service();

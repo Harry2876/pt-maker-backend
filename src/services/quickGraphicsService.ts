@@ -5,6 +5,8 @@ import { quickMatchService } from './quickMatchService';
 import { quickResultService } from './quickResultService';
 import { quickSeriesService } from './quickSeriesService';
 import { ServiceError } from '../utils/serviceError';
+import { splitTeamDataIntoChunks, buildSplitOutputFilename } from '../utils/pythonErrorUtils';
+import { getTemplateCapacity } from '../utils/templateConfigUtils';
 import {
     SlotListRequest,
     TeamListRequest,
@@ -13,10 +15,22 @@ import {
     GraphicsOptions,
 } from '../types/pythonAI';
 
+export interface GeneratedGraphicImage {
+    part: number;
+    label: 'main' | 'overflow';
+    signedUrl: string;
+    imageUrl: string;
+    filename?: string;
+    teamCount: number;
+}
+
 export interface GraphicGenerationResult {
     signedUrl: string;
     imageUrl: string;
     generationTimeMs: number;
+    totalTeams?: number;
+    imageCount?: number;
+    images?: GeneratedGraphicImage[];
 }
 
 // ---- Shared customisation shapes ----
@@ -105,7 +119,9 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const slotData = slots.map(s => ({
+        const eligibleSlots = this.filterSlotsWithinCapacity(slots);
+
+        const slotData = eligibleSlots.map(s => ({
             slot_number: s.slotNumber,
             team_name: s.teamName,
             team_logo_url: this.resolveLogoUrl(s) ?? undefined,
@@ -124,7 +140,7 @@ export class QuickGraphicsService extends BaseService {
             team_logo_size: opts.teamLogoSize ?? null,
             grid_overrides: opts.gridOverrides ?? null,
             font_customization: opts.fontCustomization ?? null,
-            output_filename: opts.outputFilename,
+            ...(opts.outputFilename ? { output_filename: opts.outputFilename } : {}),
             options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
         };
 
@@ -207,32 +223,83 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const teamData = slots.map(s => ({
+        const eligibleSlots = this.filterSlotsWithinCapacity(slots);
+
+        const teamData = eligibleSlots.map(s => ({
             slot: s.slotNumber,
             team_name: s.teamName,
             team_logo_url: this.resolveLogoUrl(s) ?? undefined,
         }));
 
-        const request: TeamListRequest = {
-            template_url: opts.templateUrl,
-            template_config_url: opts.templateConfigUrl,
-            team_data: teamData,
-            header_overrides: opts.headerOverrides ?? null,
-            header_style: opts.headerStyle ?? null,
-            footer_overrides: opts.footerOverrides ?? null,
-            footer_style: opts.footerStyle ?? null,
-            team_logo_size: opts.teamLogoSize ?? null,
-            team_name_font_size: opts.teamNameFontSize ?? null,
-            team_name_color: opts.teamNameColor ?? null,
-            card_overrides: opts.cardOverrides ?? null,
-            font_customization: opts.fontCustomization ?? null,
-            show_branding: opts.showBranding,
-            output_filename: opts.outputFilename,
-            options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
-        };
+        const templateCapacity = await getTemplateCapacity(opts.templateConfigUrl);
+        const teamChunks = splitTeamDataIntoChunks(teamData, templateCapacity);
 
-        const pyResponse = await pythonAIService.generateTeamList(request);
-        return this.extractResult(pyResponse, Date.now() - start);
+        if (teamChunks.length > 1) {
+            this.logger.info(
+                `Splitting ${teamData.length} roster teams into ${teamChunks.length} images (capacity ${templateCapacity})`,
+                { quickMatchId, chunkSizes: teamChunks.map(c => c.length) }
+            );
+        }
+
+        const images: GeneratedGraphicImage[] = [];
+
+        for (let i = 0; i < teamChunks.length; i++) {
+            const chunk = teamChunks[i];
+            const partIndex = i + 1;
+            const isOverflow = partIndex === teamChunks.length && chunk.length < templateCapacity;
+
+            // Remap slots 1..N within each image so cards align with the template layout
+            const chunkTeamData = chunk.map((team, idx) => ({
+                ...team,
+                slot: idx + 1,
+            }));
+
+            const chunkOutputFilename = buildSplitOutputFilename(
+                opts.outputFilename,
+                partIndex,
+                teamChunks.length
+            );
+
+            const request: TeamListRequest = {
+                template_url: opts.templateUrl,
+                template_config_url: opts.templateConfigUrl,
+                team_data: chunkTeamData,
+                header_overrides: opts.headerOverrides ?? null,
+                header_style: opts.headerStyle ?? null,
+                footer_overrides: opts.footerOverrides ?? null,
+                footer_style: opts.footerStyle ?? null,
+                team_logo_size: opts.teamLogoSize ?? null,
+                team_name_font_size: opts.teamNameFontSize ?? null,
+                team_name_color: opts.teamNameColor ?? null,
+                card_overrides: opts.cardOverrides ?? null,
+                font_customization: opts.fontCustomization ?? null,
+                ...(opts.showBranding !== undefined ? { show_branding: opts.showBranding } : {}),
+                ...(chunkOutputFilename ? { output_filename: chunkOutputFilename } : {}),
+                options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
+            };
+
+            const pyResponse = await pythonAIService.generateTeamList(request);
+            const partResult = await this.extractResult(pyResponse, Date.now() - start);
+
+            images.push({
+                part: partIndex,
+                label: isOverflow ? 'overflow' : 'main',
+                signedUrl: partResult.signedUrl,
+                imageUrl: partResult.imageUrl,
+                filename: chunkOutputFilename,
+                teamCount: chunk.length,
+            });
+        }
+
+        const first = images[0];
+        return {
+            signedUrl: first.signedUrl,
+            imageUrl: first.imageUrl,
+            generationTimeMs: Date.now() - start,
+            totalTeams: teamData.length,
+            imageCount: images.length,
+            images,
+        };
     }
 
     // ─────────────────────────────────────────
@@ -280,7 +347,7 @@ export class QuickGraphicsService extends BaseService {
             return (a.rank ?? a.position) - (b.rank ?? b.position);
         });
 
-        const rankData = sorted.map((r, i) => ({
+        const rankData = sorted.slice(0, 10).map((r, i) => ({
             rank: i + 1,
             team_name: r.teamName,
             total_points: r.totalPoints,
@@ -295,8 +362,8 @@ export class QuickGraphicsService extends BaseService {
             footer_overrides: opts.footerOverrides ?? null,
             card_overrides: opts.cardOverrides ?? null,
             font_customization: opts.fontCustomization ?? null,
-            show_branding: opts.showBranding,
-            output_filename: opts.outputFilename,
+            ...(opts.showBranding !== undefined ? { show_branding: opts.showBranding } : {}),
+            ...(opts.outputFilename ? { output_filename: opts.outputFilename } : {}),
             options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
         };
 
@@ -358,7 +425,7 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const rankData = standings.map((s: any, i: number) => ({
+        const rankData = standings.slice(0, 10).map((s: any, i: number) => ({
             rank: i + 1,
             team_name: s.teamName,
             total_points: s.totalPoints,
@@ -373,8 +440,8 @@ export class QuickGraphicsService extends BaseService {
             footer_overrides: opts.footerOverrides ?? null,
             card_overrides: opts.cardOverrides ?? null,
             font_customization: opts.fontCustomization ?? null,
-            show_branding: opts.showBranding,
-            output_filename: opts.outputFilename,
+            ...(opts.showBranding !== undefined ? { show_branding: opts.showBranding } : {}),
+            ...(opts.outputFilename ? { output_filename: opts.outputFilename } : {}),
             options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
         };
 
@@ -385,6 +452,26 @@ export class QuickGraphicsService extends BaseService {
     // ─────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────
+
+    /** Python slot-list / team-list APIs accept slot numbers 1–24 only. */
+    private static readonly MAX_GRAPHIC_SLOT = 24;
+
+    private filterSlotsWithinCapacity<T extends { slotNumber: number }>(slots: T[]): T[] {
+        const eligible = slots.filter(
+            s => s.slotNumber >= 1 && s.slotNumber <= QuickGraphicsService.MAX_GRAPHIC_SLOT
+        );
+
+        if (eligible.length === 0) {
+            throw new ServiceError(
+                `No slot assignments within slots 1–${QuickGraphicsService.MAX_GRAPHIC_SLOT}. ` +
+                'Slot list and roster graphics support at most 24 teams.',
+                400,
+                'SLOTS_EXCEED_CAPACITY'
+            );
+        }
+
+        return eligible;
+    }
 
     private resolveLogoUrl(slot: {
         matchLogoStorageUrl?: string | null;

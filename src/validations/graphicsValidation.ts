@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+// Python-style snake_case font role (used inside fontCustomization)
 const fontRoleSchema = z.object({
     font_file: z.string().optional(),
     family: z.string().optional(),
@@ -9,7 +10,9 @@ const fontRoleSchema = z.object({
     alignment: z.string().optional(),
 }).optional();
 
+// fontCustomization accepts both camelCase (Android legacy) and snake_case (Python-style)
 const fontCustomizationSchema = z.object({
+    // snake_case (Python-style, preferred)
     header_font: fontRoleSchema,
     sponsor_font: fontRoleSchema,
     organiser_font: fontRoleSchema,
@@ -31,59 +34,149 @@ const graphicsOptionsSchema = z.object({
     local_debug_path: z.string().nullable().optional(),
 }).optional().nullable();
 
+// Helper: valid output filename
+const outputFilenameSchema = z.string().regex(/^[\w\-_.]+\.png$/).optional().nullable().transform(v => v ?? undefined);
+
 // ---- Slot List ----
 // Works for both match and series — sourceType determines which service method is called.
+// Accepts both camelCase (legacy) and snake_case field names.
 export const slotListGraphicSchema = z.object({
     sourceType: z.enum(['match', 'series'] as const),
     sourceId: z.string().min(1, 'sourceId is required'),
-    templateUrl: z.string().url('templateUrl must be a valid URL'),
-    templateConfigUrl: z.string().url('templateConfigUrl must be a valid URL'),
+
+    // template URLs — accept both camelCase and snake_case
+    templateUrl: z.string().url().optional(),
+    template_url: z.string().url().optional(),
+    templateConfigUrl: z.string().url().optional(),
+    template_config_url: z.string().url().optional(),
+
+    // customisation fields — accept both naming styles
     headerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    header_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     slotNumberFontSize: z.number().optional().nullable(),
+    slot_number_font_size: z.number().optional().nullable(),
+
     teamNameFontSize: z.number().optional().nullable(),
+    team_name_font_size: z.number().optional().nullable(),
+
     slotNumberColor: z.string().optional().nullable(),
+    slot_number_color: z.string().optional().nullable(),
+
     teamNameColor: z.string().optional().nullable(),
+    team_name_color: z.string().optional().nullable(),
+
     teamLogoGap: z.number().optional().nullable(),
+    team_logo_gap: z.number().optional().nullable(),
+
     teamLogoSize: z.number().optional().nullable(),
+    team_logo_size: z.number().optional().nullable(),
+
     gridOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    grid_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     fontCustomization: fontCustomizationSchema,
-    outputFilename: z.string().regex(/^[\w\-_.]+\.png$/).optional(),
+    font_customization: fontCustomizationSchema,
+
+    outputFilename: outputFilenameSchema,
+    output_filename: outputFilenameSchema,
+
     options: graphicsOptionsSchema,
-});
+}).refine(
+    d => !!(d.templateUrl || d.template_url),
+    { message: 'templateUrl (or template_url) is required', path: ['templateUrl'] }
+).refine(
+    d => !!(d.templateConfigUrl || d.template_config_url),
+    { message: 'templateConfigUrl (or template_config_url) is required', path: ['templateConfigUrl'] }
+);
 
 // ---- Roster ----
 // Match-only graphic. sourceType must be "match".
 export const rosterGraphicSchema = z.object({
     sourceType: z.literal('match'),
     sourceId: z.string().min(1, 'sourceId (match ID) is required'),
-    templateUrl: z.string().url('templateUrl must be a valid URL'),
-    templateConfigUrl: z.string().url('templateConfigUrl must be a valid URL'),
+
+    templateUrl: z.string().url().optional(),
+    template_url: z.string().url().optional(),
+    templateConfigUrl: z.string().url().optional(),
+    template_config_url: z.string().url().optional(),
+
     headerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    header_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     headerStyle: z.record(z.string(), z.any()).optional().nullable(),
+    header_style: z.record(z.string(), z.any()).optional().nullable(),
+
     footerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    footer_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     footerStyle: z.record(z.string(), z.any()).optional().nullable(),
+    footer_style: z.record(z.string(), z.any()).optional().nullable(),
+
     teamLogoSize: z.number().optional().nullable(),
+    team_logo_size: z.number().optional().nullable(),
+
     teamNameFontSize: z.number().optional().nullable(),
+    team_name_font_size: z.number().optional().nullable(),
+
     teamNameColor: z.string().optional().nullable(),
+    team_name_color: z.string().optional().nullable(),
+
     cardOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    card_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     fontCustomization: fontCustomizationSchema,
+    font_customization: fontCustomizationSchema,
+
     showBranding: z.boolean().optional(),
-    outputFilename: z.string().regex(/^[\w\-_.]+\.png$/).optional(),
+    show_branding: z.boolean().optional(),
+
+    outputFilename: outputFilenameSchema,
+    output_filename: outputFilenameSchema,
+
     options: graphicsOptionsSchema,
-});
+}).refine(
+    d => !!(d.templateUrl || d.template_url),
+    { message: 'templateUrl (or template_url) is required', path: ['templateUrl'] }
+).refine(
+    d => !!(d.templateConfigUrl || d.template_config_url),
+    { message: 'templateConfigUrl (or template_config_url) is required', path: ['templateConfigUrl'] }
+);
 
 // ---- Top 10 ----
 // Works for both match and series.
 export const top10GraphicSchema = z.object({
     sourceType: z.enum(['match', 'series'] as const),
     sourceId: z.string().min(1, 'sourceId is required'),
-    templateUrl: z.string().url('templateUrl must be a valid URL'),
-    templateConfigUrl: z.string().url('templateConfigUrl must be a valid URL'),
+
+    templateUrl: z.string().url().optional(),
+    template_url: z.string().url().optional(),
+    templateConfigUrl: z.string().url().optional(),
+    template_config_url: z.string().url().optional(),
+
     headerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    header_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     footerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    footer_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     cardOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    card_overrides: z.record(z.string(), z.any()).optional().nullable(),
+
     fontCustomization: fontCustomizationSchema,
+    font_customization: fontCustomizationSchema,
+
     showBranding: z.boolean().optional(),
-    outputFilename: z.string().regex(/^[\w\-_.]+\.png$/).optional(),
+    show_branding: z.boolean().optional(),
+
+    outputFilename: outputFilenameSchema,
+    output_filename: outputFilenameSchema,
+
     options: graphicsOptionsSchema,
-});
+}).refine(
+    d => !!(d.templateUrl || d.template_url),
+    { message: 'templateUrl (or template_url) is required', path: ['templateUrl'] }
+).refine(
+    d => !!(d.templateConfigUrl || d.template_config_url),
+    { message: 'templateConfigUrl (or template_config_url) is required', path: ['templateConfigUrl'] }
+);

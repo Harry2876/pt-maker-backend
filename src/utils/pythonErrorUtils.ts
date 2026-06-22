@@ -1,5 +1,6 @@
 /**
  * Parse FastAPI / Python validation errors into a readable string.
+ * Handles both Pydantic-style { detail: [...] } and custom { error: { message, details } } formats.
  */
 export function extractPythonErrorDetail(err: any): string {
     const data = err?.response?.data;
@@ -11,6 +12,7 @@ export function extractPythonErrorDetail(err: any): string {
         return data;
     }
 
+    // FastAPI default Pydantic validation format: { detail: [{loc, msg, type}] }
     if (typeof data.detail === 'string') {
         return data.detail;
     }
@@ -29,9 +31,39 @@ export function extractPythonErrorDetail(err: any): string {
         return data.message;
     }
 
+    // Python custom success/error envelope: { status: 'error', error: { message, details } }
+    if (data.status === 'error' && data.error && typeof data.error === 'object') {
+        const msg = data.error.message ?? data.error.detail;
+        if (typeof msg === 'string') {
+            return msg;
+        }
+    }
+
+    // Python custom error format: { error: { code, message, details: { errors: [...] } } }
     if (data.error && typeof data.error === 'object') {
         const nested = data.error.message ?? data.error.detail;
+        const detailErrors = data.error.details?.errors;
+
         if (typeof nested === 'string') {
+            if (Array.isArray(detailErrors) && detailErrors.length > 0) {
+                const fieldErrors = detailErrors
+                    .slice(0, 5)
+                    .map((e: any) => {
+                        if (typeof e === 'string') {
+                            // Extract loc and msg from stringified dict like "{'loc': ('body', 'field'), 'msg': '...'}"
+                            const locMatch = e.match(/'loc':\s*\(([^)]+)\)/);
+                            const msgMatch = e.match(/'msg':\s*'([^']+)'/);
+                            if (locMatch && msgMatch) {
+                                const loc = locMatch[1].replace(/'/g, '').replace(/,\s*/g, '.');
+                                return `${loc}: ${msgMatch[1]}`;
+                            }
+                            return e;
+                        }
+                        return JSON.stringify(e);
+                    })
+                    .join('; ');
+                return `${nested} — ${fieldErrors}`;
+            }
             return nested;
         }
     }

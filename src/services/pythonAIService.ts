@@ -177,6 +177,17 @@ export class PythonAIService {
 
     /** POST /api/v1/slot-list/generate */
     async generateSlotList(request: SlotListRequest): Promise<GraphicsResponse> {
+        logger.debug('Python slot-list generate payload', {
+            template_url: request.template_url,
+            template_config_url: request.template_config_url,
+            slot_count: Array.isArray(request.slot_data) ? request.slot_data.length : 0,
+            has_header_overrides: request.header_overrides !== null && request.header_overrides !== undefined,
+            has_grid_overrides: request.grid_overrides !== null && request.grid_overrides !== undefined,
+            has_font_customization: request.font_customization !== null && request.font_customization !== undefined,
+            output_filename: request.output_filename,
+            options: request.options,
+        });
+
         try {
             const { data } = await this.client.post<GraphicsResponse>(
                 '/api/v1/slot-list/generate',
@@ -202,6 +213,17 @@ export class PythonAIService {
 
     /** POST /api/v1/team-list/generate (Roster) */
     async generateTeamList(request: TeamListRequest): Promise<GraphicsResponse> {
+        logger.debug('Python team-list generate payload', {
+            template_url: request.template_url,
+            template_config_url: request.template_config_url,
+            team_count: Array.isArray(request.team_data) ? request.team_data.length : 0,
+            has_header_overrides: request.header_overrides !== null && request.header_overrides !== undefined,
+            has_card_overrides: request.card_overrides !== null && request.card_overrides !== undefined,
+            has_font_customization: request.font_customization !== null && request.font_customization !== undefined,
+            output_filename: request.output_filename,
+            options: request.options,
+        });
+
         try {
             const { data } = await this.client.post<GraphicsResponse>(
                 '/api/v1/team-list/generate',
@@ -227,6 +249,17 @@ export class PythonAIService {
 
     /** POST /api/v1/top-10-rankings/generate */
     async generateTop10Rankings(request: Top10Request): Promise<GraphicsResponse> {
+        logger.debug('Python top-10-rankings generate payload', {
+            template_url: request.template_url,
+            template_config_url: request.template_config_url,
+            rank_count: Array.isArray(request.rank_data) ? request.rank_data.length : 0,
+            has_header_overrides: request.header_overrides !== null && request.header_overrides !== undefined,
+            has_card_overrides: request.card_overrides !== null && request.card_overrides !== undefined,
+            has_font_customization: request.font_customization !== null && request.font_customization !== undefined,
+            output_filename: request.output_filename,
+            options: request.options,
+        });
+
         try {
             const { data } = await this.client.post<GraphicsResponse>(
                 '/api/v1/top-10-rankings/generate',

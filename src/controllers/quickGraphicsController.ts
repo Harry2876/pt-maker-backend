@@ -15,20 +15,21 @@ export class QuickGraphicsController {
         const userId = req.user!.id;
         const { sourceType, sourceId, ...body } = req.body;
 
+        // Accept both camelCase (Android) and snake_case (Python-style) field names
         const opts = {
-            templateUrl: body.templateUrl,
-            templateConfigUrl: body.templateConfigUrl,
-            headerOverrides: body.headerOverrides ?? null,
-            slotNumberFontSize: body.slotNumberFontSize ?? null,
-            teamNameFontSize: body.teamNameFontSize ?? null,
-            slotNumberColor: body.slotNumberColor ?? null,
-            teamNameColor: body.teamNameColor ?? null,
-            teamLogoGap: body.teamLogoGap ?? null,
-            teamLogoSize: body.teamLogoSize ?? null,
-            gridOverrides: body.gridOverrides ?? null,
-            fontCustomization: body.fontCustomization ?? null,
-            outputFilename: body.outputFilename,
-            options: body.options ?? null,
+            templateUrl: body.templateUrl ?? body.template_url,
+            templateConfigUrl: body.templateConfigUrl ?? body.template_config_url,
+            headerOverrides: (body.headerOverrides ?? body.header_overrides) ?? null,
+            slotNumberFontSize: (body.slotNumberFontSize ?? body.slot_number_font_size) ?? null,
+            teamNameFontSize: (body.teamNameFontSize ?? body.team_name_font_size) ?? null,
+            slotNumberColor: (body.slotNumberColor ?? body.slot_number_color) ?? null,
+            teamNameColor: (body.teamNameColor ?? body.team_name_color) ?? null,
+            teamLogoGap: (body.teamLogoGap ?? body.team_logo_gap) ?? null,
+            teamLogoSize: (body.teamLogoSize ?? body.team_logo_size) ?? null,
+            gridOverrides: (body.gridOverrides ?? body.grid_overrides) ?? null,
+            fontCustomization: (body.fontCustomization ?? body.font_customization) ?? null,
+            outputFilename: body.outputFilename ?? body.output_filename,
+            options: (body.options) ?? null,
         };
 
         const result = sourceType === 'series'
@@ -47,19 +48,19 @@ export class QuickGraphicsController {
         const { sourceId, ...body } = req.body;
 
         const result = await quickGraphicsService.generateMatchRoster(sourceId, userId, {
-            templateUrl: body.templateUrl,
-            templateConfigUrl: body.templateConfigUrl,
-            headerOverrides: body.headerOverrides ?? null,
-            headerStyle: body.headerStyle ?? null,
-            footerOverrides: body.footerOverrides ?? null,
-            footerStyle: body.footerStyle ?? null,
-            teamLogoSize: body.teamLogoSize ?? null,
-            teamNameFontSize: body.teamNameFontSize ?? null,
-            teamNameColor: body.teamNameColor ?? null,
-            cardOverrides: body.cardOverrides ?? null,
-            fontCustomization: body.fontCustomization ?? null,
-            showBranding: body.showBranding,
-            outputFilename: body.outputFilename,
+            templateUrl: body.templateUrl ?? body.template_url,
+            templateConfigUrl: body.templateConfigUrl ?? body.template_config_url,
+            headerOverrides: (body.headerOverrides ?? body.header_overrides) ?? null,
+            headerStyle: (body.headerStyle ?? body.header_style) ?? null,
+            footerOverrides: (body.footerOverrides ?? body.footer_overrides) ?? null,
+            footerStyle: (body.footerStyle ?? body.footer_style) ?? null,
+            teamLogoSize: (body.teamLogoSize ?? body.team_logo_size) ?? null,
+            teamNameFontSize: (body.teamNameFontSize ?? body.team_name_font_size) ?? null,
+            teamNameColor: (body.teamNameColor ?? body.team_name_color) ?? null,
+            cardOverrides: (body.cardOverrides ?? body.card_overrides) ?? null,
+            fontCustomization: (body.fontCustomization ?? body.font_customization) ?? null,
+            showBranding: body.showBranding ?? body.show_branding,
+            outputFilename: body.outputFilename ?? body.output_filename,
             options: body.options ?? null,
         });
 
@@ -75,14 +76,14 @@ export class QuickGraphicsController {
         const { sourceType, sourceId, ...body } = req.body;
 
         const opts = {
-            templateUrl: body.templateUrl,
-            templateConfigUrl: body.templateConfigUrl,
-            headerOverrides: body.headerOverrides ?? null,
-            footerOverrides: body.footerOverrides ?? null,
-            cardOverrides: body.cardOverrides ?? null,
-            fontCustomization: body.fontCustomization ?? null,
-            showBranding: body.showBranding,
-            outputFilename: body.outputFilename,
+            templateUrl: body.templateUrl ?? body.template_url,
+            templateConfigUrl: body.templateConfigUrl ?? body.template_config_url,
+            headerOverrides: (body.headerOverrides ?? body.header_overrides) ?? null,
+            footerOverrides: (body.footerOverrides ?? body.footer_overrides) ?? null,
+            cardOverrides: (body.cardOverrides ?? body.card_overrides) ?? null,
+            fontCustomization: (body.fontCustomization ?? body.font_customization) ?? null,
+            showBranding: body.showBranding ?? body.show_branding,
+            outputFilename: body.outputFilename ?? body.output_filename,
             options: body.options ?? null,
         };
 
