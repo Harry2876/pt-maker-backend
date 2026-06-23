@@ -2,8 +2,9 @@ import { BaseService } from './baseService';
 import { quickMatchService } from './quickMatchService';
 import { templateService } from './templateService';
 import { pythonAIService } from './pythonAIService';
-import { signedUrlUtility } from './signedUrlUtility';
+import { mediaAssetService } from './mediaAssetService';
 import { ServiceError } from '../utils/serviceError';
+import { MediaAssetPreview, QuickMediaAssetType } from '../types/mediaAsset';
 import { buildSlotListRequest } from '../utils/slotListPayloadBuilder';
 import { buildTeamListRequest } from '../utils/teamListPayloadBuilder';
 import { buildTop10Request } from '../utils/top10PayloadBuilder';
@@ -26,10 +27,12 @@ export interface MatchSlotListInput extends SlotListExportOptions {
     formatType: string;
 }
 
-/** Response returned to Android */
+/** Response returned to Android — load previewUrl with Authorization header */
 export interface SlotListGenerationResult {
+    assetId: string;
+    previewUrl: string;
+    /** @deprecated Use previewUrl with Authorization header */
     signedUrl: string;
-    imageUrl: string;
     generationTimeMs: number;
     slotCount: number;
 }
@@ -43,15 +46,19 @@ export interface MatchRosterInput extends TeamListExportOptions {
 export interface RosterGraphicImage {
     part: number;
     label: 'main' | 'overflow';
+    assetId: string;
+    previewUrl: string;
+    /** @deprecated Use previewUrl with Authorization header */
     signedUrl: string;
-    imageUrl: string;
     filename?: string;
     teamCount: number;
 }
 
 export interface RosterGenerationResult {
+    assetId: string;
+    previewUrl: string;
+    /** @deprecated Use previewUrl with Authorization header */
     signedUrl: string;
-    imageUrl: string;
     generationTimeMs: number;
     totalTeams: number;
     imageCount: number;
@@ -65,8 +72,10 @@ export interface MatchTop10Input extends Top10ExportOptions {
 }
 
 export interface Top10GenerationResult {
+    assetId: string;
+    previewUrl: string;
+    /** @deprecated Use previewUrl with Authorization header */
     signedUrl: string;
-    imageUrl: string;
     generationTimeMs: number;
     rankCount: number;
 }
@@ -154,11 +163,19 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const { signedUrl, imageUrl } = await this.signPythonImageResponse(pyResponse);
+        const preview = await this.registerPythonImageAsAsset(
+            userId,
+            quickMatchId,
+            'SLOT_LIST',
+            pyResponse,
+            { slotCount: slotData.length, template: input.template, formatType: input.formatType },
+            input.outputFilename,
+        );
 
         return {
-            signedUrl,
-            imageUrl,
+            assetId: preview.assetId,
+            previewUrl: preview.previewUrl,
+            signedUrl: preview.previewUrl,
             generationTimeMs: Date.now() - start,
             slotCount: slotData.length,
         };
@@ -264,13 +281,27 @@ export class QuickGraphicsService extends BaseService {
                 );
             }
 
-            const { signedUrl, imageUrl } = await this.signPythonImageResponse(pyResponse);
+            const preview = await this.registerPythonImageAsAsset(
+                userId,
+                quickMatchId,
+                'ROSTER',
+                pyResponse,
+                {
+                    part: partIndex,
+                    label: isOverflow ? 'overflow' : 'main',
+                    teamCount: chunk.length,
+                    template: input.template,
+                    formatType: input.formatType,
+                },
+                chunkOutputFilename,
+            );
 
             images.push({
                 part: partIndex,
                 label: isOverflow ? 'overflow' : 'main',
-                signedUrl,
-                imageUrl,
+                assetId: preview.assetId,
+                previewUrl: preview.previewUrl,
+                signedUrl: preview.previewUrl,
                 filename: chunkOutputFilename,
                 teamCount: chunk.length,
             });
@@ -278,8 +309,9 @@ export class QuickGraphicsService extends BaseService {
 
         const first = images[0];
         return {
-            signedUrl: first.signedUrl,
-            imageUrl: first.imageUrl,
+            assetId: first.assetId,
+            previewUrl: first.previewUrl,
+            signedUrl: first.previewUrl,
             generationTimeMs: Date.now() - start,
             totalTeams: teamData.length,
             imageCount: images.length,
@@ -353,11 +385,19 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const { signedUrl, imageUrl } = await this.signPythonImageResponse(pyResponse);
+        const preview = await this.registerPythonImageAsAsset(
+            userId,
+            quickMatchId,
+            'TOP_10',
+            pyResponse,
+            { rankCount: rankData.length, template: input.template, formatType: input.formatType },
+            input.outputFilename,
+        );
 
         return {
-            signedUrl,
-            imageUrl,
+            assetId: preview.assetId,
+            previewUrl: preview.previewUrl,
+            signedUrl: preview.previewUrl,
             generationTimeMs: Date.now() - start,
             rankCount: rankData.length,
         };
@@ -372,9 +412,7 @@ export class QuickGraphicsService extends BaseService {
         });
     }
 
-    private async signPythonImageResponse(
-        pyResponse: { data?: Record<string, any>; metadata?: Record<string, any> }
-    ): Promise<{ signedUrl: string; imageUrl: string }> {
+    private extractRawImageUrl(pyResponse: { data?: Record<string, any>; metadata?: Record<string, any> }): string {
         const rawImageUrl: string =
             pyResponse.data?.image_url ||
             pyResponse.data?.download_url ||
@@ -389,32 +427,27 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const r2Key = this.extractR2KeyFromUrl(rawImageUrl);
-        const signed = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
-
-        return { signedUrl: signed.signedUrl, imageUrl: rawImageUrl };
+        return rawImageUrl;
     }
 
-    /** Same helper as quickExportService — extracts R2 key from Python's returned URL */
-    private extractR2KeyFromUrl(imageUrl: string): string {
-        try {
-            const url = new URL(imageUrl);
-            let key = url.pathname.replace(/^\/+/, '');
-            const bucketName = process.env.R2_BUCKET_NAME;
+    private async registerPythonImageAsAsset(
+        userId: string,
+        quickMatchId: string,
+        assetType: QuickMediaAssetType,
+        pyResponse: { data?: Record<string, any>; metadata?: Record<string, any> },
+        metadata?: Record<string, unknown>,
+        filename?: string,
+    ): Promise<MediaAssetPreview> {
+        const rawImageUrl = this.extractRawImageUrl(pyResponse);
 
-            if (bucketName && key.startsWith(`${bucketName}/`)) {
-                key = key.substring(bucketName.length + 1);
-            }
-
-            if (!key) {
-                throw new Error('Empty R2 object key');
-            }
-
-            return key;
-        } catch {
-            this.logger.error('Failed to extract R2 key from URL:', imageUrl);
-            throw new ServiceError('Invalid image URL format', 502, 'PYTHON_AI_ERROR');
-        }
+        return mediaAssetService.registerFromImageUrl({
+            userId,
+            quickMatchId,
+            assetType,
+            rawImageUrl,
+            filename,
+            metadata,
+        });
     }
 }
 

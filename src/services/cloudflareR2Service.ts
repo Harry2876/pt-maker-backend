@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Readable } from "stream";
 import { BaseService } from "./baseService";
 import crypto from 'crypto';
 
@@ -90,6 +91,29 @@ export class CloudflareR2Service extends BaseService {
         } catch (error) {
             this.logger.error(`Failed to generate signed URL for: ${key}`, error);
             throw new Error('Failed to generate download URL');
+        }
+    }
+
+    /** Stream an object from R2 for authenticated media proxy responses. */
+    async getObjectStream(key: string): Promise<{ body: Readable; contentType: string }> {
+        try {
+            const command = new GetObjectCommand({
+                Bucket: this.bucketName,
+                Key: key,
+            });
+            const response = await this.s3Client.send(command);
+
+            if (!response.Body) {
+                throw new Error('Empty R2 object body');
+            }
+
+            return {
+                body: response.Body as Readable,
+                contentType: response.ContentType ?? 'image/png',
+            };
+        } catch (error) {
+            this.logger.error(`Failed to stream object from R2: ${key}`, error);
+            throw new Error('Failed to stream media from storage');
         }
     }
 

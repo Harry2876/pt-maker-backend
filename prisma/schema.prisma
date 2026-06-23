@@ -39,6 +39,7 @@ model User {
   tieBreakingConfigs    TieBreakingConfig[]
   resolvedConflicts     ConflictGroup[]
   teamLogoPresets       TeamLogoPreset[]
+  quickMediaAssets      QuickMediaAsset[]
 
   @@map("users")
 }
@@ -469,6 +470,7 @@ model QuickTournamentSeries {
   user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   seriesMatches QuickSeriesMatch[]
   leaderboard   QuickSeriesLeaderboard?
+  mediaAssets   QuickMediaAsset[]
 
   // Indexes
   @@index([userId, createdAt(sort: Desc)])
@@ -546,6 +548,7 @@ model QuickMatch {
   pointsTable     QuickPointsTable?
   seriesMatch     QuickSeriesMatch?
   QuickMatchCrop  QuickMatchCrop[]
+  mediaAssets     QuickMediaAsset[]
 
   // Indexes (rest stays same)
   @@index([userId, createdAt(sort: Desc)])
@@ -673,6 +676,36 @@ model QuickPointsTable {
   @@index([quickMatchId])
   @@index([expiresAt])
   @@map("quick_points_tables")
+}
+
+enum QuickMediaAssetType {
+  STANDINGS
+  SLOT_LIST
+  ROSTER
+  TOP_10
+  SERIES_STANDINGS
+}
+
+model QuickMediaAsset {
+  id            String              @id @default(cuid())
+  userId        String
+  quickMatchId  String?
+  quickSeriesId String?
+  assetType     QuickMediaAssetType
+  r2Key         String
+  mimeType      String              @default("image/png")
+  filename      String?
+  metadata      Json?
+  createdAt     DateTime            @default(now())
+
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quickMatch  QuickMatch?            @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+  quickSeries QuickTournamentSeries? @relation(fields: [quickSeriesId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([quickMatchId, createdAt(sort: Desc)])
+  @@index([quickSeriesId, createdAt(sort: Desc)])
+  @@map("quick_media_assets")
 }
 
 enum QuickSeriesStatus {

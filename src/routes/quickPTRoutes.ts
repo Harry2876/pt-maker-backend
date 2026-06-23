@@ -65,6 +65,7 @@ import { assignPresetEntrySchema } from '../validations/teamLogoPresetValidation
 import { slotListGraphicSchema } from '../validations/slotListValidation';
 import { rosterGraphicSchema } from '../validations/rosterValidation';
 import { top10GraphicSchema } from '../validations/top10Validation';
+import { MediaAssetController } from '../controllers/mediaAssetController';
 import multer from 'multer';
 
 const logoUpload = multer({
@@ -88,7 +89,44 @@ const logoUpload = multer({
 
 const quickPTRouter = express.Router();
 
-// Apply authentication to all Quick-PT routes
+/**
+ * @swagger
+ * /api/v1/quick-pt/media/{assetId}:
+ *   get:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Stream a generated media asset (PNG)
+ *     description: |
+ *       Authenticated proxy for exported graphics. Returns PNG with inline disposition.
+ *       Auth via **Authorization: Bearer** header or **`?access_token=`** query param.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: assetId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: access_token
+ *         schema:
+ *           type: string
+ *         description: JWT access token (alternative to Authorization header)
+ *     responses:
+ *       200:
+ *         description: PNG image stream
+ *         content:
+ *           image/png:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Missing or invalid token
+ *       404:
+ *         description: Asset not found
+ */
+quickPTRouter.get('/media/:assetId', authenticateUser, MediaAssetController.streamMedia);
+
+// Apply authentication to all other Quick-PT routes
 quickPTRouter.use(authenticateUser);
 
 // ========================================
@@ -4450,6 +4488,41 @@ quickPTRouter.get(
  *         description: Unauthorized
  */
 quickPTRouter.get('/fonts', QuickPTController.getFontsList);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/media:
+ *   get:
+ *     tags: [Quick-PT Graphics]
+ *     summary: List export media history for a match
+ *     description: |
+ *       Returns all stored media assets (standings, slot-list, roster, top-10) for a match,
+ *       newest first. Re-fetch any item via GET /quick-pt/media/{assetId}.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [STANDINGS, SLOT_LIST, ROSTER, TOP_10]
+ *         description: Optional filter by asset type
+ *     responses:
+ *       200:
+ *         description: Media history retrieved
+ *       404:
+ *         description: Match not found
+ */
+quickPTRouter.get(
+    '/matches/:id/media',
+    validateRequest(quickMatchParamsSchema, 'params'),
+    MediaAssetController.listMatchMedia,
+);
 
 /**
  * @swagger

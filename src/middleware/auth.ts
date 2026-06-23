@@ -20,6 +20,44 @@ declare global {
   }
 }
 
+function parseAccessTokenFromUrl(originalUrl: string): string | null {
+  const qIndex = originalUrl.indexOf('?');
+  if (qIndex === -1) {
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams(originalUrl.slice(qIndex + 1));
+    const token = params.get('access_token') ?? params.get('token');
+    return token?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// Extract JWT from Authorization header or ?access_token= / ?token= (for image preview URLs)
+export function extractAccessTokenFromRequest(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7).trim();
+  }
+
+  const queryToken = req.query.access_token ?? req.query.token;
+  if (typeof queryToken === 'string' && queryToken.length > 0) {
+    return queryToken.trim();
+  }
+  if (Array.isArray(queryToken) && typeof queryToken[0] === 'string') {
+    return queryToken[0].trim();
+  }
+
+  const fromUrl = parseAccessTokenFromUrl(req.originalUrl);
+  if (fromUrl) {
+    return fromUrl;
+  }
+
+  return null;
+}
+
 // Main authentication middleware for protected routes
 export const authenticateUser = async (
   req: Request,
@@ -27,10 +65,10 @@ export const authenticateUser = async (
   next: NextFunction
 ) => {
   try {
-    const authHeader = req.headers.authorization;
+    const token = extractAccessTokenFromRequest(req);
     const requestId = req.headers['x-request-id'] ?? '-';
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       logger.warn(
         `Auth: missing token | ${req.method} ${req.path} | ip=${req.ip} [${requestId}]`
       );
@@ -38,8 +76,6 @@ export const authenticateUser = async (
         .status(401)
         .json(ResponseHelper.unauthorized('Authorization token required'));
     }
-
-    const token = authHeader.substring(7);
 
     const sessionData = await authService.verifySessionToken(token);
     const user = await authService.getUserByPhone(sessionData.phoneNumber);
@@ -78,10 +114,9 @@ export const optionalAuth = async (
   next: NextFunction
 ) => {
   try {
-    const authHeader = req.headers.authorization;
+    const token = extractAccessTokenFromRequest(req);
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
+    if (token) {
       const sessionData = await authService.verifySessionToken(token);
       const user = await authService.getUserByPhone(sessionData.phoneNumber);
 

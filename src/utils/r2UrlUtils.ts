@@ -32,10 +32,22 @@ export function storageUrlToR2Key(storageUrl: string): string {
         if (bucketName && key.startsWith(`${bucketName}/`)) {
             key = key.substring(bucketName.length + 1);
         }
+        if (key.startsWith('pt-maker-screenshots/')) {
+            key = key.substring('pt-maker-screenshots/'.length);
+        }
         return key;
     } catch {
         return storageUrl.replace(/^\/+/, '');
     }
+}
+
+/** Normalize Python image URL to an R2 object key inside the bucket. */
+export function extractR2KeyFromUrl(imageUrl: string): string {
+    const key = storageUrlToR2Key(imageUrl);
+    if (!key) {
+        throw new Error('Empty R2 object key');
+    }
+    return key;
 }
 
 /**

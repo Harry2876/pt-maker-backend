@@ -14,6 +14,8 @@ import { templateService } from '../services/templateService';
 import { excelExportService } from '../services/excelExportService';
 import { pythonAIService } from '../services/pythonAIService';
 import { quickGraphicsService } from '../services/quickGraphicsService';
+import { extractAccessTokenFromRequest } from '../middleware/auth';
+import { withMediaPreviewAuth } from '../utils/mediaPreviewUrl';
 
 export class QuickPTController {
 
@@ -659,7 +661,7 @@ export class QuickPTController {
             : 'Standings exported successfully';
 
         return res.json(
-            ResponseHelper.success(message, result)
+            ResponseHelper.success(message, withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)))
         );
     });
 
@@ -678,7 +680,10 @@ export class QuickPTController {
         }
 
         return res.json(
-            ResponseHelper.success('Points table retrieved successfully', pointsTable)
+            ResponseHelper.success(
+                'Points table retrieved successfully',
+                withMediaPreviewAuth(pointsTable, extractAccessTokenFromRequest(req)),
+            )
         );
     });
 
@@ -728,7 +733,7 @@ export class QuickPTController {
             : 'Standings regenerated successfully';
 
         return res.json(
-            ResponseHelper.success(message, result)
+            ResponseHelper.success(message, withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)))
         );
     });
 
@@ -1022,7 +1027,12 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
             fontCustomization,
         });
 
-        return res.json(ResponseHelper.success('Slot list graphic generated successfully', result));
+        return res.json(
+            ResponseHelper.success(
+                'Slot list graphic generated successfully',
+                withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)),
+            ),
+        );
     });
 
     /**
@@ -1066,7 +1076,12 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
             showBranding,
         });
 
-        return res.json(ResponseHelper.success('Roster graphic generated successfully', result));
+        return res.json(
+            ResponseHelper.success(
+                'Roster graphic generated successfully',
+                withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)),
+            ),
+        );
     });
 
     static generateMatchTop10 = asyncHandler(async (req: Request, res: Response) => {
@@ -1096,7 +1111,12 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
             showBranding,
         });
 
-        return res.json(ResponseHelper.success('Top-10 rankings graphic generated successfully', result));
+        return res.json(
+            ResponseHelper.success(
+                'Top-10 rankings graphic generated successfully',
+                withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)),
+            ),
+        );
     });
 
 }

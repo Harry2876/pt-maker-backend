@@ -5,7 +5,9 @@ import { quickMatchService } from './quickMatchService';
 import { quickResultService } from './quickResultService';
 import { templateService } from './templateService';
 import { tieBreakingService } from './tieBreakingService';
-import { signedUrlUtility } from './signedUrlUtility';
+import { mediaAssetService } from './mediaAssetService';
+import { QuickMediaAssetType } from '../types/mediaAsset';
+import { extractR2KeyFromUrl } from '../utils/r2UrlUtils';
 import { QuickPointsTableCache, QuickMatchResultCache } from '../types/quickResult';
 import { pythonAIService } from './pythonAIService';
 import { StandingsTeamData, StandingsExportOptions } from '../types/pythonAI';
@@ -74,6 +76,8 @@ export interface ExportSeriesLeaderboardResponse {
     imageCount: number;
     generationTimeMs: number;
     images: ExportStandingsImage[];
+    previewImageUrl: string;
+    /** @deprecated Use previewImageUrl with Authorization header */
     signedImageUrl: string;
 }
 
@@ -81,6 +85,9 @@ export interface ExportSeriesLeaderboardResponse {
 export interface ExportStandingsImage {
     part: number;
     label: 'main' | 'overflow';
+    assetId: string;
+    previewUrl: string;
+    /** @deprecated Use previewUrl with Authorization header */
     signedUrl: string;
     filename?: string;
     teamCount: number;
@@ -94,7 +101,8 @@ export interface ExportPointsTableResponse {
     imageCount: number;
     generationTimeMs: number;
     images: ExportStandingsImage[];
-    /** First image signed URL — convenience alias for single-image clients */
+    previewImageUrl: string;
+    /** @deprecated Use previewImageUrl with Authorization header */
     signedImageUrl: string;
 }
 
@@ -102,11 +110,14 @@ interface StoredStandingsImage {
     part: number;
     label: 'main' | 'overflow';
     originalUrl: string;
+    assetId?: string;
     filename?: string;
     teamCount: number;
 }
 
 interface GeneratedStandingsImage extends StoredStandingsImage {
+    assetId: string;
+    previewUrl: string;
     signedUrl: string;
     r2Key: string;
 }
@@ -189,7 +200,9 @@ export class QuickExportService extends BaseService {
             }));
 
             const generatedImages = await this.generateStandingsImages({
+                userId,
                 quickMatchId,
+                assetType: 'STANDINGS',
                 templateName,
                 resolvedFormatType,
                 templateConfig,
@@ -199,7 +212,9 @@ export class QuickExportService extends BaseService {
 
             const generationTimeMs = Date.now() - startTime;
             const pointsTableId = randomUUID();
-            const storedImages: StoredStandingsImage[] = generatedImages.map(({ signedUrl: _s, r2Key: _k, ...rest }) => rest);
+            const storedImages: StoredStandingsImage[] = generatedImages.map(
+                ({ r2Key: _k, previewUrl: _p, signedUrl: _s, ...rest }) => rest,
+            );
 
             // 7. Persist to DB and cache (upsert so re-exports overwrite previous record)
             await this.db.quickPointsTable.upsert({
@@ -245,7 +260,7 @@ export class QuickExportService extends BaseService {
             const cacheEntry: QuickPointsTableCache = {
                 id: pointsTableId,
                 quickMatchId,
-                tableImageUrl: response.signedImageUrl,
+                tableImageUrl: response.previewImageUrl,
                 generationTimeMs,
                 template: templateName,
                 expiresAt: new Date(Date.now() + this.EXPORT_CACHE_TTL * 1000).toISOString(),
@@ -331,16 +346,21 @@ export class QuickExportService extends BaseService {
             const storedImages = this.normalizeStoredImages(record.csvData, record.tableImageUrl ?? undefined);
             if (storedImages.length === 0) return null;
 
-            const signedImages = await this.signStoredImages(storedImages);
+            const resolvedImages = await this.resolveStoredImages(
+                userId,
+                quickMatchId,
+                storedImages,
+                'STANDINGS',
+            );
             const csvData = record.csvData as Record<string, unknown> | null;
 
             return this.buildExportResponse(
                 record.id,
                 record.template,
-                (csvData?.format_type as string) ?? this.determineFormatType(signedImages.reduce((n, i) => n + i.teamCount, 0)),
-                (csvData?.total_teams as number) ?? signedImages.reduce((n, i) => n + i.teamCount, 0),
+                (csvData?.format_type as string) ?? this.determineFormatType(resolvedImages.reduce((n, i) => n + i.teamCount, 0)),
+                (csvData?.total_teams as number) ?? resolvedImages.reduce((n, i) => n + i.teamCount, 0),
                 record.generationTimeMs ?? 0,
-                signedImages
+                resolvedImages
             );
         } catch (error) {
             this.handleError(error, 'Get Points Table');
@@ -417,7 +437,10 @@ export class QuickExportService extends BaseService {
             });
 
             const generatedImages = await this.generateStandingsImages({
+                userId,
                 quickMatchId: seriesId,
+                quickSeriesId: seriesId,
+                assetType: 'SERIES_STANDINGS',
                 templateName,
                 resolvedFormatType,
                 templateConfig,
@@ -426,13 +449,19 @@ export class QuickExportService extends BaseService {
             });
 
             const generationTimeMs = Date.now() - startTime;
-            const clientImages: ExportStandingsImage[] = generatedImages.map(({ part, label, signedUrl, filename, teamCount }) => ({
-                part,
-                label,
-                signedUrl,
-                filename,
-                teamCount,
-            }));
+            const clientImages: ExportStandingsImage[] = generatedImages.map(
+                ({ part, label, assetId, previewUrl, filename, teamCount }) => ({
+                    part,
+                    label,
+                    assetId,
+                    previewUrl,
+                    signedUrl: previewUrl,
+                    filename,
+                    teamCount,
+                }),
+            );
+
+            const firstPreview = clientImages[0]?.previewUrl ?? '';
 
             return {
                 seriesId,
@@ -442,7 +471,8 @@ export class QuickExportService extends BaseService {
                 imageCount: clientImages.length,
                 generationTimeMs,
                 images: clientImages,
-                signedImageUrl: clientImages[0]?.signedUrl ?? '',
+                previewImageUrl: firstPreview,
+                signedImageUrl: firstPreview,
             };
         } catch (error) {
             this.logger.error(`exportSeriesLeaderboard failed for series ${seriesId}:`, error);
@@ -700,7 +730,10 @@ export class QuickExportService extends BaseService {
     }
 
     private async generateStandingsImages(params: {
+        userId: string;
         quickMatchId: string;
+        quickSeriesId?: string;
+        assetType: QuickMediaAssetType;
         templateName: string;
         resolvedFormatType: string;
         templateConfig: { templateUrl: string; configUrl: string };
@@ -708,7 +741,10 @@ export class QuickExportService extends BaseService {
         stylingOptions: StandingsExportOptions;
     }): Promise<GeneratedStandingsImage[]> {
         const {
+            userId,
             quickMatchId,
+            quickSeriesId,
+            assetType,
             templateName,
             resolvedFormatType,
             templateConfig,
@@ -773,13 +809,29 @@ export class QuickExportService extends BaseService {
                 throw new Error('Python AI did not return an image URL in the response');
             }
 
-            const r2Key = this.extractR2KeyFromUrl(rawImageUrl);
-            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+            const r2Key = extractR2KeyFromUrl(rawImageUrl);
+            const preview = await mediaAssetService.registerFromImageUrl({
+                userId,
+                quickMatchId: quickSeriesId ? undefined : quickMatchId,
+                quickSeriesId,
+                assetType,
+                rawImageUrl,
+                filename: chunkOutputFilename,
+                metadata: {
+                    part: partIndex,
+                    label: isOverflow ? 'overflow' : 'main',
+                    teamCount: chunk.length,
+                    template: templateName,
+                    formatType: resolvedFormatType,
+                },
+            });
 
             generatedImages.push({
                 part: partIndex,
                 label: isOverflow ? 'overflow' : 'main',
-                signedUrl: signedUrlData.signedUrl,
+                assetId: preview.assetId,
+                previewUrl: preview.previewUrl,
+                signedUrl: preview.previewUrl,
                 originalUrl: rawImageUrl,
                 r2Key,
                 filename: chunkOutputFilename,
@@ -798,13 +850,19 @@ export class QuickExportService extends BaseService {
         generationTimeMs: number,
         images: GeneratedStandingsImage[]
     ): ExportPointsTableResponse {
-        const clientImages: ExportStandingsImage[] = images.map(({ part, label, signedUrl, filename, teamCount }) => ({
-            part,
-            label,
-            signedUrl,
-            filename,
-            teamCount,
-        }));
+        const clientImages: ExportStandingsImage[] = images.map(
+            ({ part, label, assetId, previewUrl, filename, teamCount }) => ({
+                part,
+                label,
+                assetId,
+                previewUrl,
+                signedUrl: previewUrl,
+                filename,
+                teamCount,
+            }),
+        );
+
+        const firstPreview = clientImages[0]?.previewUrl ?? '';
 
         return {
             pointsTableId,
@@ -814,21 +872,68 @@ export class QuickExportService extends BaseService {
             imageCount: clientImages.length,
             generationTimeMs,
             images: clientImages,
-            signedImageUrl: clientImages[0]?.signedUrl ?? '',
+            previewImageUrl: firstPreview,
+            signedImageUrl: firstPreview,
         };
     }
 
-    private async signStoredImages(stored: StoredStandingsImage[]): Promise<GeneratedStandingsImage[]> {
+    private async resolveStoredImages(
+        userId: string,
+        quickMatchId: string,
+        stored: StoredStandingsImage[],
+        assetType: QuickMediaAssetType,
+        quickSeriesId?: string,
+    ): Promise<GeneratedStandingsImage[]> {
         return Promise.all(
             stored.map(async (img) => {
-                const r2Key = this.extractR2KeyFromUrl(img.originalUrl);
-                const signed = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+                const r2Key = extractR2KeyFromUrl(img.originalUrl);
+
+                if (img.assetId) {
+                    const preview = mediaAssetService.previewForAssetId(img.assetId);
+                    return {
+                        ...img,
+                        assetId: preview.assetId,
+                        previewUrl: preview.previewUrl,
+                        signedUrl: preview.previewUrl,
+                        r2Key,
+                    };
+                }
+
+                const existing = await mediaAssetService.findByR2Key(userId, r2Key);
+                if (existing) {
+                    const preview = mediaAssetService.previewForAssetId(existing.id);
+                    return {
+                        ...img,
+                        assetId: preview.assetId,
+                        previewUrl: preview.previewUrl,
+                        signedUrl: preview.previewUrl,
+                        r2Key,
+                    };
+                }
+
+                const preview = await mediaAssetService.registerFromImageUrl({
+                    userId,
+                    quickMatchId: quickSeriesId ? undefined : quickMatchId,
+                    quickSeriesId,
+                    assetType,
+                    rawImageUrl: img.originalUrl,
+                    filename: img.filename,
+                    metadata: {
+                        part: img.part,
+                        label: img.label,
+                        teamCount: img.teamCount,
+                        migratedFromLegacy: true,
+                    },
+                });
+
                 return {
                     ...img,
-                    signedUrl: signed.signedUrl,
+                    assetId: preview.assetId,
+                    previewUrl: preview.previewUrl,
+                    signedUrl: preview.previewUrl,
                     r2Key,
                 };
-            })
+            }),
         );
     }
 
@@ -848,6 +953,7 @@ export class QuickExportService extends BaseService {
                 part: img.part ?? img.part_index ?? idx + 1,
                 label: (img.label ?? img.part_label ?? (idx === 0 ? 'main' : 'overflow')) as 'main' | 'overflow',
                 originalUrl: img.originalUrl ?? img.original_url ?? img.original_image_url,
+                assetId: img.assetId ?? img.asset_id,
                 filename: img.filename ?? img.output_filename,
                 teamCount: img.teamCount ?? img.team_count ?? img.teams_processed ?? 0,
             })).filter((img: StoredStandingsImage) => !!img.originalUrl);
@@ -864,33 +970,6 @@ export class QuickExportService extends BaseService {
         }
 
         return [];
-    }
-
-    /**
-     * Extract R2 key from full R2 URL
-     */
-    private extractR2KeyFromUrl(imageUrl: string): string {
-        try {
-            const url = new URL(imageUrl);
-            let key = url.pathname.replace(/^\/+/, ''); // Remove leading slashes
-            const bucketName = process.env.R2_BUCKET_NAME;
-
-            // Python service can return path-style URLs like:
-            // https://<account>.r2.cloudflarestorage.com/<bucket>/<key>
-            // Our signer expects only <key> (without bucket prefix).
-            if (bucketName && key.startsWith(`${bucketName}/`)) {
-                key = key.substring(bucketName.length + 1);
-            }
-
-            if (!key) {
-                throw new Error('Empty R2 object key');
-            }
-
-            return key;
-        } catch (error) {
-            this.logger.error('Failed to extract R2 key from URL:', imageUrl);
-            throw new Error('Invalid image URL format');
-        }
     }
 
     /**
