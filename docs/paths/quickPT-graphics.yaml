@@ -222,6 +222,10 @@ paths:
         Use `sourceType: "match"` to draw slots from a single match, or
         `sourceType: "series"` to use the series' slot-source match.
 
+        **Template selection:** Same as standings export — pass `template` (name from
+        `GET /quick-pt/templates`) and `formatType` (category key, e.g. `slot_list`).
+        Node resolves image + config URLs server-side; the app does not send URLs.
+
         **Logo resolution per slot:** match logo → preset entry logo → none
 
         **Options default:** `upload_to_r2: true`, `render_scale: 0` (auto supersample).
@@ -246,8 +250,8 @@ paths:
             example:
               sourceType: "match"
               sourceId: "clx_match_abc123"
-              templateUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl1.png"
-              templateConfigUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl_1config.json"
+              template: "sl1"
+              formatType: "slot_list"
               headerOverrides:
                 extra_text_info: "BGMI SCRIMS"
                 information: "Group A — Day 1"
@@ -305,6 +309,12 @@ paths:
 
         Teams, slot numbers, and logos come from the match's slot assignments.
 
+        **Template selection:** Pass `template` + `formatType` from `GET /quick-pt/templates`
+        (e.g. `template: "team_roster1"`, `formatType: "team_roster"`). Node resolves URLs server-side.
+
+        **Split export:** If team count exceeds template capacity (e.g. 22 teams on an 8-team
+        template), Node generates multiple images automatically (`imageCount` > 1, see `images` array).
+
         **Options default:** `upload_to_r2: true`, `render_scale: 0` (auto supersample).
 
         ### Card override rules
@@ -323,8 +333,8 @@ paths:
             example:
               sourceType: "match"
               sourceId: "clx_match_abc123"
-              templateUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster1.png"
-              templateConfigUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster_Config1.json"
+              template: "team_roster1"
+              formatType: "team_roster"
               headerOverrides:
                 event_name: "BGMI Championship"
                 title: "TEAM ROSTER"
@@ -410,6 +420,9 @@ paths:
         If fewer than 10 teams exist, all teams are included (they are all in top 10).
         Team logos resolved automatically per team (match logo → preset logo → none).
 
+        **Template selection:** Pass `template` + `formatType` from `GET /quick-pt/templates`
+        (e.g. `template: "t10template_1"`, `formatType: "top_10"`).
+
         **Options default:** `upload_to_r2: true`, `render_scale: 0` (auto supersample).
 
         ### How to tune tilted cards
@@ -428,8 +441,8 @@ paths:
             example:
               sourceType: "match"
               sourceId: "clx_match_abc123"
-              templateUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_1.png"
-              templateConfigUrl: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_Config_1.json"
+              template: "t10template_1"
+              formatType: "top_10"
               headerOverrides:
                 title_enabled: false
                 event_name_enabled: false
@@ -493,12 +506,14 @@ components:
 
     SlotListRequest:
       type: object
-      required: [sourceType, sourceId, templateUrl, templateConfigUrl]
+      required: [sourceType, sourceId, template, formatType]
       description: |
         Request body for slot-list graphic generation (match or series).
 
-        All fields except `sourceType`, `sourceId`, `templateUrl`, and `templateConfigUrl`
-        are optional. The slot data (team names + logos) is pulled automatically from DB.
+        Pass `template` and `formatType` from `GET /quick-pt/templates` — same pattern as
+        standings export. Node resolves image + config and re-signs URLs for Python.
+
+        All other fields are optional. Slot data (team names + logos) is pulled from DB.
       properties:
         sourceType:
           type: string
@@ -509,16 +524,14 @@ components:
           type: string
           description: Quick Match ID or Series ID depending on sourceType
           example: "clx_match_abc123"
-        templateUrl:
+        template:
           type: string
-          format: uri
-          description: Public HTTPS URL of the background PNG template in R2
-          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl1.png"
-        templateConfigUrl:
+          description: Template name from GET /quick-pt/templates (e.g. sl1)
+          example: "sl1"
+        formatType:
           type: string
-          format: uri
-          description: Public HTTPS URL of the coordinate JSON config in R2
-          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl_1config.json"
+          description: Category key from GET /quick-pt/templates
+          example: "slot_list"
 
         # ── Shortcut styling ─────────────────────────────────────────
         slotNumberFontSize:
@@ -655,10 +668,12 @@ components:
     # ────────────────────────────────────────────────────────────────────
     RosterRequest:
       type: object
-      required: [sourceType, sourceId, templateUrl, templateConfigUrl]
+      required: [sourceType, sourceId, template, formatType]
       description: |
         Request body for the team roster / team-list graphic. Match-only.
+        Pass `template` + `formatType` from GET /quick-pt/templates.
         Team data and logos are pulled automatically from DB slot assignments.
+        Returns multiple images when team count exceeds template capacity.
       properties:
         sourceType:
           type: string
@@ -669,14 +684,14 @@ components:
           type: string
           description: Quick Match ID
           example: "clx_match_abc123"
-        templateUrl:
+        template:
           type: string
-          format: uri
-          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster1.png"
-        templateConfigUrl:
+          description: Template name from GET /quick-pt/templates
+          example: "team_roster1"
+        formatType:
           type: string
-          format: uri
-          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster_Config1.json"
+          description: Category key — use `team_roster`
+          example: "team_roster"
 
         # ── Shortcut styling ─────────────────────────────────────────
         teamLogoSize:
@@ -913,9 +928,10 @@ components:
     # ────────────────────────────────────────────────────────────────────
     Top10Request:
       type: object
-      required: [sourceType, sourceId, templateUrl, templateConfigUrl]
+      required: [sourceType, sourceId, template, formatType]
       description: |
         Request body for Top 10 rankings graphic (match or series).
+        Pass `template` + `formatType` from GET /quick-pt/templates.
         Rank data is pulled automatically from DB — for match: match results,
         for series: series leaderboard. If fewer than 10 teams exist, all are shown.
       properties:
@@ -928,14 +944,14 @@ components:
           type: string
           description: Quick Match ID or Series ID
           example: "clx_match_abc123"
-        templateUrl:
+        template:
           type: string
-          format: uri
-          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_1.png"
-        templateConfigUrl:
+          description: Template name from GET /quick-pt/templates
+          example: "t10template_1"
+        formatType:
           type: string
-          format: uri
-          example: "https://72777b3003d630943d19b755e236627f.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_Config_1.json"
+          description: Category key — use `top_10`
+          example: "top_10"
 
         # ── Header overrides ─────────────────────────────────────────
         headerOverrides:
@@ -1134,13 +1150,33 @@ components:
             signedUrl:
               type: string
               format: uri
-              description: Signed CDN URL of the generated graphic (valid 30 min)
+              description: Signed CDN URL of the first generated graphic (valid 30 min)
             imageUrl:
               type: string
               format: uri
-              description: Raw R2 URL of the stored graphic
+              description: Raw R2 URL of the first stored graphic
             generationTimeMs:
               type: integer
               example: 2400
+            totalTeams:
+              type: integer
+              description: Total teams included (roster split export)
+              example: 22
+            imageCount:
+              type: integer
+              description: Number of images generated (1 for single-page, >1 for roster split)
+              example: 3
+            images:
+              type: array
+              description: All generated images (roster split returns multiple parts)
+              items:
+                type: object
+                properties:
+                  part: { type: integer, example: 1 }
+                  label: { type: string, enum: [main, overflow], example: "main" }
+                  signedUrl: { type: string, format: uri }
+                  imageUrl: { type: string, format: uri }
+                  filename: { type: string, example: "team_roster_part1.png" }
+                  teamCount: { type: integer, example: 8 }
         meta:
           $ref: "#/components/schemas/MetaObject"

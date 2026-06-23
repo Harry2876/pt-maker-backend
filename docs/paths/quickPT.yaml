@@ -2837,20 +2837,23 @@ paths:
         | `team_roster` | `POST /graphics/roster` |
         | `top_10` | `POST /graphics/top-10` |
 
-        Each template entry has two URL types:
+        Each template entry has these fields:
 
         | Field | Use |
         |-------|-----|
+        | `name` | Pass as `template` in export/graphics body |
+        | Category key | Pass as `formatType` in export/graphics body |
         | `signedUrl` / `previewUrl` | Show template thumbnail in the app (expire in 30 min) |
-        | `rawTemplateUrl` | Send as `templateUrl` in graphics/export body |
-        | `rawConfigUrl` | Send as `templateConfigUrl` in graphics/export body |
-        | `configUrl` | Config JSON signed URL (for previewing layout in app) |
+        | `configUrl` | Optional — preview config JSON in app |
+        | `rawTemplateUrl` / `rawConfigUrl` | Internal — Node resolves these server-side; **do not send from app** |
 
         **For standings export** (`POST /matches/{id}/export`): pass `name` as `template` and the category key as `formatType`.
 
-        **For graphics** (`POST /graphics/slot-list` etc.): pass `rawTemplateUrl` as `templateUrl` and `rawConfigUrl` as `templateConfigUrl` in the body.
+        **For graphics** (`POST /graphics/slot-list`, `/graphics/roster`, `/graphics/top-10`):
+        pass `name` as `template` and category key as `formatType` — same as standings.
+        The app only needs to remember the template the user picked; Node resolves URLs and config pairing.
 
-        Signed URLs expire in 30 minutes. Results are Redis-cached for 1 hour — the signed URLs are always refreshed on read.
+        Signed preview URLs expire in 30 minutes. Results are Redis-cached for 1 hour — preview URLs are refreshed on read.
       security:
         - bearerAuth: []
       responses:

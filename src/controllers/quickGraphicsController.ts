@@ -15,10 +15,9 @@ export class QuickGraphicsController {
         const userId = req.user!.id;
         const { sourceType, sourceId, ...body } = req.body;
 
-        // Accept both camelCase (Android) and snake_case (Python-style) field names
         const opts = {
-            templateUrl: body.templateUrl ?? body.template_url,
-            templateConfigUrl: body.templateConfigUrl ?? body.template_config_url,
+            template: body.template,
+            formatType: body.formatType,
             headerOverrides: (body.headerOverrides ?? body.header_overrides) ?? null,
             slotNumberFontSize: (body.slotNumberFontSize ?? body.slot_number_font_size) ?? null,
             teamNameFontSize: (body.teamNameFontSize ?? body.team_name_font_size) ?? null,
@@ -29,7 +28,7 @@ export class QuickGraphicsController {
             gridOverrides: (body.gridOverrides ?? body.grid_overrides) ?? null,
             fontCustomization: (body.fontCustomization ?? body.font_customization) ?? null,
             outputFilename: body.outputFilename ?? body.output_filename,
-            options: (body.options) ?? null,
+            options: body.options ?? null,
         };
 
         const result = sourceType === 'series'
@@ -48,8 +47,8 @@ export class QuickGraphicsController {
         const { sourceId, ...body } = req.body;
 
         const result = await quickGraphicsService.generateMatchRoster(sourceId, userId, {
-            templateUrl: body.templateUrl ?? body.template_url,
-            templateConfigUrl: body.templateConfigUrl ?? body.template_config_url,
+            template: body.template,
+            formatType: body.formatType,
             headerOverrides: (body.headerOverrides ?? body.header_overrides) ?? null,
             headerStyle: (body.headerStyle ?? body.header_style) ?? null,
             footerOverrides: (body.footerOverrides ?? body.footer_overrides) ?? null,
@@ -76,8 +75,8 @@ export class QuickGraphicsController {
         const { sourceType, sourceId, ...body } = req.body;
 
         const opts = {
-            templateUrl: body.templateUrl ?? body.template_url,
-            templateConfigUrl: body.templateConfigUrl ?? body.template_config_url,
+            template: body.template,
+            formatType: body.formatType,
             headerOverrides: (body.headerOverrides ?? body.header_overrides) ?? null,
             footerOverrides: (body.footerOverrides ?? body.footer_overrides) ?? null,
             cardOverrides: (body.cardOverrides ?? body.card_overrides) ?? null,

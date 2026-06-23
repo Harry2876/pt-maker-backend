@@ -4,9 +4,10 @@ import { signedUrlUtility } from './signedUrlUtility';
 import { quickMatchService } from './quickMatchService';
 import { quickResultService } from './quickResultService';
 import { quickSeriesService } from './quickSeriesService';
+import { templateService } from './templateService';
 import { ServiceError } from '../utils/serviceError';
 import { splitTeamDataIntoChunks, buildSplitOutputFilename } from '../utils/pythonErrorUtils';
-import { getTemplateCapacity } from '../utils/templateConfigUtils';
+import { getTemplateCapacity, resolveSignedTemplateUrlsForPython } from '../utils/templateConfigUtils';
 import {
     SlotListRequest,
     TeamListRequest,
@@ -36,8 +37,8 @@ export interface GraphicGenerationResult {
 // ---- Shared customisation shapes ----
 
 export interface SlotListGraphicOptions {
-    templateUrl: string;
-    templateConfigUrl: string;
+    template: string;
+    formatType: string;
     headerOverrides?: Record<string, any> | null;
     slotNumberFontSize?: number | null;
     teamNameFontSize?: number | null;
@@ -52,8 +53,8 @@ export interface SlotListGraphicOptions {
 }
 
 export interface RosterGraphicOptions {
-    templateUrl: string;
-    templateConfigUrl: string;
+    template: string;
+    formatType: string;
     headerOverrides?: Record<string, any> | null;
     headerStyle?: Record<string, any> | null;
     footerOverrides?: Record<string, any> | null;
@@ -69,8 +70,8 @@ export interface RosterGraphicOptions {
 }
 
 export interface Top10GraphicOptions {
-    templateUrl: string;
-    templateConfigUrl: string;
+    template: string;
+    formatType: string;
     headerOverrides?: Record<string, any> | null;
     footerOverrides?: Record<string, any> | null;
     cardOverrides?: Record<string, any> | null;
@@ -127,9 +128,14 @@ export class QuickGraphicsService extends BaseService {
             team_logo_url: this.resolveLogoUrl(s) ?? undefined,
         }));
 
+        const { templateUrl, templateConfigUrl } = await this.resolveTemplateForPython(
+            opts.template,
+            opts.formatType
+        );
+
         const request: SlotListRequest = {
-            template_url: opts.templateUrl,
-            template_config_url: opts.templateConfigUrl,
+            template_url: templateUrl,
+            template_config_url: templateConfigUrl,
             slot_data: slotData,
             header_overrides: opts.headerOverrides ?? null,
             slot_number_font_size: opts.slotNumberFontSize ?? null,
@@ -231,7 +237,12 @@ export class QuickGraphicsService extends BaseService {
             team_logo_url: this.resolveLogoUrl(s) ?? undefined,
         }));
 
-        const templateCapacity = await getTemplateCapacity(opts.templateConfigUrl);
+        const { templateUrl, templateConfigUrl, rawConfigUrl } = await this.resolveTemplateForPython(
+            opts.template,
+            opts.formatType
+        );
+
+        const templateCapacity = await getTemplateCapacity(rawConfigUrl);
         const teamChunks = splitTeamDataIntoChunks(teamData, templateCapacity);
 
         if (teamChunks.length > 1) {
@@ -261,8 +272,8 @@ export class QuickGraphicsService extends BaseService {
             );
 
             const request: TeamListRequest = {
-                template_url: opts.templateUrl,
-                template_config_url: opts.templateConfigUrl,
+                template_url: templateUrl,
+                template_config_url: templateConfigUrl,
                 team_data: chunkTeamData,
                 header_overrides: opts.headerOverrides ?? null,
                 header_style: opts.headerStyle ?? null,
@@ -354,9 +365,14 @@ export class QuickGraphicsService extends BaseService {
             team_logo_url: slotLogoMap.get(r.slotNumber) ?? undefined,
         }));
 
+        const { templateUrl, templateConfigUrl } = await this.resolveTemplateForPython(
+            opts.template,
+            opts.formatType
+        );
+
         const request: Top10Request = {
-            template_url: opts.templateUrl,
-            template_config_url: opts.templateConfigUrl,
+            template_url: templateUrl,
+            template_config_url: templateConfigUrl,
             rank_data: rankData,
             header_overrides: opts.headerOverrides ?? null,
             footer_overrides: opts.footerOverrides ?? null,
@@ -432,9 +448,14 @@ export class QuickGraphicsService extends BaseService {
             team_logo_url: slotLogoMap.get(s.teamName.toLowerCase()) ?? undefined,
         }));
 
+        const { templateUrl, templateConfigUrl } = await this.resolveTemplateForPython(
+            opts.template,
+            opts.formatType
+        );
+
         const request: Top10Request = {
-            template_url: opts.templateUrl,
-            template_config_url: opts.templateConfigUrl,
+            template_url: templateUrl,
+            template_config_url: templateConfigUrl,
             rank_data: rankData,
             header_overrides: opts.headerOverrides ?? null,
             footer_overrides: opts.footerOverrides ?? null,
@@ -455,6 +476,34 @@ export class QuickGraphicsService extends BaseService {
 
     /** Python slot-list / team-list APIs accept slot numbers 1–24 only. */
     private static readonly MAX_GRAPHIC_SLOT = 24;
+
+    /**
+     * Resolve template by name + category (same as standings export),
+     * then re-sign URLs so Python can HTTP-fetch private R2 objects.
+     */
+    private async resolveTemplateForPython(
+        templateName: string,
+        formatType: string
+    ): Promise<{ templateUrl: string; templateConfigUrl: string; rawConfigUrl: string }> {
+        const resolved = await templateService.getTemplateWithConfig(templateName, formatType);
+        if (!resolved) {
+            throw new ServiceError(
+                `Template "${templateName}" not found for format "${formatType}". Check GET /quick-pt/templates.`,
+                400,
+                'TEMPLATE_NOT_FOUND'
+            );
+        }
+
+        const signed = await resolveSignedTemplateUrlsForPython(
+            resolved.templateUrl,
+            resolved.configUrl
+        );
+
+        return {
+            ...signed,
+            rawConfigUrl: resolved.configUrl,
+        };
+    }
 
     private filterSlotsWithinCapacity<T extends { slotNumber: number }>(slots: T[]): T[] {
         const eligible = slots.filter(
