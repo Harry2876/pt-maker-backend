@@ -3360,11 +3360,11 @@ components:
     ExportResponse:
       type: object
       description: |
-        Clean export payload returned by `POST /export`, `POST /points-table/regenerate`,
+        Export payload returned by `POST /export`, `POST /points-table/regenerate`,
         and `GET /points-table`.
 
-        Use `images` for all generated PNGs. `signedImageUrl` mirrors `images[0].signedUrl`
-        for clients that only display a single image.
+        Load PNGs via `previewUrl` with Bearer auth (`GET /media/{assetId}`).
+        `previewImageUrl` / `signedImageUrl` refer to the first image only.
       properties:
         pointsTableId:
           type: string
@@ -3386,10 +3386,15 @@ components:
         generationTimeMs:
           type: integer
           example: 4200
+        previewImageUrl:
+          type: string
+          format: uri
+          description: "Preview URL for the first image — requires Authorization header"
         signedImageUrl:
           type: string
           format: uri
-          description: "Signed URL for the first image (30 min expiry)"
+          deprecated: true
+          description: "Deprecated alias of previewImageUrl"
         images:
           type: array
           items:
@@ -3470,10 +3475,18 @@ components:
           enum: [main, overflow]
           description: "`main` for full pages; `overflow` for the final partial page"
           example: "main"
+        assetId:
+          type: string
+          description: "Persistent media asset ID"
+        previewUrl:
+          type: string
+          format: uri
+          description: "Load with Authorization Bearer — GET /media/{assetId}"
         signedUrl:
           type: string
           format: uri
-          description: "Signed Cloudflare R2 URL — valid for 30 minutes"
+          deprecated: true
+          description: "Deprecated alias of previewUrl"
         filename:
           type: string
           description: "R2 output filename"

@@ -40,6 +40,96 @@ paths:
           $ref: "#/components/responses/UnauthorizedError"
 
   # ══════════════════════════════════════════════════════════════════════
+  # MEDIA PROXY & EXPORT HISTORY
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/media/{assetId}:
+    get:
+      tags: [Quick-PT Graphics]
+      summary: Stream a generated PNG by asset ID
+      description: |
+        **Primary way to display exported graphics in the Android app.**
+
+        After any generate/export call, the response includes `assetId` and `previewUrl`.
+        Load `previewUrl` with **`Authorization: Bearer`** or append `?access_token=<jwt>` for browser preview.
+
+        Node streams the PNG from R2 — the client never sees bucket names or presigned R2 URLs.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: assetId
+          required: true
+          schema:
+            type: string
+          example: "cmqqnxb6t00038za1l2k7jnzo"
+        - in: query
+          name: access_token
+          schema:
+            type: string
+          description: JWT access token (alternative to Authorization header)
+      responses:
+        "200":
+          description: PNG image stream
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /quick-pt/matches/{id}/media:
+    get:
+      tags: [Quick-PT Graphics]
+      summary: List export media history for a match
+      description: |
+        Returns all stored media assets for a match (standings, slot-list, roster, top-10),
+        **newest first**. Each item includes `assetId` + `previewUrl`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            enum: [STANDINGS, SLOT_LIST, ROSTER, TOP_10]
+          description: Filter by asset type
+          example: "ROSTER"
+      responses:
+        "200":
+          description: Media history retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Match media history retrieved"
+                  data:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                        example: 3
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MediaAssetListItem"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  # ══════════════════════════════════════════════════════════════════════
   # MATCH-SPECIFIC SLOT LOGOS
   # ══════════════════════════════════════════════════════════════════════
 
@@ -255,7 +345,10 @@ paths:
         2. Only slots **1–24** are included (Python API limit).
         3. Team logos: match logo → preset entry logo → none (raw R2 URLs — Python fetches with its own credentials).
         4. Node calls Python `POST /api/v1/slot-list/generate`.
-        5. Node signs the returned R2 image URL (30 min) and returns it to the client.
+        5. Node registers the PNG as a media asset and returns `assetId` + `previewUrl`.
+
+        **Preview:** load `data.previewUrl` with Bearer auth, or open in browser via `?access_token=`.
+        **History:** `GET /quick-pt/matches/{id}/media`.
 
         ### Prerequisites
         - Match must have slot assignments (`POST /quick-pt/matches/{id}/slots`).
@@ -574,6 +667,68 @@ paths:
 components:
   schemas:
 
+    MediaAssetPreview:
+      type: object
+      properties:
+        assetId:
+          type: string
+          example: "cmqqnxb6t00038za1l2k7jnzo"
+        previewUrl:
+          type: string
+          format: uri
+          description: Load with Authorization Bearer or ?access_token=
+          example: "https://scrymzengineservice.site/api/v1/quick-pt/media/cmqqnxb6t00038za1l2k7jnzo"
+        signedUrl:
+          type: string
+          format: uri
+          deprecated: true
+          description: Deprecated alias of previewUrl
+
+    MediaAssetListItem:
+      allOf:
+        - $ref: "#/components/schemas/MediaAssetPreview"
+        - type: object
+          properties:
+            assetType:
+              type: string
+              enum: [STANDINGS, SLOT_LIST, ROSTER, TOP_10, SERIES_STANDINGS]
+              example: "SLOT_LIST"
+            filename:
+              type: string
+              nullable: true
+              example: "slot_list_match1.png"
+            metadata:
+              type: object
+              nullable: true
+              additionalProperties: true
+            createdAt:
+              type: string
+              format: date-time
+
+    GeneratedGraphicImage:
+      type: object
+      properties:
+        part:
+          type: integer
+          example: 1
+        label:
+          type: string
+          enum: [main, overflow]
+          example: "main"
+        assetId:
+          type: string
+        previewUrl:
+          type: string
+          format: uri
+        signedUrl:
+          type: string
+          format: uri
+          deprecated: true
+        filename:
+          type: string
+        teamCount:
+          type: integer
+
     RosterGraphicRequest:
       type: object
       description: |
@@ -653,13 +808,16 @@ components:
         data:
           type: object
           properties:
+            assetId:
+              type: string
+            previewUrl:
+              type: string
+              format: uri
+              description: First image preview URL — load with Bearer auth
             signedUrl:
               type: string
               format: uri
-              description: Signed URL of the first generated image (30 min)
-            imageUrl:
-              type: string
-              format: uri
+              deprecated: true
             generationTimeMs:
               type: integer
               example: 3200
@@ -672,14 +830,7 @@ components:
             images:
               type: array
               items:
-                type: object
-                properties:
-                  part: { type: integer, example: 1 }
-                  label: { type: string, enum: [main, overflow], example: "main" }
-                  signedUrl: { type: string, format: uri }
-                  imageUrl: { type: string, format: uri }
-                  filename: { type: string, example: "team_roster_part1.png" }
-                  teamCount: { type: integer, example: 8 }
+                $ref: "#/components/schemas/GeneratedGraphicImage"
         meta:
           $ref: "#/components/schemas/MetaObject"
 
@@ -764,14 +915,16 @@ components:
         data:
           type: object
           properties:
+            assetId:
+              type: string
+            previewUrl:
+              type: string
+              format: uri
+              description: Load with Authorization Bearer header
             signedUrl:
               type: string
               format: uri
-              description: Signed CDN URL of the generated PNG (valid 30 min)
-            imageUrl:
-              type: string
-              format: uri
-              description: Raw R2 URL of the stored PNG
+              deprecated: true
             generationTimeMs:
               type: integer
               example: 2800
@@ -880,14 +1033,16 @@ components:
         data:
           type: object
           properties:
+            assetId:
+              type: string
+            previewUrl:
+              type: string
+              format: uri
+              description: Load with Authorization Bearer header
             signedUrl:
               type: string
               format: uri
-              description: Signed CDN URL of the generated PNG (valid 30 min)
-            imageUrl:
-              type: string
-              format: uri
-              description: Raw R2 URL of the stored PNG
+              deprecated: true
             generationTimeMs:
               type: integer
               example: 2400
