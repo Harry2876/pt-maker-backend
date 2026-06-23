@@ -78,3 +78,44 @@ export async function getTemplateCapacityByKey(configKey: string): Promise<numbe
 
     throw new ServiceError('Template config does not define a team capacity', 400, 'INVALID_TEMPLATE_CONFIG');
 }
+
+/** Re-sign any R2 asset URL (team logos, sponsor images) so Python can HTTP-fetch it. */
+export async function resolveSignedAssetUrlForPython(
+    assetUrl: string | null | undefined,
+    expiryMinutes = 60
+): Promise<string | undefined> {
+    if (!assetUrl?.trim()) {
+        return undefined;
+    }
+
+    const key = resolveR2ObjectKey(assetUrl);
+    if (!key) {
+        return assetUrl;
+    }
+
+    const signed = await signedUrlUtility.generateSignedUrl(key, { expiryMinutes });
+    return signed.signedUrl;
+}
+
+const ASSET_URL_KEY_PATTERN = /(_url|Url)$/i;
+
+/** Re-sign logo/image URLs inside override objects (header, footer, card overrides). */
+export async function resolveSignedOverridesForPython(
+    overrides: Record<string, unknown> | null | undefined
+): Promise<Record<string, unknown> | undefined> {
+    if (!overrides || typeof overrides !== 'object') {
+        return undefined;
+    }
+
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(overrides)) {
+        if (typeof val === 'string' && ASSET_URL_KEY_PATTERN.test(key)) {
+            result[key] = (await resolveSignedAssetUrlForPython(val)) ?? val;
+        } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+            result[key] = (await resolveSignedOverridesForPython(val as Record<string, unknown>)) ?? val;
+        } else {
+            result[key] = val;
+        }
+    }
+    return result;
+}

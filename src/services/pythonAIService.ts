@@ -8,14 +8,20 @@ import {
     StandingsRequest,
     StandingsResponse,
     SlotListRequest,
+    SlotListResponse,
     TeamListRequest,
+    TeamListResponse,
     Top10Request,
-    GraphicsResponse,
+    Top10Response,
     FontsListResponse,
 } from '../types/pythonAI';
 import { buildPythonStandingsPayload } from '../utils/standingsPayloadBuilder';
+import { buildPythonSlotListPayload } from '../utils/slotListPayloadBuilder';
+import { buildPythonTeamListPayload } from '../utils/teamListPayloadBuilder';
+import { buildPythonTop10Payload } from '../utils/top10PayloadBuilder';
 import { extractPythonErrorDetail } from '../utils/pythonErrorUtils';
 import { ServiceError } from '../utils/serviceError';
+
 
 export class PythonAIService {
     private readonly client: ReturnType<typeof axios.create>;
@@ -144,6 +150,116 @@ export class PythonAIService {
         }
     }
 
+    /**
+     * Generate slot-list PNG via Python AI.
+     * Payload shape must match POST /api/v1/slot-list/generate exactly.
+     */
+    async generateSlotList(request: SlotListRequest): Promise<SlotListResponse> {
+        const body = buildPythonSlotListPayload(request);
+
+        logger.debug('Python slot-list generate payload', {
+            template_url: body.template_url,
+            template_config_url: body.template_config_url,
+            slot_count: Array.isArray(body.slot_data) ? body.slot_data.length : 0,
+            team_logo_size: body.team_logo_size,
+        });
+
+        try {
+            const { data } = await this.client.post<SlotListResponse>(
+                '/api/v1/slot-list/generate',
+                body
+            );
+            return data;
+        } catch (err: any) {
+            if (!err.response) {
+                throw new ServiceError(
+                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
+                    503,
+                    'PYTHON_AI_UNAVAILABLE'
+                );
+            }
+            const detail = extractPythonErrorDetail(err);
+            throw new ServiceError(
+                `Slot list generation failed: ${detail}`,
+                err.response.status >= 500 ? 502 : 400,
+                'PYTHON_AI_ERROR'
+            );
+        }
+    }
+
+    /**
+     * Generate team roster PNG via Python AI.
+     * Payload shape must match POST /api/v1/team-list/generate exactly.
+     */
+    async generateTeamList(request: TeamListRequest): Promise<TeamListResponse> {
+        const body = buildPythonTeamListPayload(request);
+
+        logger.debug('Python team-list generate payload', {
+            template_url: body.template_url,
+            template_config_url: body.template_config_url,
+            team_count: Array.isArray(body.team_data) ? body.team_data.length : 0,
+            team_logo_size: body.team_logo_size,
+        });
+
+        try {
+            const { data } = await this.client.post<TeamListResponse>(
+                '/api/v1/team-list/generate',
+                body
+            );
+            return data;
+        } catch (err: any) {
+            if (!err.response) {
+                throw new ServiceError(
+                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
+                    503,
+                    'PYTHON_AI_UNAVAILABLE'
+                );
+            }
+            const detail = extractPythonErrorDetail(err);
+            throw new ServiceError(
+                `Team roster generation failed: ${detail}`,
+                err.response.status >= 500 ? 502 : 400,
+                'PYTHON_AI_ERROR'
+            );
+        }
+    }
+
+    /**
+     * Generate top-10 rankings PNG via Python AI.
+     * Payload shape must match POST /api/v1/top-10-rankings/generate exactly.
+     */
+    async generateTop10Rankings(request: Top10Request): Promise<Top10Response> {
+        const body = buildPythonTop10Payload(request);
+
+        logger.debug('Python top-10-rankings generate payload', {
+            template_url: body.template_url,
+            template_config_url: body.template_config_url,
+            rank_count: Array.isArray(body.rank_data) ? body.rank_data.length : 0,
+        });
+
+        try {
+            const { data } = await this.client.post<Top10Response>(
+                '/api/v1/top-10-rankings/generate',
+                body
+            );
+            return data;
+        } catch (err: any) {
+            if (!err.response) {
+                throw new ServiceError(
+                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
+                    503,
+                    'PYTHON_AI_UNAVAILABLE'
+                );
+            }
+            const detail = extractPythonErrorDetail(err);
+            throw new ServiceError(
+                `Top 10 rankings generation failed: ${detail}`,
+                err.response.status >= 500 ? 502 : 400,
+                'PYTHON_AI_ERROR'
+            );
+        }
+    }
+
     private throwPythonServiceError(err: any, prefix: string): never {
         if (!err.response) {
             throw new ServiceError(
@@ -172,114 +288,6 @@ export class PythonAIService {
             return data;
         } catch (err: any) {
             this.throwPythonServiceError(err, 'Fonts list failed');
-        }
-    }
-
-    /** POST /api/v1/slot-list/generate */
-    async generateSlotList(request: SlotListRequest): Promise<GraphicsResponse> {
-        logger.debug('Python slot-list generate payload', {
-            template_url: request.template_url,
-            template_config_url: request.template_config_url,
-            slot_count: Array.isArray(request.slot_data) ? request.slot_data.length : 0,
-            has_header_overrides: request.header_overrides !== null && request.header_overrides !== undefined,
-            has_grid_overrides: request.grid_overrides !== null && request.grid_overrides !== undefined,
-            has_font_customization: request.font_customization !== null && request.font_customization !== undefined,
-            output_filename: request.output_filename,
-            options: request.options,
-        });
-
-        try {
-            const { data } = await this.client.post<GraphicsResponse>(
-                '/api/v1/slot-list/generate',
-                request
-            );
-            return data;
-        } catch (err: any) {
-            if (!err.response) {
-                throw new ServiceError(
-                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
-                    503,
-                    'PYTHON_AI_UNAVAILABLE'
-                );
-            }
-            const detail = extractPythonErrorDetail(err);
-            throw new ServiceError(
-                `Slot list generation failed: ${detail}`,
-                err.response.status >= 500 ? 502 : 400,
-                'PYTHON_AI_ERROR'
-            );
-        }
-    }
-
-    /** POST /api/v1/team-list/generate (Roster) */
-    async generateTeamList(request: TeamListRequest): Promise<GraphicsResponse> {
-        logger.debug('Python team-list generate payload', {
-            template_url: request.template_url,
-            template_config_url: request.template_config_url,
-            team_count: Array.isArray(request.team_data) ? request.team_data.length : 0,
-            has_header_overrides: request.header_overrides !== null && request.header_overrides !== undefined,
-            has_card_overrides: request.card_overrides !== null && request.card_overrides !== undefined,
-            has_font_customization: request.font_customization !== null && request.font_customization !== undefined,
-            output_filename: request.output_filename,
-            options: request.options,
-        });
-
-        try {
-            const { data } = await this.client.post<GraphicsResponse>(
-                '/api/v1/team-list/generate',
-                request
-            );
-            return data;
-        } catch (err: any) {
-            if (!err.response) {
-                throw new ServiceError(
-                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
-                    503,
-                    'PYTHON_AI_UNAVAILABLE'
-                );
-            }
-            const detail = extractPythonErrorDetail(err);
-            throw new ServiceError(
-                `Team roster generation failed: ${detail}`,
-                err.response.status >= 500 ? 502 : 400,
-                'PYTHON_AI_ERROR'
-            );
-        }
-    }
-
-    /** POST /api/v1/top-10-rankings/generate */
-    async generateTop10Rankings(request: Top10Request): Promise<GraphicsResponse> {
-        logger.debug('Python top-10-rankings generate payload', {
-            template_url: request.template_url,
-            template_config_url: request.template_config_url,
-            rank_count: Array.isArray(request.rank_data) ? request.rank_data.length : 0,
-            has_header_overrides: request.header_overrides !== null && request.header_overrides !== undefined,
-            has_card_overrides: request.card_overrides !== null && request.card_overrides !== undefined,
-            has_font_customization: request.font_customization !== null && request.font_customization !== undefined,
-            output_filename: request.output_filename,
-            options: request.options,
-        });
-
-        try {
-            const { data } = await this.client.post<GraphicsResponse>(
-                '/api/v1/top-10-rankings/generate',
-                request
-            );
-            return data;
-        } catch (err: any) {
-            if (!err.response) {
-                throw new ServiceError(
-                    `Python AI service unreachable at ${env.PYTHON_AI_BASE_URL}. Ensure bgmi-ocr-api is running.`,
-                    503,
-                    'PYTHON_AI_UNAVAILABLE'
-                );
-            }
-            const detail = extractPythonErrorDetail(err);
-            throw new ServiceError(
-                `Top 10 rankings generation failed: ${detail}`,
-                err.response.status >= 500 ? 502 : 400,
-                'PYTHON_AI_ERROR'
-            );
         }
     }
 }

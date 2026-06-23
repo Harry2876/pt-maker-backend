@@ -12,6 +12,8 @@ import { tieBreakingService } from '../services/tieBreakingService';
 import { quickSeriesService } from '../services/quickSeriesService';
 import { templateService } from '../services/templateService';
 import { excelExportService } from '../services/excelExportService';
+import { pythonAIService } from '../services/pythonAIService';
+import { quickGraphicsService } from '../services/quickGraphicsService';
 
 export class QuickPTController {
 
@@ -938,5 +940,163 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
         ResponseHelper.success('Excel export completed successfully', result)
     );
 });
+
+    /**
+     * GET /api/v1/quick-pt/fonts
+     * List bundled fonts from Python AI (for standings customization)
+     */
+    static getFontsList = asyncHandler(async (req: Request, res: Response) => {
+        const fonts = await pythonAIService.getFontsList();
+        return res.json(ResponseHelper.success('Fonts list retrieved successfully', fonts));
+    });
+
+    /**
+     * POST /api/v1/quick-pt/matches/:id/slots/:slotNumber/logo
+     * Upload a match-specific team logo for a slot
+     */
+    static attachMatchLogo = asyncHandler(async (req: Request, res: Response) => {
+        const userId = req.user!.id;
+        const { id: quickMatchId, slotNumber } = req.params;
+
+        if (!req.file) {
+            return res.status(400).json(ResponseHelper.error('Logo file is required', 'MISSING_FILE'));
+        }
+
+        const result = await quickSlotService.attachMatchLogo(
+            userId,
+            quickMatchId,
+            parseInt(slotNumber, 10),
+            req.file.buffer,
+            req.file.mimetype
+        );
+
+        return res.json(ResponseHelper.success('Match logo attached successfully', result));
+    });
+
+    /**
+     * DELETE /api/v1/quick-pt/matches/:id/slots/:slotNumber/logo
+     * Remove match-specific logo from a slot
+     */
+    static removeMatchLogo = asyncHandler(async (req: Request, res: Response) => {
+        const userId = req.user!.id;
+        const { id: quickMatchId, slotNumber } = req.params;
+
+        await quickSlotService.removeMatchLogo(userId, quickMatchId, parseInt(slotNumber, 10));
+        return res.json(ResponseHelper.success('Match logo removed successfully', null));
+    });
+
+    /**
+     * POST /api/v1/quick-pt/matches/:id/graphics/slot-list
+     * Generate slot-list graphic for a match
+     */
+    static generateMatchSlotList = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const {
+            template,
+            formatType,
+            outputFilename,
+            headerOverrides,
+            slotNumberFontSize,
+            teamNameFontSize,
+            slotNumberColor,
+            teamNameColor,
+            teamLogoGap,
+            teamLogoSize,
+            gridOverrides,
+            fontCustomization,
+        } = req.body;
+
+        const result = await quickGraphicsService.generateMatchSlotList(quickMatchId, userId, {
+            template,
+            formatType,
+            outputFilename,
+            headerOverrides,
+            slotNumberFontSize,
+            teamNameFontSize,
+            slotNumberColor,
+            teamNameColor,
+            teamLogoGap,
+            teamLogoSize,
+            gridOverrides,
+            fontCustomization,
+        });
+
+        return res.json(ResponseHelper.success('Slot list graphic generated successfully', result));
+    });
+
+    /**
+     * POST /api/v1/quick-pt/matches/:id/graphics/roster
+     * Generate team roster graphic for a match
+     */
+    static generateMatchRoster = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const {
+            template,
+            formatType,
+            outputFilename,
+            headerOverrides,
+            headerStyle,
+            footerOverrides,
+            footerStyle,
+            teamLogoSize,
+            teamNameFontSize,
+            teamNameColor,
+            cardOverrides,
+            fontCustomization,
+            advancedConfig,
+            showBranding,
+        } = req.body;
+
+        const result = await quickGraphicsService.generateMatchRoster(quickMatchId, userId, {
+            template,
+            formatType,
+            outputFilename,
+            headerOverrides,
+            headerStyle,
+            footerOverrides,
+            footerStyle,
+            teamLogoSize,
+            teamNameFontSize,
+            teamNameColor,
+            cardOverrides,
+            fontCustomization,
+            advancedConfig,
+            showBranding,
+        });
+
+        return res.json(ResponseHelper.success('Roster graphic generated successfully', result));
+    });
+
+    static generateMatchTop10 = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const {
+            template,
+            formatType,
+            outputFilename,
+            headerOverrides,
+            footerOverrides,
+            cardOverrides,
+            fontCustomization,
+            advancedConfig,
+            showBranding,
+        } = req.body;
+
+        const result = await quickGraphicsService.generateMatchTop10(quickMatchId, userId, {
+            template,
+            formatType,
+            outputFilename,
+            headerOverrides,
+            footerOverrides,
+            cardOverrides,
+            fontCustomization,
+            advancedConfig,
+            showBranding,
+        });
+
+        return res.json(ResponseHelper.success('Top-10 rankings graphic generated successfully', result));
+    });
 
 }

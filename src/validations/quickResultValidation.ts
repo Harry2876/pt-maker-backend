@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { fontCustomizationSchema } from './graphicsSharedSchemas';
 
 // Player result schema (nested)
 const playerResultSchema = z.object({
@@ -135,29 +136,6 @@ const footerSchema = z.object({
         enabled: z.boolean().optional()
     }).optional()
 }).optional();
-
-const fontRoleConfigSchema = z.object({
-    font_file: z.string().optional(),
-    family: z.string().optional(),
-    weight: z.string().optional(),
-    size: z.number().optional(),
-    color: z.string().optional(),
-    alignment: z.string().optional(),
-}).optional();
-
-const fontCustomizationSchema = z.object({
-    header_font: fontRoleConfigSchema,
-    sponsor_font: fontRoleConfigSchema,
-    organiser_font: fontRoleConfigSchema,
-    table_header_font: fontRoleConfigSchema,
-    table_data_font: fontRoleConfigSchema,
-    team_name_font: fontRoleConfigSchema,
-    slot_number_font: fontRoleConfigSchema,
-    rank_font: fontRoleConfigSchema,
-    footer_font: fontRoleConfigSchema,
-    branding_font: fontRoleConfigSchema,
-    global_size_multiplier: z.number().min(0.1).max(10).optional(),
-}).optional().nullable();
 
 // Export points table with full customization
 export const exportPointsTableSchema = z.object({

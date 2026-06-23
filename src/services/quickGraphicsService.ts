@@ -1,22 +1,46 @@
 import { BaseService } from './baseService';
+import { quickMatchService } from './quickMatchService';
+import { templateService } from './templateService';
 import { pythonAIService } from './pythonAIService';
 import { signedUrlUtility } from './signedUrlUtility';
-import { quickMatchService } from './quickMatchService';
-import { quickResultService } from './quickResultService';
-import { quickSeriesService } from './quickSeriesService';
-import { templateService } from './templateService';
 import { ServiceError } from '../utils/serviceError';
-import { splitTeamDataIntoChunks, buildSplitOutputFilename } from '../utils/pythonErrorUtils';
-import { getTemplateCapacity, resolveSignedTemplateUrlsForPython } from '../utils/templateConfigUtils';
+import { buildSlotListRequest } from '../utils/slotListPayloadBuilder';
+import { buildTeamListRequest } from '../utils/teamListPayloadBuilder';
+import { buildTop10Request } from '../utils/top10PayloadBuilder';
 import {
-    SlotListRequest,
-    TeamListRequest,
-    Top10Request,
-    FontCustomization,
-    GraphicsOptions,
+    SlotListExportOptions,
+    SlotListSlotData,
+    TeamListExportOptions,
+    TeamListTeamData,
+    Top10ExportOptions,
+    Top10RankData,
 } from '../types/pythonAI';
+import { quickResultService } from './quickResultService';
+import { QuickMatchResultCache } from '../types/quickResult';
+import { getTemplateCapacity } from '../utils/templateConfigUtils';
+import { splitTeamDataIntoChunks, buildSplitOutputFilename } from '../utils/pythonErrorUtils';
 
-export interface GeneratedGraphicImage {
+/** Input from controller — template selection + styling opts */
+export interface MatchSlotListInput extends SlotListExportOptions {
+    template: string;
+    formatType: string;
+}
+
+/** Response returned to Android */
+export interface SlotListGenerationResult {
+    signedUrl: string;
+    imageUrl: string;
+    generationTimeMs: number;
+    slotCount: number;
+}
+
+/** Input from controller — template selection + styling opts */
+export interface MatchRosterInput extends TeamListExportOptions {
+    template: string;
+    formatType: string;
+}
+
+export interface RosterGraphicImage {
     part: number;
     label: 'main' | 'overflow';
     signedUrl: string;
@@ -25,87 +49,48 @@ export interface GeneratedGraphicImage {
     teamCount: number;
 }
 
-export interface GraphicGenerationResult {
+export interface RosterGenerationResult {
     signedUrl: string;
     imageUrl: string;
     generationTimeMs: number;
-    totalTeams?: number;
-    imageCount?: number;
-    images?: GeneratedGraphicImage[];
+    totalTeams: number;
+    imageCount: number;
+    images: RosterGraphicImage[];
 }
 
-// ---- Shared customisation shapes ----
-
-export interface SlotListGraphicOptions {
+/** Input from controller — template selection + styling opts */
+export interface MatchTop10Input extends Top10ExportOptions {
     template: string;
     formatType: string;
-    headerOverrides?: Record<string, any> | null;
-    slotNumberFontSize?: number | null;
-    teamNameFontSize?: number | null;
-    slotNumberColor?: string | null;
-    teamNameColor?: string | null;
-    teamLogoGap?: number | null;
-    teamLogoSize?: number | null;
-    gridOverrides?: Record<string, any> | null;
-    fontCustomization?: FontCustomization | null;
-    outputFilename?: string;
-    options?: GraphicsOptions | null;
 }
 
-export interface RosterGraphicOptions {
-    template: string;
-    formatType: string;
-    headerOverrides?: Record<string, any> | null;
-    headerStyle?: Record<string, any> | null;
-    footerOverrides?: Record<string, any> | null;
-    footerStyle?: Record<string, any> | null;
-    teamLogoSize?: number | null;
-    teamNameFontSize?: number | null;
-    teamNameColor?: string | null;
-    cardOverrides?: Record<string, any> | null;
-    fontCustomization?: FontCustomization | null;
-    showBranding?: boolean;
-    outputFilename?: string;
-    options?: GraphicsOptions | null;
-}
-
-export interface Top10GraphicOptions {
-    template: string;
-    formatType: string;
-    headerOverrides?: Record<string, any> | null;
-    footerOverrides?: Record<string, any> | null;
-    cardOverrides?: Record<string, any> | null;
-    fontCustomization?: FontCustomization | null;
-    showBranding?: boolean;
-    outputFilename?: string;
-    options?: GraphicsOptions | null;
+export interface Top10GenerationResult {
+    signedUrl: string;
+    imageUrl: string;
+    generationTimeMs: number;
+    rankCount: number;
 }
 
 export class QuickGraphicsService extends BaseService {
-    constructor() {
-        super();
-    }
+    /** Python slot-list / team-list APIs accept slot numbers 1–24 only */
+    private static readonly MAX_SLOT = 24;
+    /** Python top-10 API accepts at most 10 rank rows */
+    private static readonly MAX_TOP10_RANK = 10;
 
-    // ─────────────────────────────────────────
-    // SLOT LIST
-    // ─────────────────────────────────────────
-
-    /**
-     * Generate a Slot List graphic for a match.
-     * Slot data is pulled from QuickSlotAssignment with logos.
-     */
     async generateMatchSlotList(
         quickMatchId: string,
         userId: string,
-        opts: SlotListGraphicOptions
-    ): Promise<GraphicGenerationResult> {
+        input: MatchSlotListInput,
+    ): Promise<SlotListGenerationResult> {
         const start = Date.now();
 
+        // 1. Verify match
         const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
         if (!quickMatch) {
             throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
         }
 
+        // 2. Load slots from DB
         const slots = await this.db.quickSlotAssignment.findMany({
             where: { quickMatchId },
             include: { logoPresetEntry: { select: { logoStorageUrl: true } } },
@@ -116,98 +101,74 @@ export class QuickGraphicsService extends BaseService {
             throw new ServiceError(
                 'No slot assignments found. Add slots before generating a slot list graphic.',
                 400,
-                'NO_SLOTS'
+                'NO_SLOTS',
             );
         }
 
-        const eligibleSlots = this.filterSlotsWithinCapacity(slots);
-
-        const slotData = eligibleSlots.map(s => ({
-            slot_number: s.slotNumber,
-            team_name: s.teamName,
-            team_logo_url: this.resolveLogoUrl(s) ?? undefined,
-        }));
-
-        const { templateUrl, templateConfigUrl } = await this.resolveTemplateForPython(
-            opts.template,
-            opts.formatType
+        // 3. Filter to slots 1–24
+        const eligible = slots.filter(
+            s => s.slotNumber >= 1 && s.slotNumber <= QuickGraphicsService.MAX_SLOT,
         );
 
-        const request: SlotListRequest = {
-            template_url: templateUrl,
-            template_config_url: templateConfigUrl,
-            slot_data: slotData,
-            header_overrides: opts.headerOverrides ?? null,
-            slot_number_font_size: opts.slotNumberFontSize ?? null,
-            team_name_font_size: opts.teamNameFontSize ?? null,
-            slot_number_color: opts.slotNumberColor ?? null,
-            team_name_color: opts.teamNameColor ?? null,
-            team_logo_gap: opts.teamLogoGap ?? null,
-            team_logo_size: opts.teamLogoSize ?? null,
-            grid_overrides: opts.gridOverrides ?? null,
-            font_customization: opts.fontCustomization ?? null,
-            ...(opts.outputFilename ? { output_filename: opts.outputFilename } : {}),
-            options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
-        };
-
-        const pyResponse = await pythonAIService.generateSlotList(request);
-        return this.extractResult(pyResponse, Date.now() - start);
-    }
-
-    /**
-     * Generate a Slot List graphic for a series.
-     * Uses slotSourceQuickMatchId if set, otherwise falls back to the first completed match.
-     */
-    async generateSeriesSlotList(
-        seriesId: string,
-        userId: string,
-        opts: SlotListGraphicOptions
-    ): Promise<GraphicGenerationResult> {
-        const series = await quickSeriesService.getTournamentSeriesById(seriesId, userId);
-        if (!series) {
-            throw new ServiceError('Tournament series not found or access denied', 404, 'NOT_FOUND');
-        }
-
-        // Resolve source match for slots
-        const dbSeries = await this.db.quickTournamentSeries.findFirst({
-            where: { id: seriesId, userId },
-            include: {
-                seriesMatches: {
-                    where: { isCompleted: true },
-                    orderBy: { matchOrder: 'asc' },
-                    take: 1,
-                    select: { quickMatchId: true },
-                },
-            },
-        });
-
-        const sourceMatchId =
-            (dbSeries as any)?.slotSourceQuickMatchId ??
-            dbSeries?.seriesMatches[0]?.quickMatchId;
-
-        if (!sourceMatchId) {
+        if (eligible.length === 0) {
             throw new ServiceError(
-                'No completed matches in series. Complete at least one match before generating a slot list graphic.',
+                `No slot assignments within slots 1–${QuickGraphicsService.MAX_SLOT}.`,
                 400,
-                'NO_COMPLETED_MATCH'
+                'SLOTS_EXCEED_CAPACITY',
             );
         }
 
-        return this.generateMatchSlotList(sourceMatchId, userId, opts);
+        // 4. Build slot_data (raw logo URLs — Python resolves R2 access itself)
+        const slotData: SlotListSlotData[] = eligible.map(s => ({
+            slot_number: s.slotNumber,
+            team_name: s.teamName,
+            team_logo_url: s.matchLogoStorageUrl ?? s.logoPresetEntry?.logoStorageUrl ?? undefined,
+        }));
+
+        // 5. Resolve template (raw R2 URLs — same as direct Python curl)
+        const resolved = await templateService.getTemplateWithConfig(input.template, input.formatType);
+        if (!resolved) {
+            throw new ServiceError(
+                `Template "${input.template}" not found for format "${input.formatType}". Check GET /quick-pt/templates.`,
+                400,
+                'TEMPLATE_NOT_FOUND',
+            );
+        }
+
+        // 6. Build request + call Python
+        const { template, formatType, ...stylingOpts } = input;
+        const request = buildSlotListRequest(
+            resolved.templateUrl,
+            resolved.configUrl,
+            slotData,
+            stylingOpts,
+        );
+
+        const pyResponse = await pythonAIService.generateSlotList(request);
+
+        if (pyResponse.status !== 'success') {
+            throw new ServiceError(
+                `Python AI slot list generation failed: ${pyResponse.error?.message ?? pyResponse.status}`,
+                502,
+                'PYTHON_AI_ERROR',
+            );
+        }
+
+        const { signedUrl, imageUrl } = await this.signPythonImageResponse(pyResponse);
+
+        return {
+            signedUrl,
+            imageUrl,
+            generationTimeMs: Date.now() - start,
+            slotCount: slotData.length,
+        };
     }
 
-    // ─────────────────────────────────────────
-    // ROSTER
-    // ─────────────────────────────────────────
-
-    /**
-     * Generate a Team Roster (team-list) graphic for a match.
-     */
     async generateMatchRoster(
         quickMatchId: string,
         userId: string,
-        opts: RosterGraphicOptions
-    ): Promise<GraphicGenerationResult> {
+        input: MatchRosterInput,
+    ): Promise<RosterGenerationResult> {
         const start = Date.now();
 
         const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
@@ -225,24 +186,38 @@ export class QuickGraphicsService extends BaseService {
             throw new ServiceError(
                 'No slot assignments found. Add slots before generating a roster graphic.',
                 400,
-                'NO_SLOTS'
+                'NO_SLOTS',
             );
         }
 
-        const eligibleSlots = this.filterSlotsWithinCapacity(slots);
-
-        const teamData = eligibleSlots.map(s => ({
-            slot: s.slotNumber,
-            team_name: s.teamName,
-            team_logo_url: this.resolveLogoUrl(s) ?? undefined,
-        }));
-
-        const { templateUrl, templateConfigUrl, rawConfigUrl } = await this.resolveTemplateForPython(
-            opts.template,
-            opts.formatType
+        const eligible = slots.filter(
+            s => s.slotNumber >= 1 && s.slotNumber <= QuickGraphicsService.MAX_SLOT,
         );
 
-        const templateCapacity = await getTemplateCapacity(rawConfigUrl);
+        if (eligible.length === 0) {
+            throw new ServiceError(
+                `No slot assignments within slots 1–${QuickGraphicsService.MAX_SLOT}.`,
+                400,
+                'SLOTS_EXCEED_CAPACITY',
+            );
+        }
+
+        const teamData: TeamListTeamData[] = eligible.map(s => ({
+            slot: s.slotNumber,
+            team_name: s.teamName,
+            team_logo_url: s.matchLogoStorageUrl ?? s.logoPresetEntry?.logoStorageUrl ?? undefined,
+        }));
+
+        const resolved = await templateService.getTemplateWithConfig(input.template, input.formatType);
+        if (!resolved) {
+            throw new ServiceError(
+                `Template "${input.template}" not found for format "${input.formatType}". Check GET /quick-pt/templates.`,
+                400,
+                'TEMPLATE_NOT_FOUND',
+            );
+        }
+
+        const templateCapacity = await getTemplateCapacity(resolved.configUrl);
         const teamChunks = splitTeamDataIntoChunks(teamData, templateCapacity);
 
         if (teamChunks.length > 1) {
@@ -252,51 +227,50 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const images: GeneratedGraphicImage[] = [];
+        const { template, formatType, ...stylingOpts } = input;
+        const images: RosterGraphicImage[] = [];
 
         for (let i = 0; i < teamChunks.length; i++) {
             const chunk = teamChunks[i];
             const partIndex = i + 1;
             const isOverflow = partIndex === teamChunks.length && chunk.length < templateCapacity;
 
-            // Remap slots 1..N within each image so cards align with the template layout
             const chunkTeamData = chunk.map((team, idx) => ({
                 ...team,
                 slot: idx + 1,
             }));
 
             const chunkOutputFilename = buildSplitOutputFilename(
-                opts.outputFilename,
+                stylingOpts.outputFilename,
                 partIndex,
                 teamChunks.length
             );
 
-            const request: TeamListRequest = {
-                template_url: templateUrl,
-                template_config_url: templateConfigUrl,
-                team_data: chunkTeamData,
-                header_overrides: opts.headerOverrides ?? null,
-                header_style: opts.headerStyle ?? null,
-                footer_overrides: opts.footerOverrides ?? null,
-                footer_style: opts.footerStyle ?? null,
-                team_logo_size: opts.teamLogoSize ?? null,
-                team_name_font_size: opts.teamNameFontSize ?? null,
-                team_name_color: opts.teamNameColor ?? null,
-                card_overrides: opts.cardOverrides ?? null,
-                font_customization: opts.fontCustomization ?? null,
-                ...(opts.showBranding !== undefined ? { show_branding: opts.showBranding } : {}),
-                ...(chunkOutputFilename ? { output_filename: chunkOutputFilename } : {}),
-                options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
-            };
+            const request = buildTeamListRequest(
+                resolved.templateUrl,
+                resolved.configUrl,
+                chunkTeamData,
+                stylingOpts,
+                chunkOutputFilename
+            );
 
             const pyResponse = await pythonAIService.generateTeamList(request);
-            const partResult = await this.extractResult(pyResponse, Date.now() - start);
+
+            if (pyResponse.status !== 'success') {
+                throw new ServiceError(
+                    `Python AI roster generation failed: ${pyResponse.error?.message ?? pyResponse.status}`,
+                    502,
+                    'PYTHON_AI_ERROR',
+                );
+            }
+
+            const { signedUrl, imageUrl } = await this.signPythonImageResponse(pyResponse);
 
             images.push({
                 part: partIndex,
                 label: isOverflow ? 'overflow' : 'main',
-                signedUrl: partResult.signedUrl,
-                imageUrl: partResult.imageUrl,
+                signedUrl,
+                imageUrl,
                 filename: chunkOutputFilename,
                 teamCount: chunk.length,
             });
@@ -313,19 +287,11 @@ export class QuickGraphicsService extends BaseService {
         };
     }
 
-    // ─────────────────────────────────────────
-    // TOP 10
-    // ─────────────────────────────────────────
-
-    /**
-     * Generate a Top-10 Rankings graphic from a single match's results.
-     * Sends all teams if fewer than 10 (they're all in the top 10).
-     */
     async generateMatchTop10(
         quickMatchId: string,
         userId: string,
-        opts: Top10GraphicOptions
-    ): Promise<GraphicGenerationResult> {
+        input: MatchTop10Input,
+    ): Promise<Top10GenerationResult> {
         const start = Date.now();
 
         const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
@@ -338,209 +304,77 @@ export class QuickGraphicsService extends BaseService {
             throw new ServiceError(
                 'No match results found. Process result screenshots or enter results manually first.',
                 400,
-                'NO_RESULTS'
+                'NO_RESULTS',
             );
         }
 
-        // Get slot assignments to pick up logos
         const slots = await this.db.quickSlotAssignment.findMany({
             where: { quickMatchId },
             include: { logoPresetEntry: { select: { logoStorageUrl: true } } },
         });
         const slotLogoMap = new Map(
-            slots.map(s => [s.slotNumber, this.resolveLogoUrl(s)])
+            slots.map(s => [s.slotNumber, s.matchLogoStorageUrl ?? s.logoPresetEntry?.logoStorageUrl ?? null])
         );
 
-        // Sort by total points desc, take all (if ≤ 10) or top 10
-        const sorted = [...results].sort((a, b) => {
+        const sorted = this.sortResultsForTop10(results);
+        const rankData: Top10RankData[] = sorted
+            .slice(0, QuickGraphicsService.MAX_TOP10_RANK)
+            .map((r, i) => ({
+                rank: i + 1,
+                team_name: r.teamName,
+                total_points: r.totalPoints,
+                team_logo_url: slotLogoMap.get(r.slotNumber) ?? undefined,
+            }));
+
+        const resolved = await templateService.getTemplateWithConfig(input.template, input.formatType);
+        if (!resolved) {
+            throw new ServiceError(
+                `Template "${input.template}" not found for format "${input.formatType}". Check GET /quick-pt/templates.`,
+                400,
+                'TEMPLATE_NOT_FOUND',
+            );
+        }
+
+        const { template, formatType, ...stylingOpts } = input;
+        const request = buildTop10Request(
+            resolved.templateUrl,
+            resolved.configUrl,
+            rankData,
+            stylingOpts,
+        );
+
+        const pyResponse = await pythonAIService.generateTop10Rankings(request);
+
+        if (pyResponse.status !== 'success') {
+            throw new ServiceError(
+                `Python AI top-10 generation failed: ${pyResponse.error?.message ?? pyResponse.status}`,
+                502,
+                'PYTHON_AI_ERROR',
+            );
+        }
+
+        const { signedUrl, imageUrl } = await this.signPythonImageResponse(pyResponse);
+
+        return {
+            signedUrl,
+            imageUrl,
+            generationTimeMs: Date.now() - start,
+            rankCount: rankData.length,
+        };
+    }
+
+    /** Rank by total points desc — same logic as standings export */
+    private sortResultsForTop10(results: QuickMatchResultCache[]): QuickMatchResultCache[] {
+        return [...results].sort((a, b) => {
             if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
             if (b.totalKills !== a.totalKills) return b.totalKills - a.totalKills;
             return (a.rank ?? a.position) - (b.rank ?? b.position);
         });
-
-        const rankData = sorted.slice(0, 10).map((r, i) => ({
-            rank: i + 1,
-            team_name: r.teamName,
-            total_points: r.totalPoints,
-            team_logo_url: slotLogoMap.get(r.slotNumber) ?? undefined,
-        }));
-
-        const { templateUrl, templateConfigUrl } = await this.resolveTemplateForPython(
-            opts.template,
-            opts.formatType
-        );
-
-        const request: Top10Request = {
-            template_url: templateUrl,
-            template_config_url: templateConfigUrl,
-            rank_data: rankData,
-            header_overrides: opts.headerOverrides ?? null,
-            footer_overrides: opts.footerOverrides ?? null,
-            card_overrides: opts.cardOverrides ?? null,
-            font_customization: opts.fontCustomization ?? null,
-            ...(opts.showBranding !== undefined ? { show_branding: opts.showBranding } : {}),
-            ...(opts.outputFilename ? { output_filename: opts.outputFilename } : {}),
-            options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
-        };
-
-        const pyResponse = await pythonAIService.generateTop10Rankings(request);
-        return this.extractResult(pyResponse, Date.now() - start);
     }
 
-    /**
-     * Generate a Top-10 Rankings graphic from aggregated series standings.
-     */
-    async generateSeriesTop10(
-        seriesId: string,
-        userId: string,
-        opts: Top10GraphicOptions
-    ): Promise<GraphicGenerationResult> {
-        const start = Date.now();
-
-        const series = await quickSeriesService.getTournamentSeriesById(seriesId, userId);
-        if (!series) {
-            throw new ServiceError('Tournament series not found or access denied', 404, 'NOT_FOUND');
-        }
-
-        const leaderboard = await quickSeriesService.getSeriesLeaderboard(seriesId, userId);
-        if (!leaderboard?.leaderboardData?.length) {
-            throw new ServiceError(
-                'No series leaderboard data. Add matches with results before generating a Top-10 graphic.',
-                400,
-                'NO_LEADERBOARD'
-            );
-        }
-
-        const standings = leaderboard.leaderboardData;
-
-        // Get slot logos from the source match
-        const dbSeries = await this.db.quickTournamentSeries.findFirst({
-            where: { id: seriesId, userId },
-            include: {
-                seriesMatches: {
-                    where: { isCompleted: true },
-                    orderBy: { matchOrder: 'asc' },
-                    take: 1,
-                    select: { quickMatchId: true },
-                },
-            },
-        });
-
-        const sourceMatchId =
-            (dbSeries as any)?.slotSourceQuickMatchId ??
-            dbSeries?.seriesMatches[0]?.quickMatchId;
-
-        let slotLogoMap = new Map<string, string | null>();
-        if (sourceMatchId) {
-            const slots = await this.db.quickSlotAssignment.findMany({
-                where: { quickMatchId: sourceMatchId },
-                include: { logoPresetEntry: { select: { logoStorageUrl: true } } },
-            });
-            slotLogoMap = new Map(
-                slots.map(s => [s.teamName.toLowerCase(), this.resolveLogoUrl(s)])
-            );
-        }
-
-        const rankData = standings.slice(0, 10).map((s: any, i: number) => ({
-            rank: i + 1,
-            team_name: s.teamName,
-            total_points: s.totalPoints,
-            team_logo_url: slotLogoMap.get(s.teamName.toLowerCase()) ?? undefined,
-        }));
-
-        const { templateUrl, templateConfigUrl } = await this.resolveTemplateForPython(
-            opts.template,
-            opts.formatType
-        );
-
-        const request: Top10Request = {
-            template_url: templateUrl,
-            template_config_url: templateConfigUrl,
-            rank_data: rankData,
-            header_overrides: opts.headerOverrides ?? null,
-            footer_overrides: opts.footerOverrides ?? null,
-            card_overrides: opts.cardOverrides ?? null,
-            font_customization: opts.fontCustomization ?? null,
-            ...(opts.showBranding !== undefined ? { show_branding: opts.showBranding } : {}),
-            ...(opts.outputFilename ? { output_filename: opts.outputFilename } : {}),
-            options: { upload_to_r2: true, compress_image: false, render_scale: 0, ...(opts.options ?? {}) },
-        };
-
-        const pyResponse = await pythonAIService.generateTop10Rankings(request);
-        return this.extractResult(pyResponse, Date.now() - start);
-    }
-
-    // ─────────────────────────────────────────
-    // Helpers
-    // ─────────────────────────────────────────
-
-    /** Python slot-list / team-list APIs accept slot numbers 1–24 only. */
-    private static readonly MAX_GRAPHIC_SLOT = 24;
-
-    /**
-     * Resolve template by name + category (same as standings export),
-     * then re-sign URLs so Python can HTTP-fetch private R2 objects.
-     */
-    private async resolveTemplateForPython(
-        templateName: string,
-        formatType: string
-    ): Promise<{ templateUrl: string; templateConfigUrl: string; rawConfigUrl: string }> {
-        const resolved = await templateService.getTemplateWithConfig(templateName, formatType);
-        if (!resolved) {
-            throw new ServiceError(
-                `Template "${templateName}" not found for format "${formatType}". Check GET /quick-pt/templates.`,
-                400,
-                'TEMPLATE_NOT_FOUND'
-            );
-        }
-
-        const signed = await resolveSignedTemplateUrlsForPython(
-            resolved.templateUrl,
-            resolved.configUrl
-        );
-
-        return {
-            ...signed,
-            rawConfigUrl: resolved.configUrl,
-        };
-    }
-
-    private filterSlotsWithinCapacity<T extends { slotNumber: number }>(slots: T[]): T[] {
-        const eligible = slots.filter(
-            s => s.slotNumber >= 1 && s.slotNumber <= QuickGraphicsService.MAX_GRAPHIC_SLOT
-        );
-
-        if (eligible.length === 0) {
-            throw new ServiceError(
-                `No slot assignments within slots 1–${QuickGraphicsService.MAX_GRAPHIC_SLOT}. ` +
-                'Slot list and roster graphics support at most 24 teams.',
-                400,
-                'SLOTS_EXCEED_CAPACITY'
-            );
-        }
-
-        return eligible;
-    }
-
-    private resolveLogoUrl(slot: {
-        matchLogoStorageUrl?: string | null;
-        logoPresetEntry?: { logoStorageUrl: string } | null;
-    }): string | null {
-        return slot.matchLogoStorageUrl ?? slot.logoPresetEntry?.logoStorageUrl ?? null;
-    }
-
-    private async extractResult(
-        pyResponse: Awaited<ReturnType<typeof pythonAIService.generateSlotList>>,
-        generationTimeMs: number
-    ): Promise<GraphicGenerationResult> {
-        if (pyResponse.status !== 'success') {
-            throw new ServiceError(
-                `Python AI graphic generation failed: ${pyResponse.error?.message ?? 'Unknown error'}`,
-                502,
-                'PYTHON_AI_ERROR'
-            );
-        }
-
+    private async signPythonImageResponse(
+        pyResponse: { data?: Record<string, any>; metadata?: Record<string, any> }
+    ): Promise<{ signedUrl: string; imageUrl: string }> {
         const rawImageUrl: string =
             pyResponse.data?.image_url ||
             pyResponse.data?.download_url ||
@@ -548,33 +382,38 @@ export class QuickGraphicsService extends BaseService {
             pyResponse.metadata?.r2_upload_url;
 
         if (!rawImageUrl) {
-            throw new ServiceError('Python AI did not return an image URL', 502, 'PYTHON_AI_ERROR');
+            throw new ServiceError(
+                'Python AI did not return an image URL in the response',
+                502,
+                'PYTHON_AI_ERROR',
+            );
         }
 
-        // Extract R2 key from URL and sign it
-        const r2Key = this.extractR2Key(rawImageUrl);
+        const r2Key = this.extractR2KeyFromUrl(rawImageUrl);
         const signed = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
 
-        return {
-            signedUrl: signed.signedUrl,
-            imageUrl: rawImageUrl,
-            generationTimeMs,
-        };
+        return { signedUrl: signed.signedUrl, imageUrl: rawImageUrl };
     }
 
-    private extractR2Key(imageUrl: string): string {
+    /** Same helper as quickExportService — extracts R2 key from Python's returned URL */
+    private extractR2KeyFromUrl(imageUrl: string): string {
         try {
             const url = new URL(imageUrl);
             let key = url.pathname.replace(/^\/+/, '');
             const bucketName = process.env.R2_BUCKET_NAME;
+
             if (bucketName && key.startsWith(`${bucketName}/`)) {
                 key = key.substring(bucketName.length + 1);
             }
-            if (!key) throw new Error('Empty R2 object key');
+
+            if (!key) {
+                throw new Error('Empty R2 object key');
+            }
+
             return key;
         } catch {
             this.logger.error('Failed to extract R2 key from URL:', imageUrl);
-            throw new ServiceError('Invalid image URL format from Python AI', 502, 'PYTHON_AI_ERROR');
+            throw new ServiceError('Invalid image URL format', 502, 'PYTHON_AI_ERROR');
         }
     }
 }

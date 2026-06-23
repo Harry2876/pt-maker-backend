@@ -1,5 +1,6 @@
 import { StandingsExportOptions, StandingsRequest, StandingsTeamData } from '../types/pythonAI';
 import { omitEmptyFields } from './r2UrlUtils';
+import { DEFAULT_PYTHON_IMAGE_OPTIONS } from './pythonGraphicsDefaults';
 
 /**
  * Build the exact JSON body Python POST /api/v1/standings/generate expects.
@@ -67,6 +68,6 @@ export function buildStandingsRequest(
         ...(options.fontCustomization && { font_customization: options.fontCustomization }),
         ...(options.advancedConfig && { advanced_config: options.advancedConfig }),
         ...(options.showBranding != null && { show_branding: options.showBranding }),
-        options: { upload_to_r2: true, compress_image: false, render_scale: 0 },
+        options: { ...DEFAULT_PYTHON_IMAGE_OPTIONS },
     };
 }

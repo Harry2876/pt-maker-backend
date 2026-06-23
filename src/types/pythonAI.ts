@@ -106,14 +106,7 @@ export interface StandingsRequest {
     advanced_config?: Record<string, any> | null;
     show_branding?: boolean;
     output_filename?: string;
-    options?: {
-        cleanup_temp?: boolean;
-        upload_to_r2?: boolean;
-        compress_image?: boolean;
-        image_quality?: number;
-        render_scale?: number | null;
-        local_debug_path?: string | null;
-    } | null;
+    options?: PythonImageOptions | null;
 }
 
 /** Styling and header fields shared by match and series standings export */
@@ -177,6 +170,7 @@ export interface FontRoleConfig {
 }
 
 export interface FontCustomization {
+    override_all_fonts?: boolean;
     header_font?: FontRoleConfig;
     sponsor_font?: FontRoleConfig;
     organiser_font?: FontRoleConfig;
@@ -190,23 +184,25 @@ export interface FontCustomization {
     global_size_multiplier?: number;
 }
 
-export interface GraphicsOptions {
-    upload_to_r2?: boolean;
-    compress_image?: boolean;
-    image_quality?: number;
-    render_scale?: number | null;
-    local_debug_path?: string | null;
+export interface FontsListResponse {
+    status: 'success' | 'error';
+    count: number;
+    fonts: Array<{ id: string; file: string; label: string }>;
+    usage?: Record<string, any>;
 }
 
-/** POST /api/v1/slot-list/generate */
+/** One row in slot_data sent to Python */
+export interface SlotListSlotData {
+    slot_number: number;
+    team_name: string;
+    team_logo_url?: string | null;
+}
+
+/** Internal request object (snake_case — matches Python) */
 export interface SlotListRequest {
     template_url: string;
     template_config_url: string;
-    slot_data: Array<{
-        slot_number: number;
-        team_name: string;
-        team_logo_url?: string | null;
-    }>;
+    slot_data: SlotListSlotData[];
     header_overrides?: Record<string, any> | null;
     slot_number_font_size?: number | null;
     team_name_font_size?: number | null;
@@ -217,18 +213,54 @@ export interface SlotListRequest {
     grid_overrides?: Record<string, any> | null;
     font_customization?: FontCustomization | null;
     output_filename?: string;
-    options?: GraphicsOptions | null;
+    options?: PythonImageOptions;
 }
 
-/** POST /api/v1/team-list/generate (Roster List) */
+/** Shared Python generate options (standings, roster, top-10, slot-list) */
+export interface PythonImageOptions {
+    upload_to_r2?: boolean;
+    compress_image?: boolean;
+    image_quality?: number;
+    render_scale?: number | null;
+    cleanup_temp?: boolean;
+    local_debug_path?: string | null;
+}
+
+/** CamelCase options from Android/controller → mapped in payload builder */
+export interface SlotListExportOptions {
+    headerOverrides?: Record<string, any> | null;
+    slotNumberFontSize?: number | null;
+    teamNameFontSize?: number | null;
+    slotNumberColor?: string | null;
+    teamNameColor?: string | null;
+    teamLogoGap?: number | null;
+    teamLogoSize?: number | null;
+    gridOverrides?: Record<string, any> | null;
+    fontCustomization?: FontCustomization | null;
+    outputFilename?: string;
+}
+
+/** Python response — same shape as StandingsResponse */
+export interface SlotListResponse {
+    status: 'success' | 'error';
+    request_id?: string | null;
+    data?: Record<string, any>;
+    metadata?: Record<string, any>;
+    error?: { code: string; message: string };
+}
+
+/** One row in team_data sent to Python team-list / roster */
+export interface TeamListTeamData {
+    slot: number;
+    team_name: string;
+    team_logo_url?: string | null;
+}
+
+/** Internal request object (snake_case — matches Python POST /api/v1/team-list/generate) */
 export interface TeamListRequest {
     template_url: string;
     template_config_url: string;
-    team_data: Array<{
-        slot: number;
-        team_name: string;
-        team_logo_url?: string | null;
-    }>;
+    team_data: TeamListTeamData[];
     header_overrides?: Record<string, any> | null;
     header_style?: Record<string, any> | null;
     footer_overrides?: Record<string, any> | null;
@@ -239,30 +271,28 @@ export interface TeamListRequest {
     card_overrides?: Record<string, any> | null;
     font_customization?: FontCustomization | null;
     show_branding?: boolean;
+    advanced_config?: Record<string, any> | null;
     output_filename?: string;
-    options?: GraphicsOptions | null;
+    options?: PythonImageOptions;
 }
 
-/** POST /api/v1/top-10-rankings/generate */
-export interface Top10Request {
-    template_url: string;
-    template_config_url: string;
-    rank_data: Array<{
-        rank: number;
-        team_name: string;
-        total_points: number;
-        team_logo_url?: string | null;
-    }>;
-    header_overrides?: Record<string, any> | null;
-    footer_overrides?: Record<string, any> | null;
-    card_overrides?: Record<string, any> | null;
-    font_customization?: FontCustomization | null;
-    show_branding?: boolean;
-    output_filename?: string;
-    options?: GraphicsOptions | null;
+/** CamelCase options from Android/controller → mapped in payload builder */
+export interface TeamListExportOptions {
+    headerOverrides?: Record<string, any> | null;
+    headerStyle?: Record<string, any> | null;
+    footerOverrides?: Record<string, any> | null;
+    footerStyle?: Record<string, any> | null;
+    teamLogoSize?: number | null;
+    teamNameFontSize?: number | null;
+    teamNameColor?: string | null;
+    cardOverrides?: Record<string, any> | null;
+    fontCustomization?: FontCustomization | null;
+    showBranding?: boolean;
+    advancedConfig?: Record<string, any> | null;
+    outputFilename?: string;
 }
 
-export interface GraphicsResponse {
+export interface TeamListResponse {
     status: 'success' | 'error';
     request_id?: string | null;
     data?: Record<string, any>;
@@ -270,9 +300,44 @@ export interface GraphicsResponse {
     error?: { code: string; message: string };
 }
 
-export interface FontsListResponse {
+/** One row in rank_data sent to Python top-10-rankings */
+export interface Top10RankData {
+    rank: number;
+    team_name: string;
+    total_points: number;
+    team_logo_url?: string | null;
+}
+
+/** Internal request object (snake_case — matches Python POST /api/v1/top-10-rankings/generate) */
+export interface Top10Request {
+    template_url: string;
+    template_config_url: string;
+    rank_data: Top10RankData[];
+    header_overrides?: Record<string, any> | null;
+    footer_overrides?: Record<string, any> | null;
+    card_overrides?: Record<string, any> | null;
+    font_customization?: FontCustomization | null;
+    show_branding?: boolean;
+    advanced_config?: Record<string, any> | null;
+    output_filename?: string;
+    options?: PythonImageOptions;
+}
+
+/** CamelCase options from Android/controller */
+export interface Top10ExportOptions {
+    headerOverrides?: Record<string, any> | null;
+    footerOverrides?: Record<string, any> | null;
+    cardOverrides?: Record<string, any> | null;
+    fontCustomization?: FontCustomization | null;
+    showBranding?: boolean;
+    advancedConfig?: Record<string, any> | null;
+    outputFilename?: string;
+}
+
+export interface Top10Response {
     status: 'success' | 'error';
-    count: number;
-    fonts: Array<{ id: string; file: string; label: string }>;
-    usage?: Record<string, any>;
+    request_id?: string | null;
+    data?: Record<string, any>;
+    metadata?: Record<string, any>;
+    error?: { code: string; message: string };
 }

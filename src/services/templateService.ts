@@ -2,7 +2,7 @@ import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
 import { signedUrlUtility } from './signedUrlUtility';
 import redis from '../config/redis';
-import { buildRawR2ObjectUrl, templateNameToConfigFileName } from '../utils/r2UrlUtils';
+import { buildRawR2ObjectUrl, templateNameToConfigFileName, resolveR2ObjectKey } from '../utils/r2UrlUtils';
 
 /**
  * Extract the first numeric run from a filename stem.
@@ -235,10 +235,14 @@ export class TemplateService extends BaseService {
                     // Reconstruct R2 key from fullPath (works for all categories)
                     const r2Key = `${this.TEMPLATE_PREFIX}${template.fullPath}.${template.originalExtension}`;
 
-                    // Derive configKey from rawConfigUrl stored in cache
                     const configKey = template.rawConfigUrl
-                        ? template.rawConfigUrl.replace(/^https?:\/\/[^/]+\//, '')
+                        ? resolveR2ObjectKey(template.rawConfigUrl)
                         : `${this.TEMPLATE_PREFIX}${template.category}/${templateNameToConfigFileName(template.name)}`;
+
+                    if (!configKey) {
+                        this.logger.warn(`Could not resolve config key for template: ${template.fullPath}`);
+                        continue;
+                    }
 
                     const [signedUrl, configSignedUrl] = await Promise.all([
                         signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 }),
@@ -319,7 +323,7 @@ export class TemplateService extends BaseService {
                 return null;
             }
             
-            // Return raw R2 URLs for Python AI (template image + paired config JSON)
+            // Return raw R2 URLs for Python AI — Python fetches with its own R2 credentials
             return {
                 templateUrl: template.rawTemplateUrl,
                 configUrl: template.rawConfigUrl,

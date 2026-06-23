@@ -401,6 +401,10 @@ components:
         Font overrides per role. All roles optional.
         Use font IDs from `GET /quick-pt/fonts` as the `font_file` value.
       properties:
+        override_all_fonts:
+          type: boolean
+          description: When false, per-role fonts are used individually (Python default)
+          example: false
         header_font:
           $ref: '#/components/schemas/FontRoleConfig'
         sponsor_font:
