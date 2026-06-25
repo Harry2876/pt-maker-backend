@@ -1,4 +1,5 @@
 import { StandingsExportOptions, StandingsRequest, StandingsTeamData } from '../types/pythonAI';
+import { advancedConfigForPython } from './advancedConfigForPython';
 import { omitEmptyFields } from './r2UrlUtils';
 import { DEFAULT_PYTHON_IMAGE_OPTIONS } from './pythonGraphicsDefaults';
 
@@ -29,7 +30,10 @@ export function buildPythonStandingsPayload(request: StandingsRequest): Record<s
         element_overrides: request.element_overrides,
         column_overrides: request.column_overrides,
         font_customization: request.font_customization,
-        advanced_config: request.advanced_config,
+        advanced_config: advancedConfigForPython(
+            request.template_config_url,
+            request.advanced_config as Record<string, unknown> | null | undefined,
+        ),
         show_branding: request.show_branding,
         output_filename: request.output_filename,
         options: request.options,

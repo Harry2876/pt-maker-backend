@@ -5,6 +5,7 @@ import {
 } from '../types/pythonAI';
 import { omitEmptyFields } from './r2UrlUtils';
 import { DEFAULT_PYTHON_IMAGE_OPTIONS } from './pythonGraphicsDefaults';
+import { advancedConfigForPython } from './advancedConfigForPython';
 
 const DEFAULT_TEAM_LIST_OPTIONS = DEFAULT_PYTHON_IMAGE_OPTIONS;
 
@@ -59,7 +60,10 @@ export function buildPythonTeamListPayload(request: TeamListRequest): Record<str
         card_overrides: request.card_overrides,
         font_customization: request.font_customization,
         show_branding: request.show_branding,
-        advanced_config: request.advanced_config,
+        advanced_config: advancedConfigForPython(
+            request.template_config_url,
+            request.advanced_config as Record<string, unknown> | null | undefined,
+        ),
         output_filename: request.output_filename,
         options: request.options,
     });
