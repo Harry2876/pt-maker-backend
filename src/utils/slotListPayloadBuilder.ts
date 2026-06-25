@@ -4,7 +4,11 @@ import {
     SlotListSlotData,
 } from '../types/pythonAI';
 import { omitEmptyFields } from './r2UrlUtils';
-import { DEFAULT_SLOT_LIST_OPTIONS } from './pythonGraphicsDefaults';
+import {
+    clientOverridesForPython,
+    DEFAULT_SLOT_LIST_OPTIONS,
+    fontCustomizationForPython,
+} from './pythonGraphicsDefaults';
 
 const DEFAULT_SLOT_LIST_OPTIONS_TYPED = DEFAULT_SLOT_LIST_OPTIONS;
 
@@ -51,15 +55,21 @@ export function buildPythonSlotListPayload(request: SlotListRequest): Record<str
                 team_logo_url: row.team_logo_url,
             })
         ),
-        header_overrides: request.header_overrides,
+        header_overrides: clientOverridesForPython(
+            request.header_overrides as Record<string, unknown> | null | undefined,
+        ),
         slot_number_font_size: request.slot_number_font_size,
         team_name_font_size: request.team_name_font_size,
         slot_number_color: request.slot_number_color,
         team_name_color: request.team_name_color,
         team_logo_gap: request.team_logo_gap,
         team_logo_size: request.team_logo_size,
-        grid_overrides: request.grid_overrides,
-        font_customization: request.font_customization,
+        grid_overrides: clientOverridesForPython(
+            request.grid_overrides as Record<string, unknown> | null | undefined,
+        ),
+        font_customization: fontCustomizationForPython(
+            request.font_customization as Record<string, unknown> | null | undefined,
+        ),
         output_filename: request.output_filename,
         options: request.options,
     });

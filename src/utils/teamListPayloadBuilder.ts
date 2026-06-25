@@ -4,8 +4,13 @@ import {
     TeamListTeamData,
 } from '../types/pythonAI';
 import { omitEmptyFields } from './r2UrlUtils';
-import { DEFAULT_PYTHON_IMAGE_OPTIONS } from './pythonGraphicsDefaults';
-import { advancedConfigForPython } from './advancedConfigForPython';
+import {
+    advancedConfigForPython,
+    clientOverridesForPython,
+    DEFAULT_PYTHON_IMAGE_OPTIONS,
+    fontCustomizationForPython,
+    showBrandingForPython,
+} from './pythonGraphicsDefaults';
 
 const DEFAULT_TEAM_LIST_OPTIONS = DEFAULT_PYTHON_IMAGE_OPTIONS;
 
@@ -50,16 +55,28 @@ export function buildPythonTeamListPayload(request: TeamListRequest): Record<str
                 team_logo_url: row.team_logo_url,
             })
         ),
-        header_overrides: request.header_overrides,
-        header_style: request.header_style,
-        footer_overrides: request.footer_overrides,
-        footer_style: request.footer_style,
+        header_overrides: clientOverridesForPython(
+            request.header_overrides as Record<string, unknown> | null | undefined,
+        ),
+        header_style: clientOverridesForPython(
+            request.header_style as Record<string, unknown> | null | undefined,
+        ),
+        footer_overrides: clientOverridesForPython(
+            request.footer_overrides as Record<string, unknown> | null | undefined,
+        ),
+        footer_style: clientOverridesForPython(
+            request.footer_style as Record<string, unknown> | null | undefined,
+        ),
         team_logo_size: request.team_logo_size,
         team_name_font_size: request.team_name_font_size,
         team_name_color: request.team_name_color,
-        card_overrides: request.card_overrides,
-        font_customization: request.font_customization,
-        show_branding: request.show_branding,
+        card_overrides: clientOverridesForPython(
+            request.card_overrides as Record<string, unknown> | null | undefined,
+        ),
+        font_customization: fontCustomizationForPython(
+            request.font_customization as Record<string, unknown> | null | undefined,
+        ),
+        show_branding: showBrandingForPython(request.show_branding),
         advanced_config: advancedConfigForPython(
             request.template_config_url,
             request.advanced_config as Record<string, unknown> | null | undefined,

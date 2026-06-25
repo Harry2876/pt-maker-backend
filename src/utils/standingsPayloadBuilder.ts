@@ -1,7 +1,12 @@
 import { StandingsExportOptions, StandingsRequest, StandingsTeamData } from '../types/pythonAI';
-import { advancedConfigForPython } from './advancedConfigForPython';
 import { omitEmptyFields } from './r2UrlUtils';
-import { DEFAULT_PYTHON_IMAGE_OPTIONS } from './pythonGraphicsDefaults';
+import {
+    advancedConfigForPython,
+    clientOverridesForPython,
+    DEFAULT_PYTHON_IMAGE_OPTIONS,
+    fontCustomizationForPython,
+    showBrandingForPython,
+} from './pythonGraphicsDefaults';
 
 /**
  * Build the exact JSON body Python POST /api/v1/standings/generate expects.
@@ -27,14 +32,18 @@ export function buildPythonStandingsPayload(request: StandingsRequest): Record<s
         team_shift_right: request.team_shift_right,
         chicken_dinner_icon_size: request.chicken_dinner_icon_size,
         chicken_icon_gap: request.chicken_icon_gap,
-        element_overrides: request.element_overrides,
+        element_overrides: clientOverridesForPython(
+            request.element_overrides as Record<string, unknown> | null | undefined,
+        ),
         column_overrides: request.column_overrides,
-        font_customization: request.font_customization,
+        font_customization: fontCustomizationForPython(
+            request.font_customization as Record<string, unknown> | null | undefined,
+        ),
         advanced_config: advancedConfigForPython(
             request.template_config_url,
             request.advanced_config as Record<string, unknown> | null | undefined,
         ),
-        show_branding: request.show_branding,
+        show_branding: showBrandingForPython(request.show_branding),
         output_filename: request.output_filename,
         options: request.options,
     });

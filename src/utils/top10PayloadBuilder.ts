@@ -4,8 +4,13 @@ import {
     Top10RankData,
 } from '../types/pythonAI';
 import { omitEmptyFields } from './r2UrlUtils';
-import { DEFAULT_PYTHON_IMAGE_OPTIONS, DEFAULT_SLOT_LIST_OPTIONS } from './pythonGraphicsDefaults';
-import { advancedConfigForPython } from './advancedConfigForPython';
+import {
+    advancedConfigForPython,
+    clientOverridesForPython,
+    DEFAULT_PYTHON_IMAGE_OPTIONS,
+    fontCustomizationForPython,
+    showBrandingForPython,
+} from './pythonGraphicsDefaults';
 
 const DEFAULT_TOP10_OPTIONS = DEFAULT_PYTHON_IMAGE_OPTIONS;
 
@@ -44,11 +49,19 @@ export function buildPythonTop10Payload(request: Top10Request): Record<string, u
                 team_logo_url: row.team_logo_url,
             })
         ),
-        header_overrides: request.header_overrides,
-        footer_overrides: request.footer_overrides,
-        card_overrides: request.card_overrides,
-        font_customization: request.font_customization,
-        show_branding: request.show_branding,
+        header_overrides: clientOverridesForPython(
+            request.header_overrides as Record<string, unknown> | null | undefined,
+        ),
+        footer_overrides: clientOverridesForPython(
+            request.footer_overrides as Record<string, unknown> | null | undefined,
+        ),
+        card_overrides: clientOverridesForPython(
+            request.card_overrides as Record<string, unknown> | null | undefined,
+        ),
+        font_customization: fontCustomizationForPython(
+            request.font_customization as Record<string, unknown> | null | undefined,
+        ),
+        show_branding: showBrandingForPython(request.show_branding),
         advanced_config: advancedConfigForPython(
             request.template_config_url,
             request.advanced_config as Record<string, unknown> | null | undefined,
