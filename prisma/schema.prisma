@@ -40,6 +40,11 @@ model User {
   resolvedConflicts     ConflictGroup[]
   teamLogoPresets       TeamLogoPreset[]
   quickMediaAssets      QuickMediaAsset[]
+  revenueCatAppUserId     String?   @unique
+  proProductIdentifier    String?   
+  revenueCatLastEventId   String?   
+  revenueCatLastSyncedAt  DateTime?
+  revenueCatWebhookEvents RevenueCatWebhookEvent[]
 
   @@map("users")
 }
@@ -676,6 +681,21 @@ model QuickPointsTable {
   @@index([quickMatchId])
   @@index([expiresAt])
   @@map("quick_points_tables")
+}
+
+model RevenueCatWebhookEvent {
+  id String @id @default(cuid())
+  eventId String @unique
+  eventType String
+  appUserId String
+  payload Json
+  processedAt DateTime @default(now())
+
+  user User @relation(fields: [appUserId], references: [id], onDelete: Cascade)
+
+  @@index([appUserId])
+  @@index([processedAt])
+  @@map("revenuecat_webhook_events")
 }
 
 enum QuickMediaAssetType {
