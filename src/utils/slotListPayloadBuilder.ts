@@ -8,6 +8,7 @@ import {
     clientOverridesForPython,
     DEFAULT_SLOT_LIST_OPTIONS,
     fontCustomizationForPython,
+    showBrandingForPython,
 } from './pythonGraphicsDefaults';
 
 const DEFAULT_SLOT_LIST_OPTIONS_TYPED = DEFAULT_SLOT_LIST_OPTIONS;
@@ -35,6 +36,7 @@ export function buildSlotListRequest(
         ...(options.teamLogoSize != null && { team_logo_size: options.teamLogoSize }),
         ...(options.gridOverrides != null && { grid_overrides: options.gridOverrides }),
         ...(options.fontCustomization != null && { font_customization: options.fontCustomization }),
+        ...(options.showBranding != null && { show_branding: options.showBranding }),
         ...(options.outputFilename && { output_filename: options.outputFilename }),
         options: DEFAULT_SLOT_LIST_OPTIONS_TYPED,
     };
@@ -70,6 +72,7 @@ export function buildPythonSlotListPayload(request: SlotListRequest): Record<str
         font_customization: fontCustomizationForPython(
             request.font_customization as Record<string, unknown> | null | undefined,
         ),
+        show_branding: showBrandingForPython(request.show_branding),
         output_filename: request.output_filename,
         options: request.options,
     });

@@ -8,6 +8,7 @@ import { MediaAssetPreview, QuickMediaAssetType } from '../types/mediaAsset';
 import { buildSlotListRequest } from '../utils/slotListPayloadBuilder';
 import { buildTeamListRequest } from '../utils/teamListPayloadBuilder';
 import { buildTop10Request } from '../utils/top10PayloadBuilder';
+import { entitlementService } from './entitlementService';
 import {
     SlotListExportOptions,
     SlotListSlotData,
@@ -144,8 +145,9 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        // 6. Build request + call Python
-        const { template, formatType, ...stylingOpts } = input;
+        // 6. Build request + call Python (server overrides client showBranding)
+        const styledInput = await this.withServerBranding(userId, input);
+        const { template, formatType, ...stylingOpts } = styledInput;
         const request = buildSlotListRequest(
             resolved.templateUrl,
             resolved.configUrl,
@@ -244,7 +246,8 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const { template, formatType, ...stylingOpts } = input;
+        const styledInput = await this.withServerBranding(userId, input);
+        const { template, formatType, ...stylingOpts } = styledInput;
         const images: RosterGraphicImage[] = [];
 
         for (let i = 0; i < teamChunks.length; i++) {
@@ -367,7 +370,8 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
-        const { template, formatType, ...stylingOpts } = input;
+        const styledInput = await this.withServerBranding(userId, input);
+        const { template, formatType, ...stylingOpts } = styledInput;
         const request = buildTop10Request(
             resolved.templateUrl,
             resolved.configUrl,
@@ -400,6 +404,17 @@ export class QuickGraphicsService extends BaseService {
             signedUrl: preview.previewUrl,
             generationTimeMs: Date.now() - start,
             rankCount: rankData.length,
+        };
+    }
+
+    /** Pro/free tier decides branding — client body value is ignored. */
+    private async withServerBranding<T extends { showBranding?: boolean }>(
+        userId: string,
+        input: T,
+    ): Promise<T> {
+        return {
+            ...input,
+            showBranding: await entitlementService.resolveShowBranding(userId),
         };
     }
 

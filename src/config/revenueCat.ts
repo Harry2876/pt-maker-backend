@@ -15,3 +15,8 @@ export function msToDate(ms: number | null | undefined): Date | null {
     if (ms == null || ms <= 0) return null;
     return new Date(ms);
   }
+
+export const FREE_TIER_SHOW_BRANDING = true;
+export const PRO_TIER_SHOW_BRANDING = false;
+export const FREE_TIER_SHOW_ADS = true;
+export const PRO_TIER_SHOW_ADS = false;

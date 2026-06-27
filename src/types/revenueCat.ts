@@ -29,6 +29,7 @@ export interface RevenueCatWebhookBody {
   export interface UserEntitlements {
     isPro: boolean;
     showBranding: boolean;
+    showAds: boolean;
     subscriptionStatus: SubscriptionStatus;
     expiresAt: string | null;
     productIdentifier: string | null;

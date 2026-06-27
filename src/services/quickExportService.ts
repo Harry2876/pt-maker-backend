@@ -16,6 +16,7 @@ import { buildStandingsRequest } from '../utils/standingsPayloadBuilder';
 import { quickSeriesService } from './quickSeriesService';
 import { SeriesTeamStanding } from '../types/quickSeries';
 import { teamsMatch } from '../utils/seriesSlotUtils';
+import { entitlementService } from './entitlementService';
 import {
     getExpectedTeamCount,
     splitTeamDataIntoChunks,
@@ -139,7 +140,11 @@ export class QuickExportService extends BaseService {
         const startTime = Date.now();
         const { quickMatchId, userId, template, formatType } = request;
 
-        const stylingOptions = this.pickStylingOptions(request);
+        const stylingOptions = this.pickStylingOptions({
+            ...request,
+            showBranding: await entitlementService.resolveShowBranding(userId),
+        }
+        );
 
         try {
             // 1. Verify match ownership and completion
@@ -434,6 +439,7 @@ export class QuickExportService extends BaseService {
             const stylingOptions = this.pickStylingOptions({
                 ...request,
                 eventName: request.eventName ?? series.seriesName,
+                showBranding: await entitlementService.resolveShowBranding(userId),
             });
 
             const generatedImages = await this.generateStandingsImages({

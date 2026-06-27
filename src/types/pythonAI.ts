@@ -212,6 +212,7 @@ export interface SlotListRequest {
     team_logo_size?: number | null;
     grid_overrides?: Record<string, any> | null;
     font_customization?: FontCustomization | null;
+    show_branding?: boolean;
     output_filename?: string;
     options?: PythonImageOptions;
 }
@@ -237,6 +238,7 @@ export interface SlotListExportOptions {
     teamLogoSize?: number | null;
     gridOverrides?: Record<string, any> | null;
     fontCustomization?: FontCustomization | null;
+    showBranding?: boolean;
     outputFilename?: string;
 }
 

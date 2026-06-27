@@ -1010,6 +1010,7 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
             teamLogoSize,
             gridOverrides,
             fontCustomization,
+            showBranding,
         } = req.body;
 
         const result = await quickGraphicsService.generateMatchSlotList(quickMatchId, userId, {
@@ -1025,6 +1026,7 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
             teamLogoSize,
             gridOverrides,
             fontCustomization,
+            showBranding,
         });
 
         return res.json(

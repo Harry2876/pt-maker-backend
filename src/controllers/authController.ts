@@ -3,8 +3,10 @@ import { authService } from '../services/authService';
 import { handleControllerError, asyncHandler } from '../middleware/commonMiddleware';
 import logger from '../utils/logger';
 import { ResponseHelper } from '../utils/responseHelper';
+import { entitlementService } from '../services/entitlementService';
 import { PhoneUtils } from '../utils/phoneUtils';
 import { AuthData } from '@/types/auth';
+import { Res } from '@tsoa/runtime';
 
 
 
@@ -227,14 +229,21 @@ export class AuthController {
             return res.status(404).json(ResponseHelper.notFound('User not found'));
         }
 
+        const entitlements = await entitlementService.getUserEntitlements(user.id);
+
+        if (!entitlements) {
+            return res.status(500).json(ResponseHelper.notFound('User entitlements not found'));
+        }
+
         return res.json(ResponseHelper.success('User profile retrieved successfully', {
             user: {
                 id: user.id,
                 phoneNumber: user.phoneNumber,
                 username: user.username,
                 fullName: user.fullName,
-                organization: user.organization
-            }
+                organization: user.organization,
+            },
+            entitlements,
         }));
     } catch (error: any) {
         return res.status(500).json(ResponseHelper.serverError(error.message || 'Failed to get profile'));

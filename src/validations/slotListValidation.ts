@@ -35,4 +35,5 @@ export const slotListGraphicSchema = z.object({
     gridOverrides: z.record(z.string(), z.any()).optional().nullable(),
 
     fontCustomization: fontCustomizationSchema,
+    showBranding: z.boolean().optional(),
 });
