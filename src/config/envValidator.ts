@@ -53,11 +53,36 @@ const envSchema = z.object({
   ENABLE_DEV_ROUTES: z.string().optional(),
   // Sentry
   SENTRY_DSN: z.string().url('Invalid SENTRY_DSN').optional(),
+
+    // RevenueCat
+    REVENUECAT_WEBHOOK_SECRET: z
+    .string()
+    .min(16, 'REVENUECAT_WEBHOOK_SECRET must be at least 16 characters')
+    .optional(),
+  REVENUECAT_PRO_ENTITLEMENT_IDS: z
+    .string()
+    .min(1, 'REVENUECAT_PRO_ENTITLEMENT_IDS is required')
+    .default('Scrymz Pro'),
+  REVENUECAT_SKIP_WEBHOOK_AUTH: z
+    .string()
+    .optional()
+    .transform(val => val === 'true')
+    .default(false),
 });
 
 export function validateEnvironment() {
   try {
     const validatedEnv = envSchema.parse(process.env);
+    if (validatedEnv.NODE_ENV === 'production') {
+      if (!validatedEnv.REVENUECAT_WEBHOOK_SECRET) {
+        logger.error('REVENUECAT_WEBHOOK_SECRET is required in production');
+        process.exit(1);
+      }
+      if (validatedEnv.REVENUECAT_SKIP_WEBHOOK_AUTH) {
+        logger.error('REVENUECAT_SKIP_WEBHOOK_AUTH must not be true in production');
+        process.exit(1);
+      }
+    }
     logger.info('✅ Environment validation passed');
     return validatedEnv;
   } catch (error) {

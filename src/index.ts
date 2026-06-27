@@ -23,6 +23,7 @@ import slotManagementRouter from './routes/slotManagementRoutes';
 import leaderboardRouter from './routes/leaderboardRoutes';
 import quickPTRouter from './routes/quickPTRoutes';
 import teamLogoPresetRouter from './routes/teamLogoPresetRoutes';
+import revenueCatWebhookRouter from './routes/revenueCatWebhookRoutes';
 import whatsappRouter from './routes/whatsappRoutes';
 import redis from './config/redis';
 import { WorkersManager } from './workers';
@@ -263,6 +264,7 @@ app.use('/api/v1/leaderboards', leaderboardRouter);
 app.use('/api/v1/quick-pt', quickPTRouter);
 app.use('/api/v1/quick-pt/logo-presets', teamLogoPresetRouter);
 app.use('/api/v1/whatsapp', whatsappRouter);
+app.use('/api/v1/webhooks', revenueCatWebhookRouter);
 
 // app.use('/api/v1/admin', adminRouter);
 

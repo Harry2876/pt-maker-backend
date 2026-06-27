@@ -31,6 +31,10 @@ export const env = {
   ENABLE_DEV_ROUTES: process.env.ENABLE_DEV_ROUTES === 'true',
   // Sentry
   SENTRY_DSN: process.env.SENTRY_DSN,
+
+  REVENUECAT_WEBHOOK_SECRET: process.env.REVENUECAT_WEBHOOK_SECRET,
+  REVENUECAT_PRO_ENTITLEMENT_IDS: process.env.REVENUECAT_PRO_ENTITLEMENT_IDS || 'Scrymz Pro',
+  REVENUECAT_SKIP_WEBHOOK_AUTH: process.env.REVENUECAT_SKIP_WEBHOOK_AUTH === 'true',
 };
 
 export default env;
