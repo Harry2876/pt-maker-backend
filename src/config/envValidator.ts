@@ -10,6 +10,7 @@ const envSchema = z.object({
 
   // JWT
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
+  PREVIEW_URL_SECRET: z.string().min(32, 'PREVIEW_URL_SECRET must be at least 32 characters'),
 
   // Redis
   REDIS_HOST: z.string().min(1, 'REDIS_HOST is required'),

@@ -46,14 +46,13 @@ paths:
   /quick-pt/media/{assetId}:
     get:
       tags: [Quick-PT Graphics]
-      summary: Stream a generated PNG by asset ID
+      summary: Stream a generated PNG by asset ID (legacy)
       description: |
-        **Primary way to display exported graphics in the Android app.**
+        **Legacy endpoint** — prefer signed `previewUrl` from generate/export responses
+        (`GET /quick-pt/files/{fileId}?exp=&sig=`).
 
-        After any generate/export call, the response includes `assetId` and `previewUrl`.
-        Load `previewUrl` with **`Authorization: Bearer`** or append `?access_token=<jwt>` for browser preview.
-
-        Node streams the PNG from R2 — the client never sees bucket names or presigned R2 URLs.
+        Requires **Authorization: Bearer** or `?access_token=` query param.
+        Node streams the file from R2 — clients never see bucket names or presigned R2 URLs.
       security:
         - bearerAuth: []
       parameters:
@@ -347,7 +346,7 @@ paths:
         4. Node calls Python `POST /api/v1/slot-list/generate`.
         5. Node registers the PNG as a media asset and returns `assetId` + `previewUrl`.
 
-        **Preview:** load `data.previewUrl` with Bearer auth, or open in browser via `?access_token=`.
+        **Preview:** load `data.previewUrl` directly (signed `/quick-pt/files/{fileId}?exp=&sig=` URL).
         **History:** `GET /quick-pt/matches/{id}/media`.
 
         ### Prerequisites
@@ -676,13 +675,22 @@ components:
         previewUrl:
           type: string
           format: uri
-          description: Load with Authorization Bearer or ?access_token=
-          example: "https://scrymzengineservice.site/api/v1/quick-pt/media/cmqqnxb6t00038za1l2k7jnzo"
+          description: |
+            Signed preview URL — load directly in Coil/browser.
+            Pattern: `/api/v1/quick-pt/files/{fileId}?exp=&sig=`
+          example: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmqqnxb6t00038za1l2k7jnzo?exp=1782757174&sig=d7510091..."
         signedUrl:
           type: string
           format: uri
-          deprecated: true
-          description: Deprecated alias of previewUrl
+          description: Same as previewUrl (Android fallback)
+          example: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmqqnxb6t00038za1l2k7jnzo?exp=1782757174&sig=d7510091..."
+        expiresAt:
+          type: string
+          format: date-time
+          description: ISO timestamp when previewUrl expires — re-call the generate/export API for a fresh URL
+        previewUrlExpiresInSeconds:
+          type: integer
+          example: 1800
 
     MediaAssetListItem:
       allOf:

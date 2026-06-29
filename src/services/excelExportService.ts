@@ -1,7 +1,7 @@
 import { BaseService } from './baseService';
 import * as ExcelJS from 'exceljs';
 import { r2Service } from './cloudflareR2Service';
-import { signedUrlUtility } from './signedUrlUtility';
+import { storedFileService } from './storedFileService';
 import { quickMatchService } from './quickMatchService';
 import { quickResultService } from './quickResultService';
 import { quickSlotService } from './quickSlotService';
@@ -39,11 +39,19 @@ export class ExcelExportService extends BaseService {
             const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
             const filename = this.generateFilename(matchData.matchInfo.name, request.customFilename, 'match');
             const r2Key = await this.uploadToR2(buffer, filename, quickMatchId);
-            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+            const preview = await storedFileService.ensureClientPreview({
+                userId,
+                assetType: 'EXCEL',
+                r2Key,
+                resourceId: r2Key,
+                quickMatchId,
+                filename,
+                mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
 
             await this.cacheMatchExportInfo(quickMatchId, r2Key, filename);
 
-            return this.buildResponse(signedUrlData, filename, r2Key, startTime, matchData.standings.length, buffer.length);
+            return this.buildResponse(preview, filename, r2Key, startTime, matchData.standings.length, buffer.length);
         } catch (error) {
             this.handleError(error, 'Excel Export');
             throw error;
@@ -65,11 +73,19 @@ export class ExcelExportService extends BaseService {
             const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
             const filename = this.generateFilename(seriesData.seriesInfo.name, request.customFilename, 'series');
             const r2Key = await this.uploadToR2(buffer, filename, seriesId);
-            const signedUrlData = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+            const preview = await storedFileService.ensureClientPreview({
+                userId,
+                assetType: 'EXCEL',
+                r2Key,
+                resourceId: r2Key,
+                quickSeriesId: seriesId,
+                filename,
+                mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
 
             await this.cacheSeriesExportInfo(seriesId, r2Key, filename);
 
-            return this.buildResponse(signedUrlData, filename, r2Key, startTime, seriesData.standings.length, buffer.length);
+            return this.buildResponse(preview, filename, r2Key, startTime, seriesData.standings.length, buffer.length);
         } catch (error) {
             this.handleError(error, 'Series Excel Export');
             throw error;
@@ -77,7 +93,7 @@ export class ExcelExportService extends BaseService {
     }
 
     private buildResponse(
-        signedUrlData: { signedUrl: string; expiresAt: Date },
+        preview: { previewUrl: string; expiresAt: string },
         filename: string,
         r2Key: string,
         startTime: number,
@@ -88,10 +104,10 @@ export class ExcelExportService extends BaseService {
         this.logger.info(`Excel export completed: ${filename} (${generationTimeMs}ms)`);
 
         return {
-            downloadUrl: signedUrlData.signedUrl,
+            downloadUrl: preview.previewUrl,
             filename,
             r2Key,
-            expiresAt: signedUrlData.expiresAt,
+            expiresAt: new Date(preview.expiresAt),
             generationTimeMs,
             totalTeams,
             fileSize,

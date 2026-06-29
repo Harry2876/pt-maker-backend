@@ -1,8 +1,8 @@
 import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
-import { signedUrlUtility } from './signedUrlUtility';
+import { storedFileService } from './storedFileService';
 import redis from '../config/redis';
-import { buildRawR2ObjectUrl, templateNameToConfigFileName, resolveR2ObjectKey } from '../utils/r2UrlUtils';
+import { buildRawR2ObjectUrl, mimeTypeFromR2Key, templateNameToConfigFileName, resolveR2ObjectKey } from '../utils/r2UrlUtils';
 
 /**
  * Extract the first numeric run from a filename stem.
@@ -42,6 +42,40 @@ export class TemplateService extends BaseService {
 
     constructor() {
         super();
+    }
+
+    /**
+     * Issue client-facing signed preview URLs for template image + config JSON.
+     * Templates are registered as public files (no Bearer required when using sig).
+     */
+    private async issueTemplatePreviewUrls(
+        imageKey: string,
+        configKey: string,
+    ): Promise<{ signedUrl: string; previewUrl: string; configUrl: string }> {
+        const [imagePreview, configPreview] = await Promise.all([
+            storedFileService.ensureClientPreview({
+                userId: null,
+                assetType: 'TEMPLATE',
+                r2Key: imageKey,
+                resourceId: imageKey,
+                isPublic: true,
+                mimeType: mimeTypeFromR2Key(imageKey),
+            }),
+            storedFileService.ensureClientPreview({
+                userId: null,
+                assetType: 'TEMPLATE_CONFIG',
+                r2Key: configKey,
+                resourceId: configKey,
+                isPublic: true,
+                mimeType: 'application/json',
+            }),
+        ]);
+
+        return {
+            signedUrl: imagePreview.previewUrl,
+            previewUrl: imagePreview.previewUrl,
+            configUrl: configPreview.previewUrl,
+        };
     }
 
     /**
@@ -181,16 +215,13 @@ export class TemplateService extends BaseService {
                         continue;
                     }
 
-                    const [signedUrl, configSignedUrl] = await Promise.all([
-                        signedUrlUtility.generateSignedUrl(imageKey, { expiryMinutes: 30 }),
-                        signedUrlUtility.generateSignedUrl(configKey, { expiryMinutes: 30 }),
-                    ]);
+                    const previewUrls = await this.issueTemplatePreviewUrls(imageKey, configKey);
 
                     organized[category].push({
                         name: templateName,
-                        signedUrl: signedUrl.signedUrl,
-                        previewUrl: signedUrl.signedUrl,
-                        configUrl: configSignedUrl.signedUrl,
+                        signedUrl: previewUrls.signedUrl,
+                        previewUrl: previewUrls.previewUrl,
+                        configUrl: previewUrls.configUrl,
                         rawTemplateUrl: buildRawR2ObjectUrl(imageKey),
                         rawConfigUrl: buildRawR2ObjectUrl(configKey),
                         category,
@@ -244,16 +275,13 @@ export class TemplateService extends BaseService {
                         continue;
                     }
 
-                    const [signedUrl, configSignedUrl] = await Promise.all([
-                        signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 }),
-                        signedUrlUtility.generateSignedUrl(configKey, { expiryMinutes: 30 }),
-                    ]);
+                    const previewUrls = await this.issueTemplatePreviewUrls(r2Key, configKey);
 
                     refreshed[category].push({
                         ...template,
-                        signedUrl: signedUrl.signedUrl,
-                        previewUrl: signedUrl.signedUrl,
-                        configUrl: configSignedUrl.signedUrl,
+                        signedUrl: previewUrls.signedUrl,
+                        previewUrl: previewUrls.previewUrl,
+                        configUrl: previewUrls.configUrl,
                         rawTemplateUrl: buildRawR2ObjectUrl(r2Key),
                         rawConfigUrl: buildRawR2ObjectUrl(configKey),
                     } as TemplateInfo);

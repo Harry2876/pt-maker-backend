@@ -66,6 +66,11 @@ import { slotListGraphicSchema } from '../validations/slotListValidation';
 import { rosterGraphicSchema } from '../validations/rosterValidation';
 import { top10GraphicSchema } from '../validations/top10Validation';
 import { MediaAssetController } from '../controllers/mediaAssetController';
+import { StoredFileController } from '../controllers/storedFileController';
+import {
+    storedFileParamsSchema,
+    storedFileQuerySchema,
+} from '../validations/storedFileValidation';
 import multer from 'multer';
 
 const logoUpload = multer({
@@ -89,42 +94,14 @@ const logoUpload = multer({
 
 const quickPTRouter = express.Router();
 
-/**
- * @swagger
- * /api/v1/quick-pt/media/{assetId}:
- *   get:
- *     tags: [Quick-PT Graphics]
- *     summary: Stream a generated media asset (PNG)
- *     description: |
- *       Authenticated proxy for exported graphics. Returns PNG with inline disposition.
- *       Auth via **Authorization: Bearer** header or **`?access_token=`** query param.
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: assetId
- *         required: true
- *         schema:
- *           type: string
- *       - in: query
- *         name: access_token
- *         schema:
- *           type: string
- *         description: JWT access token (alternative to Authorization header)
- *     responses:
- *       200:
- *         description: PNG image stream
- *         content:
- *           image/png:
- *             schema:
- *               type: string
- *               format: binary
- *       401:
- *         description: Missing or invalid token
- *       404:
- *         description: Asset not found
- */
 quickPTRouter.get('/media/:assetId', authenticateUser, MediaAssetController.streamMedia);
+
+quickPTRouter.get(
+    '/files/:fileId',
+    validateRequest(storedFileParamsSchema, 'params'),
+    validateRequest(storedFileQuerySchema, 'query'),
+    StoredFileController.streamFile,
+);
 
 // Apply authentication to all other Quick-PT routes
 quickPTRouter.use(authenticateUser);

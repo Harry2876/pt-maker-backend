@@ -555,7 +555,7 @@ paths:
       summary: Upload screenshots
       description: |
         Upload attendance or result screenshots to Cloudflare R2.
-        Response includes fresh signed `previewUrl` for each uploaded file (5 min TTL).
+        Response includes fresh signed `previewUrl` for each uploaded file (5 min TTL, `/quick-pt/files/{fileId}?exp=&sig=`).
 
         - Pass screenshot type via query param: `?type=ATTENDANCE` or `?type=RESULT`
         - Max 10 files per request, 10 MB each
@@ -1433,7 +1433,7 @@ paths:
         1. **Get templates:** `GET /quick-pt/templates` → note the `name` and category key.
         2. **Choose template:** e.g. `name = "tmplate_2"`, category = `"16_teams"`.
         3. **POST here** with `{ "template": "tmplate_2", "formatType": "16_teams" }`.
-        4. **Receive** `data.images` — array of signed URLs (30 min expiry). Use `data.signedImageUrl` for the first image only.
+        4. **Receive** `data.images` — each item has signed `previewUrl` / `signedUrl` (`/quick-pt/files/{fileId}?exp=&sig=`, 30 min). Use `data.previewImageUrl` for the first image only.
         5. **Re-export** any time to regenerate (overwrites the previous record).
 
         ### Split export (more teams than template capacity)
@@ -2886,9 +2886,9 @@ paths:
                         example:
                           "16_teams":
                             - name: "tmplate_1"
-                              signedUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800"
-                              previewUrl: "https://pub-xxx.r2.dev/templates/16_teams/tmplate_1.jpeg?X-Amz-Expires=1800"
-                              configUrl: "https://pub-xxx.r2.dev/templates/16_teams/templateConfig_1.json?X-Amz-Expires=1800"
+                              signedUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              previewUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              configUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmyyy?exp=1782757174&sig=a1b2c3d4..."
                               rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/tmplate_1.jpeg"
                               rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/16_teams/templateConfig_1.json"
                               category: "16_teams"
@@ -2896,9 +2896,9 @@ paths:
                               originalExtension: "jpeg"
                           "slot_list":
                             - name: "sl1"
-                              signedUrl: "https://pub-xxx.r2.dev/templates/slot_list/sl1.png?X-Amz-Expires=1800"
-                              previewUrl: "https://pub-xxx.r2.dev/templates/slot_list/sl1.png?X-Amz-Expires=1800"
-                              configUrl: "https://pub-xxx.r2.dev/templates/slot_list/sl_1config.json?X-Amz-Expires=1800"
+                              signedUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              previewUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              configUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmyyy?exp=1782757174&sig=a1b2c3d4..."
                               rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl1.png"
                               rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/slot_list/sl_1config.json"
                               category: "slot_list"
@@ -2906,9 +2906,9 @@ paths:
                               originalExtension: "png"
                           "team_roster":
                             - name: "team_roster1"
-                              signedUrl: "https://pub-xxx.r2.dev/templates/team_roster/team_roster1.png?X-Amz-Expires=1800"
-                              previewUrl: "https://pub-xxx.r2.dev/templates/team_roster/team_roster1.png?X-Amz-Expires=1800"
-                              configUrl: "https://pub-xxx.r2.dev/templates/team_roster/team_roster_Config1.json?X-Amz-Expires=1800"
+                              signedUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              previewUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              configUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmyyy?exp=1782757174&sig=a1b2c3d4..."
                               rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster1.png"
                               rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/team_roster/team_roster_Config1.json"
                               category: "team_roster"
@@ -2916,9 +2916,9 @@ paths:
                               originalExtension: "png"
                           "top_10":
                             - name: "t10template_1"
-                              signedUrl: "https://pub-xxx.r2.dev/templates/top_10/t10template_1.png?X-Amz-Expires=1800"
-                              previewUrl: "https://pub-xxx.r2.dev/templates/top_10/t10template_1.png?X-Amz-Expires=1800"
-                              configUrl: "https://pub-xxx.r2.dev/templates/top_10/t10template_Config_1.json?X-Amz-Expires=1800"
+                              signedUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              previewUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmxxx?exp=1782757174&sig=d7510091..."
+                              configUrl: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmyyy?exp=1782757174&sig=a1b2c3d4..."
                               rawTemplateUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_1.png"
                               rawConfigUrl: "https://account.r2.cloudflarestorage.com/pt-maker-screenshots/templates/top_10/t10template_Config_1.json"
                               category: "top_10"
@@ -3363,7 +3363,7 @@ components:
         Export payload returned by `POST /export`, `POST /points-table/regenerate`,
         and `GET /points-table`.
 
-        Load PNGs via `previewUrl` with Bearer auth (`GET /media/{assetId}`).
+        Load PNGs via `previewUrl` / `previewImageUrl` — signed URLs on `GET /quick-pt/files/{fileId}?exp=&sig=`.
         `previewImageUrl` / `signedImageUrl` refer to the first image only.
       properties:
         pointsTableId:
@@ -3389,12 +3389,11 @@ components:
         previewImageUrl:
           type: string
           format: uri
-          description: "Preview URL for the first image — requires Authorization header"
+          description: "Signed preview URL for the first image — GET with exp+sig query params"
         signedImageUrl:
           type: string
           format: uri
-          deprecated: true
-          description: "Deprecated alias of previewImageUrl"
+          description: "Same as previewImageUrl (Android fallback)"
         images:
           type: array
           items:
@@ -3427,6 +3426,11 @@ components:
         signedImageUrl:
           type: string
           format: uri
+          description: "Signed preview URL for the first image (same as previewImageUrl when present)"
+        previewImageUrl:
+          type: string
+          format: uri
+          description: "Signed preview URL for the first image"
         images:
           type: array
           items:
@@ -3441,7 +3445,7 @@ components:
         downloadUrl:
           type: string
           format: uri
-          description: "Signed download URL — expires in 30 minutes"
+          description: "Signed download URL — `/quick-pt/files/{fileId}?exp=&sig=` (30 min)"
         filename:
           type: string
           example: "BGMI_Match_2026-02-10.xlsx"
@@ -3481,12 +3485,11 @@ components:
         previewUrl:
           type: string
           format: uri
-          description: "Load with Authorization Bearer — GET /media/{assetId}"
+          description: "Signed preview URL — GET /quick-pt/files/{fileId}?exp=&sig="
         signedUrl:
           type: string
           format: uri
-          deprecated: true
-          description: "Deprecated alias of previewUrl"
+          description: "Same as previewUrl (Android fallback)"
         filename:
           type: string
           description: "R2 output filename"
@@ -4258,15 +4261,15 @@ components:
         signedUrl:
           type: string
           format: uri
-          description: "Signed URL for app preview (30 min)"
+          description: "Signed preview URL for app thumbnail (30 min) — `/quick-pt/files/{fileId}?exp=&sig=`"
         previewUrl:
           type: string
           format: uri
-          nullable: true
+          description: "Same as signedUrl — load directly in Coil/browser"
         configUrl:
           type: string
           format: uri
-          description: "Signed URL of paired templateConfig_N.json (30 min)"
+          description: "Signed preview URL for paired templateConfig_N.json (30 min)"
         rawTemplateUrl:
           type: string
           format: uri

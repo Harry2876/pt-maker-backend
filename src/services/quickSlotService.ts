@@ -14,7 +14,8 @@ import { quickPtSyncQueue } from '../config/queues';
 import { SlotTextParser, ParseResult } from '../utils/slotTextParser';
 import { quickMatchService } from './quickMatchService';
 import { r2Service } from './cloudflareR2Service';
-import { signedUrlUtility } from './signedUrlUtility';
+import { storedFileService } from './storedFileService';
+import { mimeTypeFromR2Key } from '../utils/r2UrlUtils';
 import { ServiceError } from '../utils/serviceError';
 
 export class QuickSlotService extends BaseService {
@@ -507,10 +508,17 @@ export class QuickSlotService extends BaseService {
             data: { matchLogoR2Key: r2Key, matchLogoStorageUrl: url },
         });
 
-        const signed = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+        const preview = await storedFileService.ensureClientPreview({
+            userId,
+            assetType: 'LOGO',
+            r2Key,
+            resourceId: slot.id,
+            quickMatchId,
+            mimeType,
+        });
         this.logger.info(`Match logo attached to slot ${slotNumber} in match ${quickMatchId}`);
 
-        return { logoStorageUrl: url, signedLogoUrl: signed.signedUrl };
+        return { logoStorageUrl: url, signedLogoUrl: preview.previewUrl };
     }
 
     /**

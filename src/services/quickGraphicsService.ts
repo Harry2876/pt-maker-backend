@@ -28,11 +28,11 @@ export interface MatchSlotListInput extends SlotListExportOptions {
     formatType: string;
 }
 
-/** Response returned to Android — load previewUrl with Authorization header */
+/** Response returned to Android — load previewUrl directly (signed /files/ URL) */
 export interface SlotListGenerationResult {
     assetId: string;
     previewUrl: string;
-    /** @deprecated Use previewUrl with Authorization header */
+    /** Same as previewUrl (Android fallback) */
     signedUrl: string;
     generationTimeMs: number;
     slotCount: number;
@@ -49,7 +49,7 @@ export interface RosterGraphicImage {
     label: 'main' | 'overflow';
     assetId: string;
     previewUrl: string;
-    /** @deprecated Use previewUrl with Authorization header */
+    /** Same as previewUrl (Android fallback) */
     signedUrl: string;
     filename?: string;
     teamCount: number;
@@ -58,7 +58,7 @@ export interface RosterGraphicImage {
 export interface RosterGenerationResult {
     assetId: string;
     previewUrl: string;
-    /** @deprecated Use previewUrl with Authorization header */
+    /** Same as previewUrl (Android fallback) */
     signedUrl: string;
     generationTimeMs: number;
     totalTeams: number;
@@ -75,7 +75,7 @@ export interface MatchTop10Input extends Top10ExportOptions {
 export interface Top10GenerationResult {
     assetId: string;
     previewUrl: string;
-    /** @deprecated Use previewUrl with Authorization header */
+    /** Same as previewUrl (Android fallback) */
     signedUrl: string;
     generationTimeMs: number;
     rankCount: number;

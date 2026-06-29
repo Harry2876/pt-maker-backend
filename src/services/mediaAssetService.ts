@@ -2,8 +2,8 @@ import { Readable } from 'stream';
 import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
 import { ServiceError } from '../utils/serviceError';
-import { extractR2KeyFromUrl } from '../utils/r2UrlUtils';
-import { buildMediaPreviewUrl } from '../utils/mediaPreviewUrl';
+import { storedFileService } from './storedFileService';
+import { issueClientPreview } from '../utils/previewUrlUtils';
 import { MediaAssetListItem, MediaAssetPreview, QuickMediaAssetType } from '../types/mediaAsset';
 
 export interface RegisterMediaAssetInput {
@@ -25,32 +25,26 @@ export interface MediaStreamResult {
 export class MediaAssetService extends BaseService {
 
     async registerFromImageUrl(input: RegisterMediaAssetInput): Promise<MediaAssetPreview> {
-        const r2Key = extractR2KeyFromUrl(input.rawImageUrl);
-
-        const asset = await this.db.quickMediaAsset.create({
-            data: {
-                userId: input.userId,
-                quickMatchId: input.quickMatchId ?? null,
-                quickSeriesId: input.quickSeriesId ?? null,
-                assetType: input.assetType,
-                r2Key,
-                mimeType: 'image/png',
-                filename: input.filename ?? null,
-                metadata: input.metadata ? JSON.parse(JSON.stringify(input.metadata)) : undefined,
-            },
+        const file = await storedFileService.registerFromRawUrl({
+            userId: input.userId,
+            assetType: input.assetType,
+            rawUrl: input.rawImageUrl,
+            quickMatchId: input.quickMatchId ?? null,
+            quickSeriesId: input.quickSeriesId ?? null,
+            filename: input.filename ?? null,
+            mimeType: 'image/png',
+            metadata: input.metadata ?? null,
         });
 
-        return {
-            assetId: asset.id,
-            previewUrl: buildMediaPreviewUrl(asset.id),
-        };
+        return this.toMediaAssetPreview(file.id);
     }
 
     async findByR2Key(userId: string, r2Key: string) {
-        return this.db.quickMediaAsset.findFirst({
-            where: { userId, r2Key },
-            orderBy: { createdAt: 'desc' },
-        });
+        const file = await storedFileService.findByR2Key(userId, r2Key);
+        if (!file) {
+            return null;
+        }
+        return { id: file.id };
     }
 
     async getOwnedAsset(assetId: string, userId: string) {
@@ -87,8 +81,7 @@ export class MediaAssetService extends BaseService {
         });
 
         return assets.map(a => ({
-            assetId: a.id,
-            previewUrl: buildMediaPreviewUrl(a.id),
+            ...this.toMediaAssetPreview(a.id),
             assetType: a.assetType as QuickMediaAssetType,
             filename: a.filename,
             metadata: (a.metadata as Record<string, unknown>) ?? null,
@@ -97,9 +90,17 @@ export class MediaAssetService extends BaseService {
     }
 
     previewForAssetId(assetId: string): MediaAssetPreview {
+        return this.toMediaAssetPreview(assetId);
+    }
+
+    private toMediaAssetPreview(fileId: string): MediaAssetPreview {
+        const client = issueClientPreview(fileId);
         return {
-            assetId,
-            previewUrl: buildMediaPreviewUrl(assetId),
+            assetId: fileId,
+            previewUrl: client.previewUrl,
+            signedUrl: client.signedUrl,
+            expiresAt: client.expiresAt,
+            previewUrlExpiresInSeconds: client.previewUrlExpiresInSeconds,
         };
     }
 }

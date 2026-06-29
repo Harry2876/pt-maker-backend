@@ -4,8 +4,6 @@ import { ResponseHelper } from '../utils/responseHelper';
 import { quickSeriesService } from '../services/quickSeriesService';
 import { quickExportService } from '../services/quickExportService';
 import { excelExportService } from '../services/excelExportService';
-import { extractAccessTokenFromRequest } from '../middleware/auth';
-import { withMediaPreviewAuth } from '../utils/mediaPreviewUrl';
 
 export class QuickSeriesController {
 
@@ -127,12 +125,7 @@ export class QuickSeriesController {
             ? `Series standings exported as ${result.imageCount} images`
             : 'Series standings exported successfully';
 
-        return res.json(
-            ResponseHelper.success(
-                message,
-                withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)),
-            )
-        );
+        return res.json(ResponseHelper.success(message, result));
     });
 
     /**

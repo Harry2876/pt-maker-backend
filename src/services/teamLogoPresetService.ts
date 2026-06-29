@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
-import { signedUrlUtility } from './signedUrlUtility';
+import { storedFileService } from './storedFileService';
+import { mimeTypeFromR2Key } from '../utils/r2UrlUtils';
 import { ServiceError } from '../utils/serviceError';
 
 const ALLOWED_LOGO_TYPES: Record<string, string> = {
@@ -50,6 +51,20 @@ export class TeamLogoPresetService extends BaseService {
         super();
     }
 
+    private async logoPreviewUrl(
+        userId: string,
+        entry: { id: string; logoR2Key: string },
+    ): Promise<string> {
+        const preview = await storedFileService.ensureClientPreview({
+            userId,
+            assetType: 'LOGO',
+            r2Key: entry.logoR2Key,
+            resourceId: entry.id,
+            mimeType: mimeTypeFromR2Key(entry.logoR2Key),
+        });
+        return preview.previewUrl;
+    }
+
     async createPreset(userId: string, name: string): Promise<{ id: string; name: string; createdAt: Date }> {
         const preset = await this.db.teamLogoPreset.create({
             data: { userId, name },
@@ -86,13 +101,13 @@ export class TeamLogoPresetService extends BaseService {
 
         const entries = await Promise.all(
             preset.entries.map(async (entry) => {
-                const signed = await signedUrlUtility.generateSignedUrl(entry.logoR2Key, { expiryMinutes: 30 });
+                const signedLogoUrl = await this.logoPreviewUrl(userId, entry);
                 return {
                     id: entry.id,
                     presetId: entry.presetId,
                     teamName: entry.teamName,
                     logoStorageUrl: entry.logoStorageUrl,
-                    signedLogoUrl: signed.signedUrl,
+                    signedLogoUrl,
                     sortOrder: entry.sortOrder,
                     createdAt: entry.createdAt,
                     updatedAt: entry.updatedAt,
@@ -206,7 +221,7 @@ export class TeamLogoPresetService extends BaseService {
             },
         });
 
-        const signed = await signedUrlUtility.generateSignedUrl(r2Key, { expiryMinutes: 30 });
+        const signedLogoUrl = await this.logoPreviewUrl(userId, { id: entry.id, logoR2Key: r2Key });
 
         this.logger.info(`Preset entry added: ${entryId} (${teamName}) for preset ${presetId}`);
 
@@ -215,7 +230,7 @@ export class TeamLogoPresetService extends BaseService {
             presetId: entry.presetId,
             teamName: entry.teamName,
             logoStorageUrl: entry.logoStorageUrl,
-            signedLogoUrl: signed.signedUrl,
+            signedLogoUrl,
             sortOrder: entry.sortOrder,
             createdAt: entry.createdAt,
             updatedAt: entry.updatedAt,
@@ -268,8 +283,8 @@ export class TeamLogoPresetService extends BaseService {
         // Sign URLs
         const signedEntries = await Promise.all(
             allEntries.map(async (entry) => {
-                const signed = await signedUrlUtility.generateSignedUrl(entry.logoR2Key, { expiryMinutes: 30 });
-                return { ...entry, signedLogoUrl: signed.signedUrl };
+                const signedLogoUrl = await this.logoPreviewUrl(userId, entry);
+                return { ...entry, signedLogoUrl };
             })
         );
 

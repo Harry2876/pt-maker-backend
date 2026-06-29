@@ -14,8 +14,6 @@ import { templateService } from '../services/templateService';
 import { excelExportService } from '../services/excelExportService';
 import { pythonAIService } from '../services/pythonAIService';
 import { quickGraphicsService } from '../services/quickGraphicsService';
-import { extractAccessTokenFromRequest } from '../middleware/auth';
-import { withMediaPreviewAuth } from '../utils/mediaPreviewUrl';
 
 export class QuickPTController {
 
@@ -291,7 +289,7 @@ export class QuickPTController {
         const success = hasSuccessfulUploads && !hasErrors;
 
         const uploadedWithPreviews = hasSuccessfulUploads
-            ? await unifiedScreenshotService.attachQuickPtPreviewUrls(results)
+            ? await unifiedScreenshotService.attachQuickPtPreviewUrls(results, userId)
             : [];
 
         // Ensure safe response data
@@ -660,9 +658,7 @@ export class QuickPTController {
             ? `Standings exported as ${result.imageCount} images`
             : 'Standings exported successfully';
 
-        return res.json(
-            ResponseHelper.success(message, withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)))
-        );
+        return res.json(ResponseHelper.success(message, result));
     });
 
     /**
@@ -680,10 +676,7 @@ export class QuickPTController {
         }
 
         return res.json(
-            ResponseHelper.success(
-                'Points table retrieved successfully',
-                withMediaPreviewAuth(pointsTable, extractAccessTokenFromRequest(req)),
-            )
+            ResponseHelper.success('Points table retrieved successfully', pointsTable)
         );
     });
 
@@ -732,9 +725,7 @@ export class QuickPTController {
             ? `Standings regenerated as ${result.imageCount} images`
             : 'Standings regenerated successfully';
 
-        return res.json(
-            ResponseHelper.success(message, withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)))
-        );
+        return res.json(ResponseHelper.success(message, result));
     });
 
     /**
@@ -1030,10 +1021,7 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
         });
 
         return res.json(
-            ResponseHelper.success(
-                'Slot list graphic generated successfully',
-                withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)),
-            ),
+            ResponseHelper.success('Slot list graphic generated successfully', result),
         );
     });
 
@@ -1079,10 +1067,7 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
         });
 
         return res.json(
-            ResponseHelper.success(
-                'Roster graphic generated successfully',
-                withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)),
-            ),
+            ResponseHelper.success('Roster graphic generated successfully', result),
         );
     });
 
@@ -1114,10 +1099,7 @@ static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
         });
 
         return res.json(
-            ResponseHelper.success(
-                'Top-10 rankings graphic generated successfully',
-                withMediaPreviewAuth(result, extractAccessTokenFromRequest(req)),
-            ),
+            ResponseHelper.success('Top-10 rankings graphic generated successfully', result),
         );
     });
 

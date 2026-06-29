@@ -4,12 +4,10 @@ import { ResponseHelper } from '../utils/responseHelper';
 import { mediaAssetService } from '../services/mediaAssetService';
 import { quickMatchService } from '../services/quickMatchService';
 import { QuickMediaAssetType } from '../types/mediaAsset';
-import { extractAccessTokenFromRequest } from '../middleware/auth';
-import { withMediaPreviewAuth } from '../utils/mediaPreviewUrl';
 
 export class MediaAssetController {
 
-    /** GET /api/v1/quick-pt/media/:assetId — stream PNG (auth required) */
+    /** GET /api/v1/quick-pt/media/:assetId — stream file (legacy; prefer GET /files/:fileId?exp=&sig=) */
     static streamMedia = asyncHandler(async (req: Request, res: Response) => {
         const userId = req.user!.id;
         const { assetId } = req.params;
@@ -47,7 +45,7 @@ export class MediaAssetController {
         const items = await mediaAssetService.listMatchMedia(quickMatchId, userId, assetType);
 
         return res.json(ResponseHelper.success('Match media history retrieved', {
-            items: withMediaPreviewAuth(items, extractAccessTokenFromRequest(req)),
+            items,
             count: items.length,
         }));
     });

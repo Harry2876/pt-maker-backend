@@ -4,14 +4,14 @@ import { QueueService } from './queueService';
 import redis from '../config/redis';
 import { randomUUID } from 'crypto';
 import { r2Service } from './cloudflareR2Service';
-import { signedUrlUtility } from './signedUrlUtility';
+import { storedFileService } from './storedFileService';
+import { PreviewUrlTtl } from '../utils/previewUrlUtils';
+import { mimeTypeFromR2Key } from '../utils/r2UrlUtils';
 import { UploadFile, ScreenshotUploadData } from '../types/upload';
 import { QuickScreenshotCache, QuickScreenshotType, QuickScreenshotListResponse } from '../types/quickScreenshot';
 
 export class UnifiedScreenshotService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
-    /** Fresh signed preview URLs regenerated on every list/upload response */
-    private readonly SCREENSHOT_PREVIEW_EXPIRY_MINUTES = 5;
 
     async processScreenshotUpload(
         context: 'tournament' | 'quick-pt',
@@ -532,15 +532,21 @@ export class UnifiedScreenshotService extends BaseService {
         filters?: { type?: string; isProcessed?: boolean }
     ): Promise<QuickScreenshotListResponse> {
         const screenshots = await this.listQuickPtScreenshots(matchId, userId, filters);
-        return this.buildQuickPtScreenshotListResponse(screenshots);
+        return this.buildQuickPtScreenshotListResponse(screenshots, userId);
     }
 
     /**
-     * Attach fresh signed preview URLs (5 min TTL) for client display.
-     * Regenerated on every call so list/upload always returns usable URLs.
+     * Attach fresh signed preview URLs for client display via the file registry.
      */
-    async attachQuickPtPreviewUrls<T extends { id: string; fileName?: string; storageUrl?: string; type?: string }>(
-        screenshots: T[]
+    async attachQuickPtPreviewUrls<T extends {
+        id: string;
+        quickMatchId?: string;
+        fileName?: string;
+        storageUrl?: string;
+        type?: string;
+    }>(
+        screenshots: T[],
+        userId: string,
     ): Promise<Array<T & {
         r2Key: string | null;
         previewUrl: string | null;
@@ -554,17 +560,23 @@ export class UnifiedScreenshotService extends BaseService {
                 let previewUrl: string | null = null;
                 let signedUrl: string | null = null;
                 let expiresAt: string | null = null;
-                let previewUrlExpiresInSeconds = this.SCREENSHOT_PREVIEW_EXPIRY_MINUTES * 60;
+                let previewUrlExpiresInSeconds = PreviewUrlTtl.screenshot * 60;
 
-                if (r2Key) {
+                if (r2Key && screenshot.id) {
                     try {
-                        const signed = await signedUrlUtility.generateSignedUrl(r2Key, {
-                            expiryMinutes: this.SCREENSHOT_PREVIEW_EXPIRY_MINUTES,
-                        });
-                        previewUrl = signed.signedUrl;
-                        signedUrl = signed.signedUrl;
-                        expiresAt = signed.expiresAt.toISOString();
-                        previewUrlExpiresInSeconds = signed.expirySeconds;
+                        const preview = await storedFileService.ensureClientPreview({
+                            userId,
+                            assetType: 'SCREENSHOT',
+                            r2Key,
+                            resourceId: screenshot.id,
+                            quickMatchId: screenshot.quickMatchId ?? null,
+                            filename: screenshot.fileName ?? null,
+                            mimeType: mimeTypeFromR2Key(r2Key),
+                        }, { expiryMinutes: PreviewUrlTtl.screenshot });
+                        previewUrl = preview.previewUrl;
+                        signedUrl = preview.signedUrl;
+                        expiresAt = preview.expiresAt;
+                        previewUrlExpiresInSeconds = preview.previewUrlExpiresInSeconds;
                     } catch (error) {
                         this.logger.warn(`Failed to generate preview URL for screenshot ${screenshot.id}:`, error);
                     }
@@ -594,9 +606,10 @@ export class UnifiedScreenshotService extends BaseService {
             isProcessed: boolean;
             uploadedAt: string;
             dbStatus?: string;
-        }>
+        }>,
+        userId: string,
     ): Promise<QuickScreenshotListResponse> {
-        const withPreviews = await this.attachQuickPtPreviewUrls(screenshots);
+        const withPreviews = await this.attachQuickPtPreviewUrls(screenshots, userId);
         const attendance = withPreviews.filter((s) => this.isAttendanceScreenshotType(String(s.type)));
         const result = withPreviews.filter((s) => this.isResultScreenshotType(String(s.type)));
 

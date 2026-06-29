@@ -1,6 +1,6 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
-import { signedUrlUtility } from './signedUrlUtility';
+import { storedFileService } from './storedFileService';
 import { randomUUID } from 'crypto';
 import {
     QuickCropCache,
@@ -14,6 +14,7 @@ import {
     buildCropFolderPathFromObjectKey,
     buildCropFolderPathFromStorageUrl,
     buildQuickPtScreenshotFolderPath,
+    mimeTypeFromR2Key,
     resolvePythonImageRef,
 } from '../utils/r2UrlUtils';
 import {
@@ -24,6 +25,37 @@ import {
 
 export class CropStorageService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
+
+    private cleanCropR2Key(r2Key: string): string {
+        if (r2Key.startsWith('pt-maker-screenshots/')) {
+            return r2Key.substring('pt-maker-screenshots/'.length);
+        }
+        return r2Key;
+    }
+
+    private async previewForCrop(
+        crop: Pick<QuickCropCache, 'id' | 'quickMatchId' | 'r2Key'>,
+        userId: string,
+    ): Promise<{ signedUrl: string | null; expiresAt: Date | null }> {
+        if (!crop.r2Key || crop.r2Key.startsWith('placeholder_key_')) {
+            return { signedUrl: null, expiresAt: null };
+        }
+
+        const cleanR2Key = this.cleanCropR2Key(crop.r2Key);
+        const preview = await storedFileService.ensureClientPreview({
+            userId,
+            assetType: 'CROP',
+            r2Key: cleanR2Key,
+            resourceId: crop.id,
+            quickMatchId: crop.quickMatchId,
+            mimeType: mimeTypeFromR2Key(cleanR2Key),
+        });
+
+        return {
+            signedUrl: preview.previewUrl,
+            expiresAt: new Date(preview.expiresAt),
+        };
+    }
 
     /**
      * Process crops via Python API and store metadata
@@ -117,24 +149,14 @@ export class CropStorageService extends BaseService {
             for (const crop of crops) {
                 let signedUrl = null;
                 let expiresAt = null;
-                
-                // Generate signed URLs for real R2 keys (both existing and newly constructed ones)
+
                 if (crop.r2Key && !crop.r2Key.startsWith('placeholder_key_')) {
                     try {
-                        // Clean r2Key of bucket prefix if it exists (for backward compatibility)
-                        let cleanR2Key = crop.r2Key;
-                        if (cleanR2Key.startsWith('pt-maker-screenshots/')) {
-                            cleanR2Key = cleanR2Key.substring('pt-maker-screenshots/'.length);
-                        }
-                        
-                        const signedUrlData = await signedUrlUtility.generateSignedUrl(
-                            cleanR2Key, 
-                            { expiryMinutes: 30 }
-                        );
-                        signedUrl = signedUrlData.signedUrl;
-                        expiresAt = signedUrlData.expiresAt;
+                        const preview = await this.previewForCrop(crop, userId);
+                        signedUrl = preview.signedUrl;
+                        expiresAt = preview.expiresAt;
                     } catch (error) {
-                        this.logger.warn(`Failed to generate signed URL for crop ${crop.id}:`, error);
+                        this.logger.warn(`Failed to generate preview URL for crop ${crop.id}:`, error);
                     }
                 }
 
@@ -467,30 +489,32 @@ export class CropStorageService extends BaseService {
             const resultDownloads = [];
 
             for (const crop of crops) {
-                // Only generate signed URLs for real R2 keys, not placeholders
                 if (crop.r2Key && !crop.r2Key.startsWith('placeholder_key_')) {
-                    const signedUrlData = await signedUrlUtility.generateSignedUrl(
-                        crop.r2Key, 
-                        { expiryMinutes: 30 }
-                    );
+                    try {
+                        const preview = await this.previewForCrop(crop, userId);
+                        if (!preview.signedUrl) {
+                            continue;
+                        }
 
-                    // Generate a clean filename for download
-                    const fileExtension = crop.r2Key.split('.').pop() || 'jpg';
-                    const filename = `${crop.cropType}_${crop.id.substring(0, 8)}.${fileExtension}`;
+                        const fileExtension = crop.r2Key.split('.').pop() || 'jpg';
+                        const filename = `${crop.cropType}_${crop.id.substring(0, 8)}.${fileExtension}`;
 
-                    const downloadData = {
-                        id: crop.id,
-                        cropType: crop.cropType,
-                        downloadUrl: signedUrlData.signedUrl,
-                        expiresAt: signedUrlData.expiresAt,
-                        filename: filename,
-                        cropMetadata: crop.cropData
-                    };
+                        const downloadData = {
+                            id: crop.id,
+                            cropType: crop.cropType,
+                            downloadUrl: preview.signedUrl,
+                            expiresAt: preview.expiresAt ?? new Date(),
+                            filename,
+                            cropMetadata: crop.cropData,
+                        };
 
-                    if (crop.cropType.toLowerCase().includes('attendance')) {
-                        attendanceDownloads.push(downloadData);
-                    } else {
-                        resultDownloads.push(downloadData);
+                        if (crop.cropType.toLowerCase().includes('attendance')) {
+                            attendanceDownloads.push(downloadData);
+                        } else {
+                            resultDownloads.push(downloadData);
+                        }
+                    } catch (error) {
+                        this.logger.warn(`Failed to generate download URL for crop ${crop.id}:`, error);
                     }
                 }
             }
@@ -556,25 +580,19 @@ export class CropStorageService extends BaseService {
 
             // Only generate signed URLs for real R2 keys, not placeholders
             if (!crop.r2Key || crop.r2Key.startsWith('placeholder_key_')) {
-                return { success: false }; // Crop not ready yet
+                return { success: false };
             }
 
-            // Clean r2Key of bucket prefix if it exists (for backward compatibility)
-            let cleanR2Key = crop.r2Key;
-            if (cleanR2Key.startsWith('pt-maker-screenshots/')) {
-                cleanR2Key = cleanR2Key.substring('pt-maker-screenshots/'.length);
+            const preview = await this.previewForCrop(crop, userId);
+            if (!preview.signedUrl) {
+                return { success: false };
             }
-
-            const signedUrlData = await signedUrlUtility.generateSignedUrl(
-                cleanR2Key, 
-                { expiryMinutes: 30 }
-            );
 
             return {
                 success: true,
                 cropId: crop.id,
-                signedUrl: signedUrlData.signedUrl,
-                expiresAt: signedUrlData.expiresAt
+                signedUrl: preview.signedUrl,
+                expiresAt: preview.expiresAt ?? undefined,
             };
 
         } catch (error) {

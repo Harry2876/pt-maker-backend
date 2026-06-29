@@ -1,0 +1,93 @@
+paths:
+
+  /quick-pt/files/{fileId}:
+    get:
+      tags: [Quick-PT Files]
+      summary: Stream a registered file by signed preview URL
+      description: |
+        Streams bytes from R2 via the unified file registry. Clients receive the full URL in
+        `previewUrl` / `signedUrl` from other Quick PT APIs — no bucket names or R2 presigned URLs.
+
+        **Auth (in order):**
+        1. `exp` + `sig` query params from `previewUrl` (works without JWT — template picker, Coil)
+        2. `Authorization: Bearer` when sig is omitted (same ownership rules as legacy `/media/{assetId}`)
+
+        If both sig and Bearer are present, signature auth wins (Android customization may send both).
+      parameters:
+        - in: path
+          name: fileId
+          required: true
+          schema:
+            type: string
+          description: Registry row id (`quick_media_assets.id`)
+          example: "cmqqnxb6t00038za1l2k7jnzo"
+        - in: query
+          name: exp
+          required: false
+          schema:
+            type: integer
+          description: Unix expiry (seconds) from previewUrl
+          example: 1782744496
+        - in: query
+          name: sig
+          required: false
+          schema:
+            type: string
+          description: HMAC-SHA256 hex signature from previewUrl
+          example: "7a33bfa20585c0b03876ddd6052c130e71b5a535d13f82434c39f66d6f03e18f"
+      responses:
+        "200":
+          description: File stream (Content-Type from stored mimeType / R2 metadata)
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Invalid or missing signature / token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Preview signature or authorization required"
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: "UNAUTHORIZED"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "502":
+          description: R2 stream failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Failed to stream file"
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: "STREAM_ERROR"

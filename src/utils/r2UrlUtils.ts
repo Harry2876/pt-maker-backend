@@ -41,6 +41,21 @@ export function storageUrlToR2Key(storageUrl: string): string {
     }
 }
 
+/** Infer MIME type from an R2 object key extension. */
+export function mimeTypeFromR2Key(key: string): string {
+    const ext = key.split('.').pop()?.toLowerCase();
+    const map: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+        json: 'application/json',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
+    return map[ext ?? ''] ?? 'application/octet-stream';
+}
+
 /** Normalize Python image URL to an R2 object key inside the bucket. */
 export function extractR2KeyFromUrl(imageUrl: string): string {
     const key = storageUrlToR2Key(imageUrl);

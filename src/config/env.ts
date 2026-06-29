@@ -9,6 +9,7 @@ export const env = {
   DATABASE_URL: process.env.DATABASE_URL,
   REDIS_URL: process.env.REDIS_URL,
   JWT_SECRET: process.env.JWT_SECRET,
+  PREVIEW_URL_SECRET: process.env.PREVIEW_URL_SECRET,
   R2_ENDPOINT: process.env.R2_ENDPOINT,
   R2_BUCKET_NAME: process.env.R2_BUCKET_NAME,
   R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,

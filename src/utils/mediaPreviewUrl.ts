@@ -1,3 +1,8 @@
+/**
+ * @deprecated Legacy JWT-in-URL preview helpers for GET /quick-pt/media/{assetId}.
+ * Client responses now use signed GET /quick-pt/files/{fileId}?exp=&sig= URLs.
+ * Kept only for backward compatibility with the legacy media stream route.
+ */
 import { env } from '../config/env';
 
 /** Build client-facing preview path for a stored media asset (auth required on GET). */
@@ -36,6 +41,7 @@ function isMediaPreviewUrl(value: string): boolean {
 }
 
 /** Append JWT so preview links work in browser / img tags (Coil can also use Authorization header instead). */
+/** @deprecated Use previewUrlService / issueClientPreview instead. */
 export function appendAccessTokenToPreviewUrl(url: string, accessToken: string): string {
     if (!accessToken || !isMediaPreviewUrl(url)) {
         return url;
@@ -48,6 +54,7 @@ export function appendAccessTokenToPreviewUrl(url: string, accessToken: string):
 }
 
 /** Recursively attach access_token to preview URLs in export/generate responses. */
+/** @deprecated No longer applied to API responses — preview URLs are self-contained. */
 export function withMediaPreviewAuth<T>(data: T, accessToken?: string | null): T {
     if (!accessToken || data == null) {
         return data;

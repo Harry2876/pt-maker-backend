@@ -699,16 +699,24 @@ model RevenueCatWebhookEvent {
 }
 
 enum QuickMediaAssetType {
+  // ── existing export/graphics types (unchanged) ──
   STANDINGS
   SLOT_LIST
   ROSTER
   TOP_10
   SERIES_STANDINGS
+  // ── new unified file types (Step 5–9 will use these) ──
+  SCREENSHOT
+  CROP
+  TEMPLATE
+  TEMPLATE_CONFIG
+  LOGO
+  EXCEL
 }
 
 model QuickMediaAsset {
   id            String              @id @default(cuid())
-  userId        String
+  userId        String?             // null = system/shared (templates)
   quickMatchId  String?
   quickSeriesId String?
   assetType     QuickMediaAssetType
@@ -716,17 +724,28 @@ model QuickMediaAsset {
   mimeType      String              @default("image/png")
   filename      String?
   metadata      Json?
+
+  /** Links back to source row: QuickScreenshot.id, QuickMatchCrop.id, TeamLogoPresetEntry.id, etc. */
+  resourceId    String?
+
+  /** true = readable via valid sig without user ownership (templates). Step 3 uses this. */
+  isPublic      Boolean             @default(false)
+
   createdAt     DateTime            @default(now())
 
-  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   quickMatch  QuickMatch?            @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
   quickSeries QuickTournamentSeries? @relation(fields: [quickSeriesId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([quickMatchId, createdAt(sort: Desc)])
   @@index([quickSeriesId, createdAt(sort: Desc)])
+  @@index([assetType, resourceId])
+  @@index([r2Key])
   @@map("quick_media_assets")
 }
+
+
 
 enum QuickSeriesStatus {
   CREATED
