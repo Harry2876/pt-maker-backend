@@ -21,6 +21,7 @@ import { buildPythonTeamListPayload } from '../utils/teamListPayloadBuilder';
 import { buildPythonTop10Payload } from '../utils/top10PayloadBuilder';
 import { extractPythonErrorDetail } from '../utils/pythonErrorUtils';
 import { ServiceError } from '../utils/serviceError';
+import { omitEmptyFields } from '../utils/r2UrlUtils';
 
 
 export class PythonAIService {
@@ -75,9 +76,22 @@ export class PythonAIService {
 
     async uploadAttendanceCrops(request: CropUploadRequest): Promise<CropUploadResponse> {
         try {
+            const body = omitEmptyFields({
+                image_urls: request.image_urls,
+                folder_path: request.folder_path,
+                match_id: request.match_id,
+                tournament_id: request.tournament_id,
+                metadata: request.metadata,
+                cleanup_temp: request.cleanup_temp ?? true,
+            });
+            logger.debug('Python attendance crops payload', {
+                folder_path: body.folder_path,
+                match_id: body.match_id,
+                image_count: body.image_urls?.length ?? 0,
+            });
             const { data } = await this.client.post<CropUploadResponse>(
-                '/api/v1/ocr/crops/attendance',
-                request
+                '/api/v1/crops/attendance',
+                body
             );
             return data;
         } catch (err: any) {
@@ -87,9 +101,22 @@ export class PythonAIService {
 
     async uploadResultCrops(request: CropUploadRequest): Promise<CropUploadResponse> {
         try {
+            const body = omitEmptyFields({
+                image_urls: request.image_urls,
+                folder_path: request.folder_path,
+                match_id: request.match_id,
+                tournament_id: request.tournament_id,
+                metadata: request.metadata,
+                cleanup_temp: request.cleanup_temp ?? true,
+            });
+            logger.debug('Python result crops payload', {
+                folder_path: body.folder_path,
+                match_id: body.match_id,
+                image_count: body.image_urls?.length ?? 0,
+            });
             const { data } = await this.client.post<CropUploadResponse>(
-                '/api/v1/ocr/crops/results',
-                request
+                '/api/v1/crops/results',
+                body
             );
             return data;
         } catch (err: any) {

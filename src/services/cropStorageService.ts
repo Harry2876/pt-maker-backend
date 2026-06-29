@@ -10,7 +10,17 @@ import {
 } from '../types/quickCrop';
 import { pythonAIService } from './pythonAIService';
 import { unifiedScreenshotService } from './unifiedScreenshotService';
-import { storageUrlToR2Key, resolvePythonImageRef } from '../utils/r2UrlUtils';
+import {
+    buildCropFolderPathFromObjectKey,
+    buildCropFolderPathFromStorageUrl,
+    buildQuickPtScreenshotFolderPath,
+    resolvePythonImageRef,
+} from '../utils/r2UrlUtils';
+import {
+    CropUploadRequest,
+    CropUploadResponse,
+    getCropItemsFromResponse,
+} from '../types/pythonAI';
 
 export class CropStorageService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes
@@ -27,10 +37,17 @@ export class CropStorageService extends BaseService {
 
             this.logger.info(`Processing ${typeLabel} crop for match ${quickMatchId}`);
 
-            const pyRequest = {
-                image_urls: [resolvePythonImageRef(screenshotUrl)],
-                cleanup_temp: true,
-            };
+            const tournamentId = await this.resolveTournamentId(
+                quickMatchId,
+                request.tournamentId,
+            );
+
+            const pyRequest = this.buildCropUploadRequest(
+                quickMatchId,
+                isAttendance,
+                [{ storageUrl: screenshotUrl }],
+                { tournamentId, metadata: request.metadata },
+            );
 
             const pyResponse = isAttendance
                 ? await pythonAIService.uploadAttendanceCrops(pyRequest)
@@ -40,20 +57,12 @@ export class CropStorageService extends BaseService {
                 throw new Error(`Python AI crop upload failed with status: ${pyResponse.status}`);
             }
 
-            const createdCrops: QuickCropCache[] = [];
-
-            for (const rawUrl of pyResponse.uploaded_urls) {
-                const r2Key = this.extractR2Key(rawUrl);
-                const crop = await this.createCrop({
-                    quickMatchId,
-                    cropType: cropType.toUpperCase(),
-                    r2Key,
-                    originalUrl: screenshotUrl,
-                    cropUrl: rawUrl,
-                    cropData: { upload_status: 'ready', source_url: screenshotUrl, python_metadata: pyResponse.metadata },
-                });
-                createdCrops.push(crop);
-            }
+            await this.persistPythonCrops(
+                pyResponse,
+                quickMatchId,
+                cropType.toUpperCase().includes('ATTENDANCE') ? 'ATTENDANCE_CROP' : 'RESULT_CROP',
+                screenshotUrl,
+            );
 
             // Invalidate cache so getMatchCrops returns fresh data
             await redis.delete(`crops:match:${quickMatchId}`);
@@ -195,16 +204,20 @@ export class CropStorageService extends BaseService {
                 'quick-pt', quickMatchId, userId, { type: 'RESULT' }
             ).catch(() => []);
 
+            const tournamentId = await this.resolveTournamentId(quickMatchId);
+
             const processGroup = async (
                 shots: typeof attendanceShots,
                 isAttendance: boolean
             ) => {
                 if (shots.length === 0) return;
 
-                const pyRequest = {
-                    image_urls: shots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName)),
-                    cleanup_temp: true,
-                };
+                const pyRequest = this.buildCropUploadRequest(
+                    quickMatchId,
+                    isAttendance,
+                    shots.map(s => ({ storageUrl: s.storageUrl, fileName: s.fileName })),
+                    { tournamentId },
+                );
 
                 const pyResponse = isAttendance
                     ? await pythonAIService.uploadAttendanceCrops(pyRequest)
@@ -212,17 +225,12 @@ export class CropStorageService extends BaseService {
 
                 if (pyResponse.status !== 'success') return;
 
-                for (const rawUrl of pyResponse.uploaded_urls) {
-                    const r2Key = this.extractR2Key(rawUrl);
-                    await this.createCrop({
-                        quickMatchId,
-                        cropType: isAttendance ? 'ATTENDANCE_CROP' : 'RESULT_CROP',
-                        r2Key,
-                        originalUrl: shots[0]?.storageUrl ?? '',
-                        cropUrl: rawUrl,
-                        cropData: { upload_status: 'ready', python_metadata: pyResponse.metadata },
-                    });
-                }
+                await this.persistPythonCrops(
+                    pyResponse,
+                    quickMatchId,
+                    isAttendance ? 'ATTENDANCE_CROP' : 'RESULT_CROP',
+                    shots[0]?.storageUrl ?? '',
+                );
             };
 
             await Promise.allSettled([
@@ -268,6 +276,111 @@ export class CropStorageService extends BaseService {
         });
 
         return !!match;
+    }
+
+    /**
+     * Save crop rows from Python response (supports crops[] or legacy uploaded_urls[]).
+     */
+    private async persistPythonCrops(
+        pyResponse: CropUploadResponse,
+        quickMatchId: string,
+        cropType: string,
+        originalUrl: string,
+    ): Promise<number> {
+        const items = getCropItemsFromResponse(pyResponse);
+
+        if (items.length === 0) {
+            this.logger.warn('Python crop response contained no crop URLs', {
+                quickMatchId,
+                cropType,
+                request_id: pyResponse.request_id,
+            });
+            return 0;
+        }
+
+        for (const item of items) {
+            const rawUrl = item.r2_url;
+            const r2Key = this.extractR2Key(rawUrl);
+            await this.createCrop({
+                quickMatchId,
+                cropType,
+                r2Key,
+                originalUrl,
+                cropUrl: rawUrl,
+                cropData: {
+                    upload_status: 'ready',
+                    source_url: originalUrl,
+                    card_index: item.card_index,
+                    team_name: item.team_name,
+                    coordinates: item.coordinates,
+                    confidence: item.confidence,
+                    python_data: pyResponse.data,
+                    python_metadata: pyResponse.metadata,
+                },
+            });
+        }
+
+        this.logger.info(`Persisted ${items.length} ${cropType} crop(s) for match ${quickMatchId}`);
+        return items.length;
+    }
+
+    /**
+     * Resolve series id for Python tournament_id (quick-pt matches in a series).
+     */
+    private async resolveTournamentId(
+        quickMatchId: string,
+        explicit?: string,
+    ): Promise<string | undefined> {
+        if (explicit?.trim()) {
+            return explicit.trim();
+        }
+        const link = await this.db.quickSeriesMatch.findUnique({
+            where: { quickMatchId },
+            select: { seriesId: true },
+        });
+        return link?.seriesId;
+    }
+
+    /**
+     * Build Python crop request — image_urls plus folder context for R2 output layout.
+     */
+    private buildCropUploadRequest(
+        quickMatchId: string,
+        isAttendance: boolean,
+        shots: Array<{ storageUrl: string; fileName?: string }>,
+        options?: {
+            tournamentId?: string;
+            metadata?: Record<string, unknown> | null;
+        },
+    ): CropUploadRequest {
+        if (shots.length === 0) {
+            throw new Error('At least one screenshot is required for crop processing');
+        }
+
+        const screenshotType = isAttendance ? 'ATTENDANCE_IMAGE' : 'RESULT_IMAGE';
+        const first = shots[0];
+
+        let folder_path: string;
+        if (first.storageUrl?.trim()) {
+            folder_path = buildCropFolderPathFromStorageUrl(first.storageUrl);
+        } else if (first.fileName?.trim()) {
+            folder_path = buildCropFolderPathFromObjectKey(first.fileName);
+        } else {
+            folder_path = buildQuickPtScreenshotFolderPath(quickMatchId, screenshotType);
+        }
+
+        const image_urls = shots.map(s =>
+            resolvePythonImageRef(s.storageUrl, s.fileName),
+        );
+
+        return {
+            image_urls,
+            folder_path,
+            match_id: quickMatchId,
+            ...(options?.tournamentId && { tournament_id: options.tournamentId }),
+            ...(options?.metadata != null && { metadata: options.metadata }),
+            cleanup_temp: true,
+        };
     }
 
     /**

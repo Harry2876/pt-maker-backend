@@ -104,3 +104,25 @@ export function omitEmptyFields<T extends Record<string, unknown>>(obj: T): Part
     }
     return out as Partial<T>;
 }
+
+/** R2 folder prefix for Python crop APIs: `{bucket}/{key-dir}/` */
+export function buildCropFolderPathFromObjectKey(objectKey: string): string {
+    const bucket = env.R2_BUCKET_NAME || 'pt-maker-screenshots';
+    const key = resolveR2ObjectKey(undefined, objectKey) ?? objectKey.replace(/^\/+/, '');
+    const lastSlash = key.lastIndexOf('/');
+    const dir = lastSlash >= 0 ? key.substring(0, lastSlash + 1) : '';
+    return `${bucket}/${dir}`;
+}
+
+export function buildCropFolderPathFromStorageUrl(storageUrl: string): string {
+    return buildCropFolderPathFromObjectKey(storageUrlToR2Key(storageUrl));
+}
+
+/** Standard quick-pt screenshot folder when no sample file key is available yet. */
+export function buildQuickPtScreenshotFolderPath(
+    quickMatchId: string,
+    screenshotType: 'ATTENDANCE_IMAGE' | 'RESULT_IMAGE',
+): string {
+    const bucket = env.R2_BUCKET_NAME || 'pt-maker-screenshots';
+    return `${bucket}/quick-pt/${screenshotType}/match-${quickMatchId}/`;
+}

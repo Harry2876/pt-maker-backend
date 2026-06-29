@@ -51,17 +51,51 @@ export interface ScoreboardResponse {
 // ===== CROP UPLOAD =====
 
 export interface CropUploadRequest {
-    /** Full raw R2 HTTPS URLs or object keys — Python downloads from R2 directly */
+    /** Full raw R2 HTTPS URLs — Python downloads from R2 directly */
     image_urls: string[];
+    /** R2 folder prefix including bucket name */
+    folder_path: string;
+    /** Match identifier for crop output organization */
+    match_id: string;
+    /** Series/tournament id when match belongs to a series */
+    tournament_id?: string;
     metadata?: Record<string, any> | null;
     cleanup_temp?: boolean;
 }
 
+export interface PythonCropItem {
+    card_index?: number;
+    team_name?: string | null;
+    r2_url: string;
+    coordinates?: Record<string, unknown>;
+    confidence?: number | null;
+}
+
 export interface CropUploadResponse {
     status: 'success' | 'error';
-    request_id: string | null;
-    uploaded_urls: string[];
-    metadata: Record<string, any>;
+    request_id?: string | null;
+    timestamp?: string;
+    data?: {
+        crops_generated?: number;
+        match_id?: string;
+        crop_type?: string;
+        processing_time_seconds?: number;
+        r2_folder?: string;
+    };
+    metadata?: Record<string, any>;
+    crops?: PythonCropItem[];
+    /** Legacy Python response field */
+    uploaded_urls?: string[];
+}
+
+/** Normalize crop URLs from current or legacy Python crop API responses. */
+export function getCropItemsFromResponse(response: CropUploadResponse): PythonCropItem[] {
+    if (response.crops?.length) {
+        return response.crops.filter(item => Boolean(item.r2_url?.trim()));
+    }
+    return (response.uploaded_urls ?? [])
+        .filter(url => Boolean(url?.trim()))
+        .map(url => ({ r2_url: url }));
 }
 
 // ===== STANDINGS =====
