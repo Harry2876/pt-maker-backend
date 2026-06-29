@@ -1204,7 +1204,7 @@ quickPTRouter.delete(
  *     description: |
  *       Unified endpoint for all screenshot processing.
  *       - **ATTENDANCE** — batch OCR; detects slot numbers and player rosters.
- *       - **RESULT** — per-image OCR; extracts ranks, per-player kills, matches slots, saves results.
+ *       - **RESULT** — batch OCR; extracts ranks, per-player kills, matches slots, saves results.
  *       - **COMPLETE** (default) — runs ATTENDANCE then RESULT in sequence.
  *
  *       **Android — per-player finishes:** After RESULT/COMPLETE, read either:

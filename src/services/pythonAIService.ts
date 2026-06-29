@@ -51,22 +51,6 @@ export class PythonAIService {
     }
 
     /**
-     * Process a single BGMI scoreboard screenshot.
-     * @param imageRef Full raw R2 HTTPS URL or object key — Python reads from R2 directly.
-     */
-    async processScoreboard(imageRef: string): Promise<ScoreboardResponse> {
-        try {
-            const { data } = await this.client.post<ScoreboardResponse>(
-                '/api/v1/ocr/scoreboard',
-                { image_url: imageRef, cleanup_temp: true }
-            );
-            return data;
-        } catch (err: any) {
-            this.throwPythonServiceError(err, 'Scoreboard OCR failed');
-        }
-    }
-
-    /**
      * Process a batch of BGMI scoreboard screenshots from the SAME match.
      * @param imageRefs Full raw R2 HTTPS URLs (preferred) or object keys
      */

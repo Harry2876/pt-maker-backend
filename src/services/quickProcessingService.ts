@@ -273,35 +273,27 @@ export class QuickProcessingService extends BaseService {
                 );
             }
 
-            this.logger.info(`Processing ${screenshots.length} result screenshot(s) via per-image OCR`);
+            this.logger.info(`Sending ${screenshots.length} result screenshot(s) to Python AI (batch)`);
 
             await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                 processingStep: 'Processing Result Screenshots',
             });
 
             const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
+            const response = await pythonAIService.processScoreboardBatch(imageRefs);
 
-            // Per-image OCR is used for results because Python run_batch merges scroll pages
-            // by team_rank only, which corrupts rank-1 kills and drops teams. Single-image
-            // pipeline.run() matches manual full_pipeline output; backend dedupes by roster.
-            const rawTeams: ResultTeam[] = [];
-            for (let i = 0; i < imageRefs.length; i++) {
-                const ref = imageRefs[i];
-                this.logger.debug(`Result OCR image ${i + 1}/${imageRefs.length}`, { ref });
-                const single = await pythonAIService.processScoreboard(ref);
-                if (single.status !== 'success') {
-                    throw new Error(`Python AI returned status: ${single.status} for result image ${i + 1}`);
-                }
-                if (single.data.layout !== 'compact_layout') {
-                    warnings.push({
-                        type: 'INVALID_POSITION',
-                        message: `Result image ${i + 1} is not compact_layout (${single.data.layout}) — skipped`,
-                        details: { imageIndex: i + 1, layout: single.data.layout },
-                    });
-                    continue;
-                }
-                rawTeams.push(...(single.data.teams as ResultTeam[]));
+            if (response.status !== 'success') {
+                throw new Error(`Python AI returned status: ${response.status}`);
             }
+
+            if (response.data.layout !== 'compact_layout') {
+                throw new Error(
+                    `Expected results (compact_layout) but received ${response.data.layout}. ` +
+                    'Please make sure only result screenshots are uploaded for this step.'
+                );
+            }
+
+            const rawTeams = response.data.teams as ResultTeam[];
 
             if (rawTeams.length === 0) {
                 throw new ServiceError(
@@ -311,7 +303,7 @@ export class QuickProcessingService extends BaseService {
                 );
             }
 
-            const ocrMode: ResultProcessingAudit['ocrMode'] = 'per_image';
+            const ocrMode: ResultProcessingAudit['ocrMode'] = 'batch';
             const reconciliation = ocrReconciliationService.dedupeResultTeams(rawTeams);
             warnings.push(...this.toProcessingWarnings(reconciliation.warnings));
 
@@ -460,7 +452,7 @@ export class QuickProcessingService extends BaseService {
                 },
                 audit: {
                     ocrMode,
-                    imagesProcessed: screenshots.length,
+                    imagesProcessed: response.metadata.images_processed,
                     rawTeams: reconciliation.rawTeamCount,
                     afterDedupe: reconciliation.dedupedTeamCount,
                     skippedDuplicates: reconciliation.skippedDuplicates,
