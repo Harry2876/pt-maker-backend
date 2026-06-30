@@ -375,6 +375,36 @@ components:
       example: "clx_preset_abc123"
 
   schemas:
+    LogoPreviewFields:
+      type: object
+      description: Signed preview URL block for logo display (same pattern as screenshots/exports)
+      properties:
+        fileId:
+          type: string
+          example: "cmqqnxb6t00038za1l2k7jnzo"
+        previewUrl:
+          type: string
+          format: uri
+          description: |
+            Signed preview URL — load directly in Coil/browser.
+            Pattern: `/api/v1/quick-pt/files/{fileId}?exp=&sig=`
+          example: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmqqnxb6t00038za1l2k7jnzo?exp=1782757174&sig=d7510091..."
+        signedUrl:
+          type: string
+          format: uri
+          description: Same as previewUrl (Android fallback)
+        signedLogoUrl:
+          type: string
+          format: uri
+          description: Deprecated alias of previewUrl
+        expiresAt:
+          type: string
+          format: date-time
+          description: ISO timestamp when previewUrl expires — re-call the API for a fresh URL
+        previewUrlExpiresInSeconds:
+          type: integer
+          example: 1800
+
     TeamLogoPreset:
       type: object
       description: A named collection of team logo entries owned by a single user
@@ -423,15 +453,38 @@ components:
           example: "Team Soul"
         logoStorageUrl:
           type: string
-          description: Public CDN URL of the uploaded logo
-          example: "https://pub-xxx.r2.dev/logos/presets/clx_preset_abc123/entry_clx789def.png"
-        r2Key:
+          description: Raw R2/CDN URL of the uploaded logo (used by Python during generation — not for direct browser preview)
+          example: "https://pub-xxx.r2.dev/team-logo-presets/user123/clx_preset_abc123/entry_clx789def.png"
+        fileId:
           type: string
-          description: R2 object key (internal reference)
-          example: "logos/presets/clx_preset_abc123/entry_clx789def.png"
+          description: Stored file registry ID for preview URL signing
+        previewUrl:
+          type: string
+          format: uri
+          description: Signed preview URL for client display
+        signedUrl:
+          type: string
+          format: uri
+          description: Same as previewUrl (Android fallback)
+        signedLogoUrl:
+          type: string
+          format: uri
+          description: Deprecated alias of previewUrl
+        expiresAt:
+          type: string
+          format: date-time
+        previewUrlExpiresInSeconds:
+          type: integer
+          example: 1800
         presetId:
           type: string
           example: "clx_preset_abc123"
+        sortOrder:
+          type: integer
+          example: 0
         createdAt:
+          type: string
+          format: date-time
+        updatedAt:
           type: string
           format: date-time

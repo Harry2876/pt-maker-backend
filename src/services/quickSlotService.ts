@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { db } from '../config/database';
 import {
     QuickSlotCache,
+    QuickSlotListItem,
     CreateQuickSlotData,
     UpdateQuickSlotData,
     BulkSlotUpload,
@@ -14,8 +15,7 @@ import { quickPtSyncQueue } from '../config/queues';
 import { SlotTextParser, ParseResult } from '../utils/slotTextParser';
 import { quickMatchService } from './quickMatchService';
 import { r2Service } from './cloudflareR2Service';
-import { storedFileService } from './storedFileService';
-import { mimeTypeFromR2Key } from '../utils/r2UrlUtils';
+import { issueLogoClientPreview, toLogoPreviewResponse } from '../utils/logoPreviewUtils';
 import { ServiceError } from '../utils/serviceError';
 
 export class QuickSlotService extends BaseService {
@@ -250,7 +250,7 @@ export class QuickSlotService extends BaseService {
             status?: SlotStatus;
             detectedInAttendance?: boolean;
         }
-    ): Promise<QuickSlotCache[]> {
+    ): Promise<QuickSlotListItem[]> {
         try {
             // 1. Verify Quick Match ownership
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
@@ -267,27 +267,25 @@ export class QuickSlotService extends BaseService {
                 where.detectedInAttendance = filters.detectedInAttendance;
             }
 
-            // 3. Get slots from database
+            // 3. Get slots from database with optional preset logo
             const dbSlots = await this.db.quickSlotAssignment.findMany({
                 where,
-                orderBy: { slotNumber: 'asc' }
+                orderBy: { slotNumber: 'asc' },
+                include: {
+                    logoPresetEntry: {
+                        select: {
+                            id: true,
+                            logoR2Key: true,
+                            logoStorageUrl: true,
+                        },
+                    },
+                },
             });
 
-            // 4. Convert to cache format
-            const slots: QuickSlotCache[] = dbSlots.map(dbSlot => ({
-                id: dbSlot.id,
-                quickMatchId: dbSlot.quickMatchId,
-                slotNumber: dbSlot.slotNumber,
-                teamName: dbSlot.teamName,
-                playerNames: dbSlot.playerNames
-                    ? JSON.parse(JSON.stringify(dbSlot.playerNames))
-                    : undefined,
-                status: dbSlot.status as SlotStatus,
-                detectedInAttendance: dbSlot.detectedInAttendance,
-                createdAt: dbSlot.createdAt.toISOString(),
-                updatedAt: dbSlot.updatedAt.toISOString(),
-                dbStatus: 'SYNCED'
-            }));
+            // 4. Convert to list items with signed preview URLs
+            const slots = await Promise.all(
+                dbSlots.map((dbSlot) => this.toSlotListItem(dbSlot, userId, quickMatchId))
+            );
 
             return slots;
 
@@ -295,6 +293,60 @@ export class QuickSlotService extends BaseService {
             this.handleError(error, 'List Quick Match Slots');
             throw error;
         }
+    }
+
+    private async toSlotListItem(
+        dbSlot: {
+            id: string;
+            quickMatchId: string;
+            slotNumber: number;
+            teamName: string;
+            playerNames: unknown;
+            status: string;
+            detectedInAttendance: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            logoPresetEntryId: string | null;
+            matchLogoR2Key: string | null;
+            matchLogoStorageUrl: string | null;
+            logoPresetEntry?: {
+                id: string;
+                logoR2Key: string;
+                logoStorageUrl: string;
+            } | null;
+        },
+        userId: string,
+        quickMatchId: string,
+    ): Promise<QuickSlotListItem> {
+        const presetLogoStorageUrl = dbSlot.logoPresetEntry?.logoStorageUrl ?? null;
+        const matchLogoStorageUrl = dbSlot.matchLogoStorageUrl ?? null;
+        const logoStorageUrl = matchLogoStorageUrl ?? presetLogoStorageUrl;
+        const effectiveR2Key = dbSlot.matchLogoR2Key ?? dbSlot.logoPresetEntry?.logoR2Key ?? null;
+
+        const preview = effectiveR2Key
+            ? await issueLogoClientPreview({ userId, r2Key: effectiveR2Key, quickMatchId })
+            : null;
+        const previewFields = toLogoPreviewResponse(preview);
+
+        return {
+            id: dbSlot.id,
+            quickMatchId: dbSlot.quickMatchId,
+            slotNumber: dbSlot.slotNumber,
+            teamName: dbSlot.teamName,
+            playerNames: dbSlot.playerNames
+                ? JSON.parse(JSON.stringify(dbSlot.playerNames))
+                : undefined,
+            status: dbSlot.status as SlotStatus,
+            detectedInAttendance: dbSlot.detectedInAttendance,
+            createdAt: dbSlot.createdAt.toISOString(),
+            updatedAt: dbSlot.updatedAt.toISOString(),
+            dbStatus: 'SYNCED',
+            logoPresetEntryId: dbSlot.logoPresetEntryId,
+            matchLogoStorageUrl,
+            presetLogoStorageUrl,
+            logoStorageUrl,
+            ...previewFields,
+        };
     }
 
     /**
@@ -469,7 +521,15 @@ export class QuickSlotService extends BaseService {
         slotNumber: number,
         fileBuffer: Buffer,
         mimeType: string
-    ): Promise<{ logoStorageUrl: string; signedLogoUrl: string }> {
+    ): Promise<{
+        logoStorageUrl: string;
+        fileId: string;
+        previewUrl: string;
+        signedUrl: string;
+        signedLogoUrl: string;
+        expiresAt: string;
+        previewUrlExpiresInSeconds: number;
+    }> {
         const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
         if (!quickMatch) {
             throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
@@ -508,17 +568,21 @@ export class QuickSlotService extends BaseService {
             data: { matchLogoR2Key: r2Key, matchLogoStorageUrl: url },
         });
 
-        const preview = await storedFileService.ensureClientPreview({
-            userId,
-            assetType: 'LOGO',
-            r2Key,
-            resourceId: slot.id,
-            quickMatchId,
-            mimeType,
-        });
+        const preview = await issueLogoClientPreview({ userId, r2Key, quickMatchId });
+        if (!preview) {
+            throw new ServiceError('Failed to generate logo preview URL', 500, 'PREVIEW_URL_FAILED');
+        }
         this.logger.info(`Match logo attached to slot ${slotNumber} in match ${quickMatchId}`);
 
-        return { logoStorageUrl: url, signedLogoUrl: preview.previewUrl };
+        return {
+            logoStorageUrl: url,
+            fileId: preview.fileId,
+            previewUrl: preview.previewUrl,
+            signedUrl: preview.signedUrl,
+            signedLogoUrl: preview.previewUrl,
+            expiresAt: preview.expiresAt,
+            previewUrlExpiresInSeconds: preview.previewUrlExpiresInSeconds,
+        };
     }
 
     /**

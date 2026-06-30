@@ -189,11 +189,32 @@ paths:
                     properties:
                       logoStorageUrl:
                         type: string
-                        description: Public CDN URL of the uploaded logo (used by Python during generation)
+                        description: Raw R2/CDN URL of the uploaded logo (used by Python during generation)
                         example: "https://pub-xxx.r2.dev/match-logos/clx123/slot-3-abc.png"
+                      fileId:
+                        type: string
+                        example: "cmqqnxb6t00038za1l2k7jnzo"
+                      previewUrl:
+                        type: string
+                        format: uri
+                        description: |
+                          Signed preview URL for immediate display.
+                          Pattern: `/api/v1/quick-pt/files/{fileId}?exp=&sig=`
+                        example: "https://scrymzengineservice.site/api/v1/quick-pt/files/cmqqnxb6t00038za1l2k7jnzo?exp=1782757174&sig=d7510091..."
+                      signedUrl:
+                        type: string
+                        format: uri
+                        description: Same as previewUrl (Android fallback)
                       signedLogoUrl:
                         type: string
-                        description: Signed URL for immediate preview (valid 30 min)
+                        format: uri
+                        description: Deprecated alias of previewUrl
+                      expiresAt:
+                        type: string
+                        format: date-time
+                      previewUrlExpiresInSeconds:
+                        type: integer
+                        example: 1800
         "400":
           description: No file uploaded or invalid file type
           content:

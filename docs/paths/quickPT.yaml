@@ -424,9 +424,15 @@ paths:
                     type: string
                     example: "Slots retrieved successfully"
                   data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/SlotObject"
+                    type: object
+                    properties:
+                      slots:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/SlotObject"
+                      count:
+                        type: integer
+                        example: 16
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "401":
@@ -3590,7 +3596,59 @@ components:
         detectedInAttendance:
           type: boolean
           example: true
+        logoPresetEntryId:
+          type: string
+          nullable: true
+          description: Assigned preset entry ID, if any
+        matchLogoStorageUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Raw R2/CDN URL for match-specific uploaded logo (not for direct browser preview — use previewUrl)
+        presetLogoStorageUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Raw R2/CDN URL from assigned preset entry (when no match-specific logo)
+        logoStorageUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Effective raw logo URL used by Python (match logo overrides preset)
+        fileId:
+          type: string
+          nullable: true
+          description: Stored file registry ID for the effective logo preview
+        previewUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: |
+            Signed preview URL for the effective logo — load directly in Coil/browser.
+            Pattern: `/api/v1/quick-pt/files/{fileId}?exp=&sig=`
+        signedUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Same as previewUrl (Android fallback)
+        signedLogoUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Deprecated alias of previewUrl
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When previewUrl expires — call GET /slots again for a fresh URL
+        previewUrlExpiresInSeconds:
+          type: integer
+          nullable: true
+          example: 1800
         createdAt:
+          type: string
+          format: date-time
+        updatedAt:
           type: string
           format: date-time
 

@@ -771,6 +771,35 @@ quickPTRouter.post(
  *                         enum: [PENDING, DETECTED, MATCHED, NOT_FOUND]
  *                       detectedInAttendance:
  *                         type: boolean
+ *                       logoPresetEntryId:
+ *                         type: string
+ *                         nullable: true
+ *                       matchLogoStorageUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       presetLogoStorageUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       logoStorageUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       previewUrl:
+ *                         type: string
+ *                         nullable: true
+ *                         description: Signed /api/v1/quick-pt/files/{fileId}?exp=&sig= URL for effective logo
+ *                       signedUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       signedLogoUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       expiresAt:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                       previewUrlExpiresInSeconds:
+ *                         type: integer
+ *                         nullable: true
  *                       matchQuality:
  *                         type: number
  *                         description: Match confidence percentage (0-100)
@@ -4556,7 +4585,13 @@ quickPTRouter.get(
  *                   properties:
  *                     slotId: { type: string }
  *                     slotNumber: { type: integer }
- *                     matchLogoStorageUrl: { type: string, description: "Public CDN URL of uploaded logo" }
+ *                     logoStorageUrl: { type: string, description: "Raw R2/CDN URL (Python generation)" }
+ *                     fileId: { type: string }
+ *                     previewUrl: { type: string, description: "Signed /files/ preview URL" }
+ *                     signedUrl: { type: string }
+ *                     signedLogoUrl: { type: string, description: "Deprecated alias of previewUrl" }
+ *                     expiresAt: { type: string, format: date-time }
+ *                     previewUrlExpiresInSeconds: { type: integer }
  *       400:
  *         description: No file uploaded or invalid file type
  *       404:

@@ -11,6 +11,22 @@ export interface QuickSlotCache {
     dbStatus: 'PENDING_SYNC' | 'SYNCED' | 'ERROR';
 }
 
+/** Slot list item — includes logo fields and signed preview URLs for client display. */
+export interface QuickSlotListItem extends QuickSlotCache {
+    logoPresetEntryId: string | null;
+    matchLogoStorageUrl: string | null;
+    presetLogoStorageUrl: string | null;
+    /** Effective raw logo URL (match logo overrides preset). Used by Python generation. */
+    logoStorageUrl: string | null;
+    fileId: string | null;
+    previewUrl: string | null;
+    signedUrl: string | null;
+    /** @deprecated Use previewUrl — kept for Android backward compatibility */
+    signedLogoUrl: string | null;
+    expiresAt: string | null;
+    previewUrlExpiresInSeconds: number | null;
+}
+
 export interface CreateQuickSlotData {
     slotNumber: number;
     teamName: string;

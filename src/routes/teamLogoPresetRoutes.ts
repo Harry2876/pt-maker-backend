@@ -159,8 +159,12 @@ teamLogoPresetRouter.get('/', TeamLogoPresetController.listPresets);
  *                         properties:
  *                           id: { type: string, description: "Unique entry ID — use this when assigning to a slot" }
  *                           teamName: { type: string, example: "Team Soul" }
- *                           logoStorageUrl: { type: string, description: "Public CDN URL of the logo" }
- *                           r2Key: { type: string }
+ *                           logoStorageUrl: { type: string, description: "Raw R2/CDN URL (Python generation)" }
+ *                           previewUrl: { type: string, description: "Signed /files/ preview URL" }
+ *                           signedUrl: { type: string }
+ *                           signedLogoUrl: { type: string, description: "Deprecated alias of previewUrl" }
+ *                           expiresAt: { type: string, format: date-time }
+ *                           previewUrlExpiresInSeconds: { type: integer }
  *                           createdAt: { type: string, format: date-time }
  *                     createdAt: { type: string, format: date-time }
  *                     updatedAt: { type: string, format: date-time }
@@ -278,8 +282,13 @@ teamLogoPresetRouter.delete('/:presetId', validateRequest(presetParamsSchema, 'p
  *                   properties:
  *                     id: { type: string, description: "Use this ID to assign entry to a slot" }
  *                     teamName: { type: string, example: "Team Soul" }
- *                     logoStorageUrl: { type: string, description: "Public CDN URL" }
- *                     r2Key: { type: string }
+ *                     logoStorageUrl: { type: string, description: "Raw R2/CDN URL (Python generation)" }
+ *                     fileId: { type: string }
+ *                     previewUrl: { type: string, description: "Signed /files/ preview URL" }
+ *                     signedUrl: { type: string }
+ *                     signedLogoUrl: { type: string, description: "Deprecated alias of previewUrl" }
+ *                     expiresAt: { type: string, format: date-time }
+ *                     previewUrlExpiresInSeconds: { type: integer }
  *                     presetId: { type: string }
  *                     createdAt: { type: string, format: date-time }
  *       400:

@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
-import { storedFileService } from './storedFileService';
-import { mimeTypeFromR2Key } from '../utils/r2UrlUtils';
+import { issueLogoClientPreview, toLogoPreviewResponse } from '../utils/logoPreviewUtils';
+import { ClientPreviewFields } from '../types/previewUrl';
 import { ServiceError } from '../utils/serviceError';
 
 const ALLOWED_LOGO_TYPES: Record<string, string> = {
@@ -20,7 +20,13 @@ export interface PresetEntryWithUrl {
     presetId: string;
     teamName: string;
     logoStorageUrl: string;
+    fileId: string;
+    previewUrl: string;
+    signedUrl: string;
+    /** @deprecated Use previewUrl */
     signedLogoUrl: string;
+    expiresAt: string;
+    previewUrlExpiresInSeconds: number;
     sortOrder: number;
     createdAt: Date;
     updatedAt: Date;
@@ -42,7 +48,12 @@ export interface LogoSuggestion {
         presetId: string;
         presetName: string;
         teamName: string;
+        previewUrl: string;
+        signedUrl: string;
+        /** @deprecated Use previewUrl */
         signedLogoUrl: string;
+        expiresAt: string;
+        previewUrlExpiresInSeconds: number;
     } | null;
 }
 
@@ -53,16 +64,42 @@ export class TeamLogoPresetService extends BaseService {
 
     private async logoPreviewUrl(
         userId: string,
-        entry: { id: string; logoR2Key: string },
-    ): Promise<string> {
-        const preview = await storedFileService.ensureClientPreview({
-            userId,
-            assetType: 'LOGO',
-            r2Key: entry.logoR2Key,
-            resourceId: entry.id,
-            mimeType: mimeTypeFromR2Key(entry.logoR2Key),
-        });
-        return preview.previewUrl;
+        entry: { logoR2Key: string },
+    ): Promise<ClientPreviewFields> {
+        const preview = await issueLogoClientPreview({ userId, r2Key: entry.logoR2Key });
+        if (!preview) {
+            throw new ServiceError('Failed to generate logo preview URL', 500, 'PREVIEW_URL_FAILED');
+        }
+        return preview;
+    }
+
+    private mapPresetEntry(
+        entry: {
+            id: string;
+            presetId: string;
+            teamName: string;
+            logoStorageUrl: string;
+            sortOrder: number;
+            createdAt: Date;
+            updatedAt: Date;
+        },
+        preview: ClientPreviewFields,
+    ): PresetEntryWithUrl {
+        return {
+            id: entry.id,
+            presetId: entry.presetId,
+            teamName: entry.teamName,
+            logoStorageUrl: entry.logoStorageUrl,
+            fileId: preview.fileId,
+            previewUrl: preview.previewUrl,
+            signedUrl: preview.signedUrl,
+            signedLogoUrl: preview.previewUrl,
+            expiresAt: preview.expiresAt,
+            previewUrlExpiresInSeconds: preview.previewUrlExpiresInSeconds,
+            sortOrder: entry.sortOrder,
+            createdAt: entry.createdAt,
+            updatedAt: entry.updatedAt,
+        };
     }
 
     async createPreset(userId: string, name: string): Promise<{ id: string; name: string; createdAt: Date }> {
@@ -101,17 +138,8 @@ export class TeamLogoPresetService extends BaseService {
 
         const entries = await Promise.all(
             preset.entries.map(async (entry) => {
-                const signedLogoUrl = await this.logoPreviewUrl(userId, entry);
-                return {
-                    id: entry.id,
-                    presetId: entry.presetId,
-                    teamName: entry.teamName,
-                    logoStorageUrl: entry.logoStorageUrl,
-                    signedLogoUrl,
-                    sortOrder: entry.sortOrder,
-                    createdAt: entry.createdAt,
-                    updatedAt: entry.updatedAt,
-                };
+                const preview = await this.logoPreviewUrl(userId, entry);
+                return this.mapPresetEntry(entry, preview);
             })
         );
 
@@ -221,20 +249,11 @@ export class TeamLogoPresetService extends BaseService {
             },
         });
 
-        const signedLogoUrl = await this.logoPreviewUrl(userId, { id: entry.id, logoR2Key: r2Key });
+        const preview = await this.logoPreviewUrl(userId, { logoR2Key: r2Key });
 
         this.logger.info(`Preset entry added: ${entryId} (${teamName}) for preset ${presetId}`);
 
-        return {
-            id: entry.id,
-            presetId: entry.presetId,
-            teamName: entry.teamName,
-            logoStorageUrl: entry.logoStorageUrl,
-            signedLogoUrl,
-            sortOrder: entry.sortOrder,
-            createdAt: entry.createdAt,
-            updatedAt: entry.updatedAt,
-        };
+        return this.mapPresetEntry(entry, preview);
     }
 
     async deleteEntry(userId: string, entryId: string): Promise<void> {
@@ -280,11 +299,10 @@ export class TeamLogoPresetService extends BaseService {
             orderBy: { sortOrder: 'asc' },
         });
 
-        // Sign URLs
         const signedEntries = await Promise.all(
             allEntries.map(async (entry) => {
-                const signedLogoUrl = await this.logoPreviewUrl(userId, entry);
-                return { ...entry, signedLogoUrl };
+                const preview = await this.logoPreviewUrl(userId, entry);
+                return { ...entry, preview };
             })
         );
 
@@ -301,7 +319,11 @@ export class TeamLogoPresetService extends BaseService {
                           presetId: match.presetId,
                           presetName: match.preset.name,
                           teamName: match.teamName,
-                          signedLogoUrl: match.signedLogoUrl,
+                          previewUrl: match.preview.previewUrl,
+                          signedUrl: match.preview.signedUrl,
+                          signedLogoUrl: match.preview.previewUrl,
+                          expiresAt: match.preview.expiresAt,
+                          previewUrlExpiresInSeconds: match.preview.previewUrlExpiresInSeconds,
                       }
                     : null,
             };
