@@ -19,6 +19,7 @@ import {
 } from '../types/pythonAI';
 import { quickResultService } from './quickResultService';
 import { QuickMatchResultCache } from '../types/quickResult';
+import { sortMatchResultsForStandings } from '../utils/standingsSort';
 import { getTemplateCapacity } from '../utils/templateConfigUtils';
 import { splitTeamDataIntoChunks, buildSplitOutputFilename } from '../utils/pythonErrorUtils';
 
@@ -351,7 +352,7 @@ export class QuickGraphicsService extends BaseService {
             slots.map(s => [s.slotNumber, s.matchLogoStorageUrl ?? s.logoPresetEntry?.logoStorageUrl ?? null])
         );
 
-        const sorted = this.sortResultsForTop10(results);
+        const sorted = sortMatchResultsForStandings(results);
         const rankData: Top10RankData[] = sorted
             .slice(0, QuickGraphicsService.MAX_TOP10_RANK)
             .map((r, i) => ({
@@ -420,11 +421,7 @@ export class QuickGraphicsService extends BaseService {
 
     /** Rank by total points desc — same logic as standings export */
     private sortResultsForTop10(results: QuickMatchResultCache[]): QuickMatchResultCache[] {
-        return [...results].sort((a, b) => {
-            if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-            if (b.totalKills !== a.totalKills) return b.totalKills - a.totalKills;
-            return (a.rank ?? a.position) - (b.rank ?? b.position);
-        });
+        return sortMatchResultsForStandings(results);
     }
 
     private extractRawImageUrl(pyResponse: { data?: Record<string, any>; metadata?: Record<string, any> }): string {

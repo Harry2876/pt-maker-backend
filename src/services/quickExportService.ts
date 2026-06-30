@@ -9,6 +9,7 @@ import { mediaAssetService } from './mediaAssetService';
 import { QuickMediaAssetType } from '../types/mediaAsset';
 import { extractR2KeyFromUrl } from '../utils/r2UrlUtils';
 import { QuickPointsTableCache, QuickMatchResultCache } from '../types/quickResult';
+import { sortMatchResultsForStandings } from '../utils/standingsSort';
 import { pythonAIService } from './pythonAIService';
 import { StandingsTeamData, StandingsExportOptions } from '../types/pythonAI';
 import { ServiceError } from '../utils/serviceError';
@@ -1009,14 +1010,10 @@ export class QuickExportService extends BaseService {
 
     /**
      * Order teams for the PT standings image: highest total points first.
-     * Tie-break: more kills, then better in-game placement.
+     * Tie-break: position points, then finish points, then better in-game placement.
      */
     private sortResultsForStandings(results: QuickMatchResultCache[]): QuickMatchResultCache[] {
-        return [...results].sort((a, b) => {
-            if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-            if (b.totalKills !== a.totalKills) return b.totalKills - a.totalKills;
-            return (a.rank ?? a.position) - (b.rank ?? b.position);
-        });
+        return sortMatchResultsForStandings(results);
     }
 
     /**

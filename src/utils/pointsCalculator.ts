@@ -1,4 +1,5 @@
 
+import { compareStandingsByPoints } from './standingsSort';
 
 export interface PointsBreakdown {
     positionPoints: number;
@@ -165,7 +166,22 @@ export class PointsCalculator {
                     totalPoints: breakdown.totalPoints
                 };
             })
-            .sort((a, b) => b.totalPoints - a.totalPoints); // Sort by highest points first
+            .sort((a, b) =>
+                compareStandingsByPoints(
+                    {
+                        totalPoints: a.totalPoints,
+                        positionPoints: a.positionPoints,
+                        finishPoints: a.killPoints,
+                        position: a.position,
+                    },
+                    {
+                        totalPoints: b.totalPoints,
+                        positionPoints: b.positionPoints,
+                        finishPoints: b.killPoints,
+                        position: b.position,
+                    }
+                )
+            );
     }
 
     /**

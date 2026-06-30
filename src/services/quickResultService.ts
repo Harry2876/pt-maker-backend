@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { quickMatchService } from './quickMatchService';
 import { quickSlotService } from './quickSlotService';
 import { QuickMatchResultCache, CreateQuickMatchResultData } from '../types/quickResult';
+import { sortMatchResultsForStandings } from '../utils/standingsSort';
 import { QuickMatchCache } from '../types/quickMatch';
 import {
     CreateManualResultData,
@@ -150,10 +151,9 @@ export class QuickResultService extends BaseService {
 
         const dbResults = await this.db.quickMatchResult.findMany({
             where: { quickMatchId },
-            orderBy: [{ position: 'asc' }, { totalPoints: 'desc' }],
         });
 
-        const results = dbResults.map((r) => this.convertDbToCache(r));
+        const results = sortMatchResultsForStandings(dbResults.map((r) => this.convertDbToCache(r)));
         await Promise.all(results.map((r) => this.cacheResult(r)));
         return results;
     }

@@ -44,6 +44,10 @@ export type QuickSeriesStatus =
 export interface SeriesTeamStanding {
     teamName: string;
     totalPoints: number;
+    /** Sum of position points across completed matches (used for tie-breaking). */
+    positionPoints?: number;
+    /** Sum of finish/kill points across completed matches (used for tie-breaking). */
+    finishPoints?: number;
     matchesPlayed: number;
     bestPosition: number;
     worstPosition: number;

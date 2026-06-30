@@ -7,6 +7,7 @@ import { quickResultService } from './quickResultService';
 import { quickSlotService } from './quickSlotService';
 import { quickSeriesService } from './quickSeriesService';
 import { QuickMatchResultCache } from '../types/quickResult';
+import { sortMatchResultsForStandings } from '../utils/standingsSort';
 import { SeriesTeamStanding } from '../types/quickSeries';
 import redis from '../config/redis';
 import {
@@ -216,12 +217,7 @@ export class ExcelExportService extends BaseService {
     }
 
     private formatMatchStandings(results: QuickMatchResultCache[]): ExcelStandingRow[] {
-        // Same order as standings PNG export: highest total points at top
-        const sorted = [...results].sort((a, b) => {
-            if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-            if (b.totalKills !== a.totalKills) return b.totalKills - a.totalKills;
-            return (a.rank ?? a.position) - (b.rank ?? b.position);
-        });
+        const sorted = sortMatchResultsForStandings(results);
         return sorted.map((result, index) => ({
             rank: index + 1,              
             slotNumber: result.slotNumber,

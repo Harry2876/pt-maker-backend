@@ -17,6 +17,7 @@ import { quickSlotService } from './quickSlotService';
 import { tieBreakingService } from './tieBreakingService';
 import { ServiceError } from '../utils/serviceError';
 import { buildSlotFingerprint, slotFingerprintsMatch, normalizeTeamName } from '../utils/seriesSlotUtils';
+import { sortSeriesStandingsForLeaderboard } from '../utils/standingsSort';
 import {
     ConflictDetectionResult,
     TieBreakingConfig,
@@ -230,7 +231,7 @@ export class QuickSeriesService extends BaseService {
         const seriesId = completedMatches[0]?.seriesId;
 
         if (options?.skipTieBreaking || !seriesId) {
-            return rawStandings.sort((a, b) => b.totalPoints - a.totalPoints);
+            return sortSeriesStandingsForLeaderboard(rawStandings);
         }
 
         return this.finalizeSeriesStandings(rawStandings, seriesId);
@@ -255,6 +256,8 @@ export class QuickSeriesService extends BaseService {
                     teamStandings.set(teamKey, {
                         teamName: result.teamName.trim(),
                         totalPoints: 0,
+                        positionPoints: 0,
+                        finishPoints: 0,
                         matchesPlayed: 0,
                         bestPosition: result.position,
                         worstPosition: result.position,
@@ -268,6 +271,8 @@ export class QuickSeriesService extends BaseService {
                 const matchPoints = (result.totalPoints + seriesMatch.bonusPoints) * seriesMatch.matchWeight;
 
                 standing.totalPoints += matchPoints;
+                standing.positionPoints = (standing.positionPoints ?? 0) + result.positionPoints;
+                standing.finishPoints = (standing.finishPoints ?? 0) + result.killPoints;
                 standing.matchesPlayed += 1;
                 standing.totalKills += result.totalKills;
                 standing.bestPosition = Math.min(standing.bestPosition, result.position);
@@ -314,14 +319,14 @@ export class QuickSeriesService extends BaseService {
                         tieBreakingConfig?.autoResolveEnabled ?? false
                     );
                     this.logger.info(`Series tie-breaking applied for ${seriesId}`);
-                    return resolved.sort((a, b) => b.totalPoints - a.totalPoints);
+                    return sortSeriesStandingsForLeaderboard(resolved);
                 }
             }
         } catch (error) {
             this.logger.warn(`Tie-breaking failed for series ${seriesId}, using simple sort:`, error);
         }
 
-        return rawStandings.sort((a, b) => b.totalPoints - a.totalPoints);
+        return sortSeriesStandingsForLeaderboard(rawStandings);
     }
 
     /**
