@@ -216,24 +216,22 @@ export class ExcelExportService extends BaseService {
     }
 
     private formatMatchStandings(results: QuickMatchResultCache[]): ExcelStandingRow[] {
+        // Same order as standings PNG export: highest total points at top
         const sorted = [...results].sort((a, b) => {
-            const rankA = a.rank ?? a.position;
-            const rankB = b.rank ?? b.position;
-            if (rankA !== rankB) return rankA - rankB;
             if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-            return a.position - b.position;
+            if (b.totalKills !== a.totalKills) return b.totalKills - a.totalKills;
+            return (a.rank ?? a.position) - (b.rank ?? b.position);
         });
-
         return sorted.map((result, index) => ({
-            rank: result.rank ?? index + 1,
+            rank: index + 1,              
             slotNumber: result.slotNumber,
             teamName: result.teamName,
-            position: result.position,
+            position: result.position,    
             totalKills: result.totalKills,
             positionPoints: result.positionPoints,
             killPoints: result.killPoints,
             totalPoints: result.totalPoints,
-            isWinner: (result.rank ?? result.position) === 1,
+            isWinner: index === 0,
         }));
     }
 
