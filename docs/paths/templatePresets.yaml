@@ -1,0 +1,517 @@
+paths:
+
+  # ══════════════════════════════════════════════════════════════════════
+  # TEMPLATE GRAPHICS PRESETS
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/template-presets:
+    post:
+      tags: [Quick-PT Template Presets]
+      summary: Save a template graphics customization preset
+      description: |
+        Stores the user's **form customization values** for a specific graphic type and template.
+        Presets are private per user (max **50** per user).
+
+        ---
+
+        ## Will this curl work?
+
+        Yes — if you send a valid Bearer token and the route is deployed, the preset is **saved**.
+        But `formValues` must use **real field names** from the generate/export API for that `graphicType`.
+        Unknown keys (e.g. `"additionalProperty": "anything"`) are rejected with **400 Validation Error**.
+
+        ---
+
+        ## App integration (read this first)
+
+        Presets are **not** applied by the server. The app:
+
+        1. **Save** — when the user taps "Save preset", `POST` the current form state as `formValues`
+           (customization fields only — see table below).
+        2. **List** — `GET ?graphicType=STANDINGS&template=tmplate_1` to show saved preset names.
+        3. **Load** — `GET /{presetId}` → copy `formValues` into the customization form UI.
+        4. **Generate** — merge preset + screen context, then call the **existing** generate endpoint.
+
+        ### Merge rule (Kotlin / pseudocode)
+
+        ```kotlin
+        fun buildGenerateBody(preset: TemplatePresetDetail, screen: ScreenState): Map<String, Any> {
+            return buildMap {
+                put("template", preset.template)
+                put("formatType", preset.formatType ?: screen.defaultFormatType)
+                putAll(preset.formValues)
+                // Screen-only overrides (not stored in preset):
+                screen.format?.let { put("format", it) }           // STANDINGS only: PNG | CSV | BOTH
+                screen.showBranding?.let { put("showBranding", it) }
+                screen.eventName?.let { put("eventName", it) }      // optional live override
+            }
+        }
+        ```
+
+        ### What goes where?
+
+        | Field | In preset root (`template`, `formatType`) | In `formValues` | At generate time only |
+        |-------|---------------------------------------------|-----------------|------------------------|
+        | `template` | ✅ saved on preset | ❌ do not duplicate | merged from preset |
+        | `formatType` | ✅ optional on preset | ❌ do not duplicate | merged from preset |
+        | `format` (PNG/CSV) | ❌ | ❌ | screen choice (STANDINGS) |
+        | `showBranding` | ❌ | ❌ | screen toggle |
+        | Colors, fonts, overrides | ❌ | ✅ | from `formValues` |
+        | `matchId` / `seriesId` | ❌ | ❌ | URL path param |
+
+        ### graphicType → generate endpoint
+
+        | `graphicType` | Generate endpoint |
+        |---------------|-------------------|
+        | `STANDINGS` | `POST /quick-pt/matches/{matchId}/export` |
+        | `SERIES_STANDINGS` | `POST /quick-pt/series/{seriesId}/export` |
+        | `SLOT_LIST` | `POST /quick-pt/matches/{matchId}/graphics/slot-list` |
+        | `ROSTER` | `POST /quick-pt/matches/{matchId}/graphics/roster` |
+        | `TOP_10` | `POST /quick-pt/matches/{matchId}/graphics/top-10` |
+
+        Full field lists: see `TemplatePresetFormValuesByGraphicType` in components below.
+        OpenAPI request schemas: `ExportPointsTableRequest`, `SlotListGraphicRequest`, etc. in **Quick-PT Graphics**.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTemplatePresetRequest"
+            examples:
+              standingsPreset:
+                summary: STANDINGS preset (valid)
+                value:
+                  name: "Dark theme — 24 teams"
+                  graphicType: "STANDINGS"
+                  template: "tmplate_1"
+                  formatType: "24_teams"
+                  formValues:
+                    eventName: "BGMI Scrims — Week 4"
+                    organiserName: "Scrymz Esports"
+                    tableFontSize: 14
+                    teamLogoSize: 48
+                    fontCustomization:
+                      table_header_font:
+                        font_file: "akira_expanded.otf"
+                        size: 18
+                        color: "#FFFFFF"
+              slotListPreset:
+                summary: SLOT_LIST preset (valid)
+                value:
+                  name: "Slot list — branded header"
+                  graphicType: "SLOT_LIST"
+                  template: "sl1"
+                  formatType: "slot_list"
+                  formValues:
+                    headerOverrides:
+                      extra_text_info: "BGMI SCRIMS"
+                    slotNumberFontSize: 26
+                    teamLogoSize: 64
+      responses:
+        "201":
+          description: Template preset created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Template preset created successfully"
+                  data:
+                    $ref: "#/components/schemas/TemplatePresetDetail"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    get:
+      tags: [Quick-PT Template Presets]
+      summary: List template presets for a graphic type and template
+      description: |
+        Returns preset summaries (no `formValues`) for the authenticated user,
+        filtered by `graphicType` and `template`. Optionally filter by `formatType`.
+
+        Results are ordered by `updatedAt` descending (most recently edited first).
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: graphicType
+          required: true
+          schema:
+            $ref: "#/components/schemas/TemplatePresetGraphicType"
+        - in: query
+          name: template
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Template identifier (e.g. `tmplate_1`, `sl1`)
+          example: "tmplate_1"
+        - in: query
+          name: formatType
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+          description: Optional format filter (e.g. `24_teams`)
+          example: "24_teams"
+      responses:
+        "200":
+          description: Presets retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Template presets retrieved successfully"
+                  data:
+                    type: object
+                    properties:
+                      presets:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TemplatePresetSummary"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /quick-pt/template-presets/{presetId}:
+    get:
+      tags: [Quick-PT Template Presets]
+      summary: Get a template preset with full form values
+      description: |
+        Returns the full preset including `formValues` for populating the customization form.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplatePresetId"
+      responses:
+        "200":
+          description: Preset retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Template preset retrieved successfully"
+                  data:
+                    $ref: "#/components/schemas/TemplatePresetDetail"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      tags: [Quick-PT Template Presets]
+      summary: Update a template preset
+      description: |
+        Update the preset **name** and/or **formValues**. At least one field is required.
+        `graphicType`, `template`, and `formatType` are immutable after creation.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplatePresetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTemplatePresetRequest"
+      responses:
+        "200":
+          description: Preset updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Template preset updated successfully"
+                  data:
+                    $ref: "#/components/schemas/TemplatePresetDetail"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      tags: [Quick-PT Template Presets]
+      summary: Delete a template preset
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TemplatePresetId"
+      responses:
+        "200":
+          description: Preset deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Template preset deleted successfully"
+                  data:
+                    type: "null"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+# ══════════════════════════════════════════════════════════════════════
+# COMPONENT SCHEMAS + PARAMETERS (template-preset-specific)
+# ══════════════════════════════════════════════════════════════════════
+
+components:
+  parameters:
+    TemplatePresetId:
+      in: path
+      name: presetId
+      required: true
+      schema:
+        type: string
+      description: Template preset ID
+      example: "clx_tpl_preset_abc123"
+
+  schemas:
+    TemplatePresetGraphicType:
+      type: string
+      enum:
+        - STANDINGS
+        - SERIES_STANDINGS
+        - SLOT_LIST
+        - ROSTER
+        - TOP_10
+      description: |
+        Graphic category this preset applies to:
+        - `STANDINGS` — match points table export
+        - `SERIES_STANDINGS` — series leaderboard export
+        - `SLOT_LIST` — slot list graphic
+        - `ROSTER` — roster graphic
+        - `TOP_10` — top 10 players graphic
+
+    TemplatePresetSummary:
+      type: object
+      description: Preset metadata without stored form values (used in list responses)
+      properties:
+        id:
+          type: string
+          example: "clx_tpl_preset_abc123"
+        name:
+          type: string
+          example: "Dark theme — 24 teams"
+        graphicType:
+          $ref: "#/components/schemas/TemplatePresetGraphicType"
+        template:
+          type: string
+          example: "tmplate_1"
+        formatType:
+          type: string
+          nullable: true
+          description: Optional format scope (e.g. `24_teams`); null when not format-specific
+          example: "24_teams"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TemplatePresetDetail:
+      allOf:
+        - $ref: "#/components/schemas/TemplatePresetSummary"
+        - type: object
+          properties:
+            userId:
+              type: string
+            formValues:
+              type: object
+              additionalProperties: true
+              description: |
+                Customization form fields only (camelCase), matching the generate/export request body
+                for this graphic type — **excluding** route params (`format`, `template`, `formatType`, `showBranding`).
+              example:
+                title: "Match Standings"
+                primaryColor: "#1a1a2e"
+                fontCustomization:
+                  font_file: "akira_expanded.otf"
+
+    CreateTemplatePresetRequest:
+      type: object
+      required: [name, graphicType, template, formValues]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: "Dark theme — 24 teams"
+        graphicType:
+          $ref: "#/components/schemas/TemplatePresetGraphicType"
+        template:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: "tmplate_1"
+        formatType:
+          type: string
+          minLength: 1
+          maxLength: 50
+          nullable: true
+          description: Optional format scope when the preset only applies to a specific layout
+          example: "24_teams"
+        formValues:
+          type: object
+          additionalProperties: true
+          description: |
+            Customization fields only — validated against the same Zod schema as the generate/export
+            body for this `graphicType`, minus `template`, `formatType`, `format`, and `showBranding`.
+            See `TemplatePresetFormValuesByGraphicType` and examples below.
+          example:
+            eventName: "BGMI Scrims — Week 4"
+            organiserName: "Scrymz Esports"
+            tableFontSize: 14
+            teamLogoSize: 48
+            fontCustomization:
+              global_size_multiplier: 1.0
+              table_header_font:
+                font_file: "akira_expanded.otf"
+                size: 18
+                color: "#FFFFFF"
+
+    UpdateTemplatePresetRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: "Dark theme v2"
+        formValues:
+          type: object
+          additionalProperties: true
+          description: |
+            Full replacement of customization fields (same validation rules as create).
+            Send the complete form state, not a partial patch.
+
+    TemplatePresetFormValuesByGraphicType:
+      type: object
+      description: |
+        Allowed keys inside `formValues` per `graphicType` (all optional unless noted).
+        Nested override objects use **snake_case** keys (same as Python). Top-level keys are **camelCase**.
+
+        **STANDINGS / SERIES_STANDINGS** — same body as `ExportPointsTableRequest` minus
+        `format`, `template`, `formatType`, `showBranding`:
+        `outputFilename`, `tableFontSize`, `tableHeaderFontSize`, `tableHeaderLabelMode`,
+        `tableHeaderColumnPadding`, `rowHeightAdjust`, `teamLogoSize`, `teamLogoSizeAdjust`,
+        `teamLogoGap`, `teamShiftRight`, `chickenDinnerIconSize`, `chickenIconGap`,
+        `eventName`, `organiserName`, `sponsorName`, `elementOverrides`, `columnOverrides`,
+        `fontCustomization`, `advancedConfig`
+
+        **SLOT_LIST** — same as `SlotListGraphicRequest` minus `template`, `formatType`, `showBranding`:
+        `outputFilename`, `headerOverrides`, `slotNumberFontSize`, `teamNameFontSize`,
+        `slotNumberColor`, `teamNameColor`, `teamLogoGap`, `teamLogoSize`, `gridOverrides`, `fontCustomization`
+
+        **ROSTER** — same as `RosterGraphicRequest` minus `template`, `formatType`, `showBranding`:
+        `outputFilename`, `headerOverrides`, `headerStyle`, `footerOverrides`, `footerStyle`,
+        `teamLogoSize`, `teamNameFontSize`, `teamNameColor`, `cardOverrides`, `fontCustomization`, `advancedConfig`
+
+        **TOP_10** — same as `Top10GraphicRequest` minus `template`, `formatType`, `showBranding`:
+        `outputFilename`, `headerOverrides`, `footerOverrides`, `cardOverrides`, `fontCustomization`, `advancedConfig`
+
+    TemplatePresetStandingsExample:
+      type: object
+      description: Example `formValues` for STANDINGS / SERIES_STANDINGS
+      example:
+        eventName: "BGMI Scrims — Week 4"
+        organiserName: "Scrymz Esports"
+        tableFontSize: 14
+        teamLogoSize: 48
+        fontCustomization:
+          global_size_multiplier: 1.0
+          table_header_font:
+            font_file: "akira_expanded.otf"
+            size: 18
+            color: "#FFFFFF"
+
+    TemplatePresetSlotListExample:
+      type: object
+      description: Example `formValues` for SLOT_LIST
+      example:
+        headerOverrides:
+          extra_text_info: "BGMI SCRIMS"
+          information: "Group A — Day 1"
+        slotNumberFontSize: 26
+        teamNameFontSize: 22
+        teamLogoSize: 64
+        fontCustomization:
+          header_font:
+            font_file: "akira_expanded.otf"
+            size: 32
+
+    TemplatePresetRosterExample:
+      type: object
+      description: Example `formValues` for ROSTER
+      example:
+        headerOverrides:
+          title: "TEAM ROSTER"
+        teamLogoSize: 72
+        teamNameFontSize: 17
+        teamNameColor: "#1A1A1A"
+        fontCustomization:
+          override_all_fonts: false
+          header_font:
+            font_file: "akira_expanded.otf"
+
+    TemplatePresetTop10Example:
+      type: object
+      description: Example `formValues` for TOP_10
+      example:
+        headerOverrides:
+          title: "TOP 10 FRAGGERS"
+        cardOverrides:
+          team_logo_size: 56
+          ranks:
+            "1":
+              rotation_deg: -2
+        fontCustomization:
+          team_name_font:
+            font_file: "akira_expanded.otf"
+            size: 20
