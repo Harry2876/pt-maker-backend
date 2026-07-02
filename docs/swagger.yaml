@@ -448,7 +448,7 @@ components:
       properties:
         code:
           type: string
-          enum: [VALIDATION_ERROR, UNAUTHORIZED, NOT_FOUND, CONFLICT, RATE_LIMIT, INTERNAL_ERROR]
+          enum: [VALIDATION_ERROR, UNAUTHORIZED, NOT_FOUND, CONFLICT, RATE_LIMIT, ACCOUNT_LOCKED, INVALID_CREDENTIALS, INTERNAL_ERROR]
           example: "VALIDATION_ERROR"
         details:
           type: string
@@ -543,9 +543,54 @@ components:
                 example: false
               message:
                 type: string
-                example: "Too many requests. Please try again later."
+                example: "Please wait 10 minutes before requesting another OTP"
               error:
-                $ref: '#/components/schemas/ErrorObject'
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: "RATE_LIMIT"
+                  timestamp:
+                    type: string
+                    format: date-time
+              meta:
+                $ref: '#/components/schemas/MetaObject'
+
+    AccountLockedError:
+      description: "Account temporarily locked after failed auth attempts"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Account is temporarily locked. Please try again in 15 minutes."
+              data:
+                type: object
+                properties:
+                  lockReason:
+                    type: string
+                    enum: [few_attempts, multiple_attempts, excessive_attempts]
+                    example: "few_attempts"
+                  retryAfterSeconds:
+                    type: integer
+                    example: 900
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: "ACCOUNT_LOCKED"
+                  details:
+                    type: string
+                    example: "few_attempts"
+                  timestamp:
+                    type: string
+                    format: date-time
               meta:
                 $ref: '#/components/schemas/MetaObject'
 

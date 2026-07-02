@@ -2,7 +2,7 @@ import { BaseService } from "./baseService";
 import { QueueService } from "./queueService";
 import redis from "../config/redis";
 import jwt from "jsonwebtoken";
-import { AuthData, OTPVerificationData, CachedUser, AuthUser, AuthResponse, TokenPair, AccessTokenPayload, RefreshTokenPayload, SessionData, SuspiciousLoginData } from '../types/auth';
+import { AuthData, OTPVerificationData, CachedUser, AuthUser, AuthResponse, OTPVerifyResult, SendOTPResult, TokenPair, AccessTokenPayload, RefreshTokenPayload, SessionData, SuspiciousLoginData } from '../types/auth';
 import { PasswordService } from "./passwordService";
 import { PhoneUtils } from "../utils/phoneUtils";
 import bcrypt from 'bcrypt';
@@ -82,16 +82,52 @@ export class AuthService extends BaseService {
     //     }
     // }
 
+    private getAccountLockUserMessage(reason: string): string {
+        switch (reason) {
+            case 'excessive_attempts':
+                return 'Account is temporarily locked. Please try again in 24 hours.';
+            case 'multiple_attempts':
+                return 'Account is temporarily locked. Please try again in 1 hour.';
+            case 'few_attempts':
+            default:
+                return 'Account is temporarily locked. Please try again in 15 minutes.';
+        }
+    }
+
+    private async getAccountLockRetryAfterSeconds(phoneNumber: string): Promise<number> {
+        const lockKey = `account_locked:${PhoneUtils.normalize(phoneNumber)}`;
+        const ttl = await redis.ttl(lockKey);
+        if (ttl > 0) {
+            return ttl;
+        }
+
+        return 900;
+    }
+
+    private async buildAccountLockedFailure(
+        phoneNumber: string,
+        lockStatus: { reason?: string; attempts?: number }
+    ): Promise<{
+        message: string;
+        errorCode: 'ACCOUNT_LOCKED';
+        lockReason: string;
+        retryAfterSeconds: number;
+    }> {
+        const lockReason = lockStatus.reason ?? 'few_attempts';
+        const retryAfterSeconds = await this.getAccountLockRetryAfterSeconds(phoneNumber);
+
+        return {
+            message: this.getAccountLockUserMessage(lockReason),
+            errorCode: 'ACCOUNT_LOCKED',
+            lockReason,
+            retryAfterSeconds,
+        };
+    }
+
     //verify otp from redis
     async verifyOTPFromRedis(phoneNumber: string, otp: string): Promise<boolean> {
         const normalizedPhone = PhoneUtils.normalize(phoneNumber);
         try {
-            // Check if account is locked first
-            const lockStatus = await this.isAccountLocked(normalizedPhone);
-            if (lockStatus.locked) {
-                throw new Error(`Account temporarily locked due to ${lockStatus.reason}. ${lockStatus.attempts} failed attempts detected.`);
-            }
-
             const key = `phone_otp:${normalizedPhone}`;
             const storedOTP = await redis.getObject<{ otp: string; expiresAt: number; createdAt: number; attemptsLeft: number; isUsed: boolean }>(key);
 
@@ -141,10 +177,6 @@ export class AuthService extends BaseService {
             return false;
         } catch (error) {
             this.logger.error(`Error verifying OTP for ${normalizedPhone}:`, error);
-            // If it's a lock error, re-throw it
-            if (error instanceof Error && error.message.includes('temporarily locked')) {
-                throw error;
-            }
             return false;
         }
     }
@@ -226,23 +258,32 @@ export class AuthService extends BaseService {
         }
     }
 
-    async verifyOTP(phoneNumber: string, otp: string) {
+    async verifyOTP(phoneNumber: string, otp: string): Promise<OTPVerifyResult> {
         try {
             const normalizedPhone = PhoneUtils.normalize(phoneNumber);
+
+            const lockStatus = await this.isAccountLocked(normalizedPhone);
+            if (lockStatus.locked) {
+                const locked = await this.buildAccountLockedFailure(normalizedPhone, lockStatus);
+                return {
+                    success: false,
+                    ...locked,
+                };
+            }
 
             const isValidOTP = await this.verifyOTPFromRedis(normalizedPhone, otp);
             if (!isValidOTP) {
                 return {
                     success: false,
-                    message: "Invalid or Expired OTP. Please try again",
-                    errorCode: "INVALID_OTP"
+                    message: 'Invalid or Expired OTP. Please try again',
+                    errorCode: 'INVALID_OTP',
                 };
             }
 
             return {
                 success: true,
                 phoneNumber: normalizedPhone,
-                message: "OTP verified successfully"
+                message: 'OTP verified successfully',
             };
         } catch (error) {
             this.handleError(error, 'Verify OTP');
@@ -349,7 +390,7 @@ export class AuthService extends BaseService {
         }
     }
 
-    async sendOTP(phoneNumber: string) {
+    async sendOTP(phoneNumber: string): Promise<SendOTPResult> {
         try {
             const normalizedPhone = PhoneUtils.normalize(phoneNumber);
 
@@ -358,6 +399,15 @@ export class AuthService extends BaseService {
                     success: false,
                     message: 'Invalid phone number format',
                     errorCode: 'INVALID_PHONE'
+                };
+            }
+
+            const lockStatus = await this.isAccountLocked(normalizedPhone);
+            if (lockStatus.locked) {
+                const locked = await this.buildAccountLockedFailure(normalizedPhone, lockStatus);
+                return {
+                    success: false,
+                    ...locked,
                 };
             }
 
@@ -566,11 +616,11 @@ export class AuthService extends BaseService {
             // Check if account is locked
             const lockStatus = await this.isAccountLocked(normalizedPhone);
             if (lockStatus.locked) {
+                const locked = await this.buildAccountLockedFailure(normalizedPhone, lockStatus);
                 return {
                     type: 'login',
                     success: false,
-                    message: lockStatus.reason || 'Account is temporarily locked',
-                    errorCode: 'ACCOUNT_LOCKED'
+                    ...locked,
                 };
             }
 

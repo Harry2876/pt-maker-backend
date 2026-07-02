@@ -81,6 +81,8 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '409':
           $ref: '#/components/responses/ConflictError'
+        '423':
+          $ref: '#/components/responses/AccountLockedError'
         '429':
           $ref: '#/components/responses/RateLimitError'
         '500':
@@ -186,23 +188,23 @@ paths:
                     example: false
                   message:
                     type: string
-                    example: "Invalid or expired OTP"
+                    example: "Invalid or Expired OTP. Please try again"
                   error:
                     type: object
                     properties:
                       code:
                         type: string
-                        enum: [INVALID_OTP, EXPIRED_OTP, MAX_ATTEMPTS_EXCEEDED]
-                        example: "INVALID_OTP"
+                        example: "VALIDATION_ERROR"
                       details:
                         type: string
+                        example: "INVALID_OTP"
                       timestamp:
                         type: string
                         format: date-time
                   meta:
                     $ref: '#/components/schemas/MetaObject'
-        '429':
-          $ref: '#/components/responses/RateLimitError'
+        '423':
+          $ref: '#/components/responses/AccountLockedError'
         '500':
           $ref: '#/components/responses/ServerError'
 
@@ -456,12 +458,10 @@ paths:
                         format: date-time
                   meta:
                     $ref: '#/components/schemas/MetaObject'
-        '429':
-          $ref: '#/components/responses/RateLimitError'
+        '423':
+          $ref: '#/components/responses/AccountLockedError'
         '500':
           $ref: '#/components/responses/ServerError'
-
-  # ── GET /auth/profile ─────────────────────────────────────────────────────
   /auth/profile:
     get:
       tags: [Auth]

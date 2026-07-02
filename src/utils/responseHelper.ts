@@ -44,8 +44,32 @@ export class ResponseHelper {
     };
   }
 
-  static unauthorized(message: string = 'Unauthorized access'): ApiResponse {
-    return this.error(message, 'UNAUTHORIZED');
+  static unauthorized(message: string = 'Unauthorized access', details?: string): ApiResponse {
+    return this.error(message, 'UNAUTHORIZED', details);
+  }
+
+  static accountLocked(
+    message: string,
+    lockReason: string,
+    retryAfterSeconds?: number
+  ): ApiResponse<{ retryAfterSeconds?: number; lockReason: string }> {
+    return {
+      success: false,
+      message,
+      data: {
+        lockReason,
+        ...(retryAfterSeconds != null && { retryAfterSeconds }),
+      },
+      error: {
+        code: 'ACCOUNT_LOCKED',
+        details: lockReason,
+        timestamp: new Date().toISOString(),
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+        version: '1.0',
+      },
+    };
   }
 
   static validationError(message: string, details?: string): ApiResponse {

@@ -1,31 +1,59 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/authService';
-import { handleControllerError, asyncHandler } from '../middleware/commonMiddleware';
+import { asyncHandler } from '../middleware/commonMiddleware';
 import logger from '../utils/logger';
 import { ResponseHelper } from '../utils/responseHelper';
 import { entitlementService } from '../services/entitlementService';
 import { PhoneUtils } from '../utils/phoneUtils';
 import { AuthData } from '@/types/auth';
-import { Res } from '@tsoa/runtime';
 
-
+type AuthFailureResult = {
+    message: string;
+    errorCode?: string;
+    lockReason?: string;
+    retryAfterSeconds?: number;
+};
 
 export class AuthController {
+    private static respondAuthFailure(res: Response, statusCode: number, result: AuthFailureResult) {
+        if (result.errorCode === 'ACCOUNT_LOCKED') {
+            return res.status(423).json(
+                ResponseHelper.accountLocked(
+                    result.message,
+                    result.lockReason ?? 'few_attempts',
+                    result.retryAfterSeconds
+                )
+            );
+        }
+
+        if (result.errorCode === 'INVALID_OTP' || result.errorCode === 'INVALID_PHONE' || result.errorCode === 'PHONE_NOT_VERIFIED') {
+            return res.status(statusCode).json(ResponseHelper.validationError(result.message, result.errorCode));
+        }
+
+        if (result.errorCode === 'INVALID_CREDENTIALS') {
+            return res.status(401).json(ResponseHelper.error(result.message, 'INVALID_CREDENTIALS'));
+        }
+
+        return res.status(statusCode).json(ResponseHelper.error(result.message, result.errorCode ?? 'VALIDATION_ERROR'));
+    }
+
     static sendOTP = async (req: Request, res: Response) => {
         try {
-            const { phoneNumber } = req.body; // Already validated by middleware
+            const { phoneNumber } = req.body;
 
             const result = await authService.sendOTP(phoneNumber);
             if (!result.success) {
-                return res.status(400).json(ResponseHelper.validationError(result.message, result.errorCode));
+                return AuthController.respondAuthFailure(res, 400, result);
             }
 
             return res.json(ResponseHelper.success(result.message, {
                 type: result.type,
-                expiresIn: result.expiresIn
+                expiresIn: result.expiresIn,
+                expiresAt: result.expiresAt,
+                attemptsAllowed: result.attemptsAllowed,
+                notice: result.notice,
             }));
         } catch (error: any) {
-            // Handle specific user existence errors
             if (error.message.includes('already exists')) {
                 return res.status(409).json(ResponseHelper.conflict(error.message));
             }
@@ -34,7 +62,6 @@ export class AuthController {
                 return res.status(404).json(ResponseHelper.notFound(error.message));
             }
 
-            // Handle other errors
             logger.error('Send OTP error:', error);
             return res.status(500).json(ResponseHelper.serverError('Failed to send OTP'));
         }
@@ -43,18 +70,15 @@ export class AuthController {
     static verifyOTP = asyncHandler(async (req: Request, res: Response) => {
         const { phoneNumber, otp } = req.body;
 
-        // Verify OTP only - no registration/login logic here
         const otpResult = await authService.verifyOTP(phoneNumber, otp);
         if (!otpResult.success) {
-            return res.status(400).json(ResponseHelper.validationError(otpResult.message, otpResult.errorCode));
+            return AuthController.respondAuthFailure(res, 400, otpResult);
         }
 
-        // Check if user exists to determine next step
         const normalizedPhone = PhoneUtils.normalize(phoneNumber);
         const existingUser = await authService.getUserByPhone(normalizedPhone);
 
         if (existingUser) {
-            // Existing user - complete login flow immediately
             const deviceInfo = req.headers['user-agent'] || 'Unknown';
             const ipAddress = req.ip || 'Unknown';
             const tokenPair = await authService.generateTokenPair(
@@ -68,75 +92,60 @@ export class AuthController {
             return res.json(ResponseHelper.success('Login successful', {
                 user: existingUser,
                 tokens: tokenPair,
-                type: 'login'
-            }));
-        } else {
-            // New user - OTP verified, ready for registration
-            // Mark phone as verified temporarily (10 minutes)
-            await authService.markPhoneAsVerified(normalizedPhone);
-            
-            return res.json(ResponseHelper.success('OTP verified successfully. Please complete registration.', {
-                phoneNumber: normalizedPhone,
-                type: 'registration',
-                verified: true,
-                nextStep: 'registration',
-                expiresIn: 600, // 10 minutes to complete registration
-                message: 'Phone verified. You have 10 minutes to complete registration.'
+                type: 'login',
             }));
         }
+
+        await authService.markPhoneAsVerified(normalizedPhone);
+
+        return res.json(ResponseHelper.success('OTP verified successfully. Please complete registration.', {
+            phoneNumber: normalizedPhone,
+            type: 'registration',
+            verified: true,
+            nextStep: 'registration',
+            expiresIn: 600,
+            message: 'Phone verified. You have 10 minutes to complete registration.',
+        }));
     });
 
-    static register = asyncHandler(async (req: Request, res:Response) => {
-        const {phoneNumber, username, fullName, password, organization} = req.body;
+    static register = asyncHandler(async (req: Request, res: Response) => {
+        const { phoneNumber, username, fullName, password, organization } = req.body;
 
-        try{
+        try {
             const normalizedPhone = PhoneUtils.normalize(phoneNumber);
 
-            //check if phone was recently OTP-verified
             const isVerified = await authService.isPhoneVerified(normalizedPhone);
-            if(!isVerified){
+            if (!isVerified) {
                 return res.status(400).json(ResponseHelper.validationError(
                     'Phone number not verified or verification expired. Please verify OTP first.',
                     'PHONE_NOT_VERIFIED'
                 ));
             }
 
-            //check if username available
             const usernameCheck = await authService.checkUsernameAvailability(username);
-            if(!usernameCheck.available){
-                return res.status(409).json(ResponseHelper.conflict(
-                    'Username is already taken',
-                ));
+            if (!usernameCheck.available) {
+                return res.status(409).json(ResponseHelper.conflict('Username is already taken'));
             }
 
-            //register user
             const userData: AuthData = {
                 phoneNumber: normalizedPhone,
                 username,
                 fullName,
                 password,
-                organization
+                organization,
             };
 
             const registerResult = await authService.registerUser(normalizedPhone, userData);
-            if(!registerResult.success){
+            if (!registerResult.success) {
                 return res.status(400).json(ResponseHelper.validationError(registerResult.message, registerResult.errorCode));
             }
 
-            //add null check for user
-            if(!registerResult.user){
+            if (!registerResult.user) {
                 return res.status(500).json(ResponseHelper.serverError('User registration failed - User Data Might be Missing'));
             }
 
-            //add null check for user
-            if(!registerResult.user){
-                return res.status(500).json(ResponseHelper.serverError('User registration failed - User Data Might be Missing'));
-            }
-
-            //clear phone verification (registration complete)
             await authService.clearPhoneVerification(normalizedPhone);
 
-            //generate tokens for auto-login after registration
             const deviceInfo = req.headers['user-agent'] || 'Unknown';
             const ipAddress = req.ip || 'Unknown';
             const tokenPair = await authService.generateTokenPair(
@@ -147,12 +156,12 @@ export class AuthController {
                 ipAddress
             );
 
-            return res.status(201).json(ResponseHelper.success('Registration Successfull. You are Now Logged in',{
+            return res.status(201).json(ResponseHelper.success('Registration Successfull. You are Now Logged in', {
                 user: registerResult.user,
                 tokens: tokenPair,
-                type: 'registration'
+                type: 'registration',
             }));
-        } catch (error:any) {
+        } catch (error: any) {
             logger.error('Registration error:', error);
             return res.status(500).json(ResponseHelper.serverError('Registration failed'));
         }
@@ -161,19 +170,17 @@ export class AuthController {
     static checkUsername = asyncHandler(async (req: Request, res: Response) => {
         const { username } = req.body;
 
-        try{
+        try {
             const result = await authService.checkUsernameAvailability(username);
 
-            if(result.success){
-                return res.json(ResponseHelper.success(result.message,
-                    {
-                        username: username,
-                        available: result.available
-                    }
-                ));
-            }else {
-                return res.status(400).json(ResponseHelper.validationError(result.message));
+            if (result.success) {
+                return res.json(ResponseHelper.success(result.message, {
+                    username,
+                    available: result.available,
+                }));
             }
+
+            return res.status(400).json(ResponseHelper.validationError(result.message));
         } catch (error: any) {
             logger.error('Check username error:', error);
             return res.status(500).json(ResponseHelper.serverError('Failed to check username'));
@@ -186,7 +193,7 @@ export class AuthController {
         const result = await authService.authenticateUser(phoneNumber, password);
 
         if (!result.success) {
-            return res.status(401).json(ResponseHelper.unauthorized(result.message));
+            return AuthController.respondAuthFailure(res, 401, result);
         }
 
         const deviceInfo = req.headers['user-agent'] || 'Unknown';
@@ -206,90 +213,90 @@ export class AuthController {
                 phoneNumber: result.user!.phoneNumber,
                 username: result.user!.username,
                 fullName: result.user!.fullName,
-                organization: result.user!.organization
+                organization: result.user!.organization,
             },
             tokens: tokenPair,
-            type: 'login'
+            type: 'login',
         }));
     });
 
     static async getProfile(req: Request, res: Response) {
-    try {
-        const authHeader = req.headers.authorization;
+        try {
+            const authHeader = req.headers.authorization;
 
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json(ResponseHelper.unauthorized('Auth Token Required'));
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return res.status(401).json(ResponseHelper.unauthorized('Auth Token Required'));
+            }
+
+            const token = authHeader.substring(7);
+            const sessionData = await authService.verifySessionToken(token);
+            const user = await authService.getUserByPhone(sessionData.phoneNumber);
+
+            if (!user) {
+                return res.status(404).json(ResponseHelper.notFound('User not found'));
+            }
+
+            const entitlements = await entitlementService.getUserEntitlements(user.id);
+
+            if (!entitlements) {
+                return res.status(500).json(ResponseHelper.notFound('User entitlements not found'));
+            }
+
+            return res.json(ResponseHelper.success('User profile retrieved successfully', {
+                user: {
+                    id: user.id,
+                    phoneNumber: user.phoneNumber,
+                    username: user.username,
+                    fullName: user.fullName,
+                    organization: user.organization,
+                },
+                entitlements,
+            }));
+        } catch (error: any) {
+            return res.status(500).json(ResponseHelper.serverError(error.message || 'Failed to get profile'));
         }
-
-        const token = authHeader.substring(7);
-        const sessionData = await authService.verifySessionToken(token);
-        const user = await authService.getUserByPhone(sessionData.phoneNumber);
-
-        if (!user) {
-            return res.status(404).json(ResponseHelper.notFound('User not found'));
-        }
-
-        const entitlements = await entitlementService.getUserEntitlements(user.id);
-
-        if (!entitlements) {
-            return res.status(500).json(ResponseHelper.notFound('User entitlements not found'));
-        }
-
-        return res.json(ResponseHelper.success('User profile retrieved successfully', {
-            user: {
-                id: user.id,
-                phoneNumber: user.phoneNumber,
-                username: user.username,
-                fullName: user.fullName,
-                organization: user.organization,
-            },
-            entitlements,
-        }));
-    } catch (error: any) {
-        return res.status(500).json(ResponseHelper.serverError(error.message || 'Failed to get profile'));
     }
-}
+
     static refreshToken = asyncHandler(async (req: Request, res: Response) => {
-    const { refreshToken } = req.body;
+        const { refreshToken } = req.body;
 
-    //extract the current access token from the header
-    const authHeader = req.headers.authorization;
-    let currentAccessToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
+        const authHeader = req.headers.authorization;
+        const currentAccessToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
 
-    if (!refreshToken) {
-        return res.status(400).json(ResponseHelper.validationError('Refresh token is required'));
-    }
+        if (!refreshToken) {
+            return res.status(400).json(ResponseHelper.validationError('Refresh token is required'));
+        }
 
-    const result = await authService.refreshAccessToken(refreshToken, currentAccessToken);
+        const result = await authService.refreshAccessToken(refreshToken, currentAccessToken);
 
-    return res.json(ResponseHelper.success('Token refreshed successfully', result));
-});
+        return res.json(ResponseHelper.success('Token refreshed successfully', result));
+    });
 
     static logout = asyncHandler(async (req: Request, res: Response) => {
-    const sessionData = await authService.verifySessionToken(
-        req.headers.authorization!.substring(7)
-    );
-    await authService.revokeSession(sessionData.sessionId);
+        const sessionData = await authService.verifySessionToken(
+            req.headers.authorization!.substring(7)
+        );
+        await authService.revokeSession(sessionData.sessionId);
 
-    return res.json(ResponseHelper.success('Logged out successfully'));
-});
+        return res.json(ResponseHelper.success('Logged out successfully'));
+    });
 
     static logoutAll = asyncHandler(async (req: Request, res: Response) => {
-    if (!req.user) {
-        return res.status(401).json(ResponseHelper.unauthorized('Auth Token Required or User not Found'));
-    }
+        if (!req.user) {
+            return res.status(401).json(ResponseHelper.unauthorized('Auth Token Required or User not Found'));
+        }
 
-    await authService.revokeAllUserSessions(req.user.id);
+        await authService.revokeAllUserSessions(req.user.id);
 
-    return res.json(ResponseHelper.success('Logged out from all devices successfully'));
-});
+        return res.json(ResponseHelper.success('Logged out from all devices successfully'));
+    });
 
     static getSessions = asyncHandler(async (req: Request, res: Response) => {
-    if (!req.user) {
-        return res.status(401).json(ResponseHelper.unauthorized('Auth Token Required or User not Found'));
-    }
+        if (!req.user) {
+            return res.status(401).json(ResponseHelper.unauthorized('Auth Token Required or User not Found'));
+        }
 
-    const sessions = await authService.getActiveSessions(req.user.id);
-    return res.json(ResponseHelper.success('User sessions retrieved successfully', sessions));
-});
+        const sessions = await authService.getActiveSessions(req.user.id);
+        return res.json(ResponseHelper.success('User sessions retrieved successfully', sessions));
+    });
 }

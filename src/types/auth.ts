@@ -45,6 +45,30 @@ export interface AuthResponse {
   message: string;
   success?: boolean;
   errorCode?: string;
+  lockReason?: string;
+  retryAfterSeconds?: number;
+}
+
+export interface OTPVerifyResult {
+  success: boolean;
+  message: string;
+  phoneNumber?: string;
+  errorCode?: string;
+  lockReason?: string;
+  retryAfterSeconds?: number;
+}
+
+export interface SendOTPResult {
+  success: boolean;
+  message: string;
+  type?: 'login' | 'registration';
+  expiresIn?: number;
+  expiresAt?: string;
+  attemptsAllowed?: number;
+  notice?: string;
+  errorCode?: string;
+  lockReason?: string;
+  retryAfterSeconds?: number;
 }
 
 export interface TokenPair {
