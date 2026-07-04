@@ -46,6 +46,8 @@ const workersManager = new WorkersManager();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.set('trust proxy', 1);
+
 
 function parseCommaSeparatedOrigins(value: string | undefined, fallback: string[]): string[] {
     if (!value?.trim()) return fallback;
