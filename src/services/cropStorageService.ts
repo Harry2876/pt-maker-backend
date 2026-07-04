@@ -146,20 +146,20 @@ export class CropStorageService extends BaseService {
             const attendanceCrops = [];
             const resultCrops = [];
 
-            for (const crop of crops) {
-                let signedUrl = null;
-                let expiresAt = null;
+            const previews = await Promise.all(
+                crops.map(crop =>
+                    (crop.r2Key && !crop.r2Key.startsWith('placeholder_key_'))
+                        ? this.previewForCrop(crop, userId).catch(error => {
+                            this.logger.warn(`Failed to generate preview URL for crop ${crop.id}:`, error);
+                            return { signedUrl: null, expiresAt: null };
+                          })
+                        : Promise.resolve({ signedUrl: null, expiresAt: null })
+                )
+            );
 
-                if (crop.r2Key && !crop.r2Key.startsWith('placeholder_key_')) {
-                    try {
-                        const preview = await this.previewForCrop(crop, userId);
-                        signedUrl = preview.signedUrl;
-                        expiresAt = preview.expiresAt;
-                    } catch (error) {
-                        this.logger.warn(`Failed to generate preview URL for crop ${crop.id}:`, error);
-                    }
-                }
-
+            for (let i = 0; i < crops.length; i++) {
+                const crop = crops[i];
+                const { signedUrl, expiresAt } = previews[i];
                 const uploadStatus = crop.cropData?.upload_status || 'unknown';
                 const cropData = {
                     id: crop.id,
@@ -320,27 +320,29 @@ export class CropStorageService extends BaseService {
             return 0;
         }
 
-        for (const item of items) {
-            const rawUrl = item.r2_url;
-            const r2Key = this.extractR2Key(rawUrl);
-            await this.createCrop({
-                quickMatchId,
-                cropType,
-                r2Key,
-                originalUrl,
-                cropUrl: rawUrl,
-                cropData: {
-                    upload_status: 'ready',
-                    source_url: originalUrl,
-                    card_index: item.card_index,
-                    team_name: item.team_name,
-                    coordinates: item.coordinates,
-                    confidence: item.confidence,
-                    python_data: pyResponse.data,
-                    python_metadata: pyResponse.metadata,
-                },
-            });
-        }
+        await Promise.all(
+            items.map(item => {
+                const rawUrl = item.r2_url;
+                const r2Key = this.extractR2Key(rawUrl);
+                return this.createCrop({
+                    quickMatchId,
+                    cropType,
+                    r2Key,
+                    originalUrl,
+                    cropUrl: rawUrl,
+                    cropData: {
+                        upload_status: 'ready',
+                        source_url: originalUrl,
+                        card_index: item.card_index,
+                        team_name: item.team_name,
+                        coordinates: item.coordinates,
+                        confidence: item.confidence,
+                        python_data: pyResponse.data,
+                        python_metadata: pyResponse.metadata,
+                    },
+                });
+            })
+        );
 
         this.logger.info(`Persisted ${items.length} ${cropType} crop(s) for match ${quickMatchId}`);
         return items.length;
@@ -488,34 +490,38 @@ export class CropStorageService extends BaseService {
             const attendanceDownloads = [];
             const resultDownloads = [];
 
-            for (const crop of crops) {
-                if (crop.r2Key && !crop.r2Key.startsWith('placeholder_key_')) {
-                    try {
-                        const preview = await this.previewForCrop(crop, userId);
-                        if (!preview.signedUrl) {
-                            continue;
-                        }
+            const downloadPreviews = await Promise.all(
+                crops.map(crop =>
+                    (crop.r2Key && !crop.r2Key.startsWith('placeholder_key_'))
+                        ? this.previewForCrop(crop, userId).catch(error => {
+                            this.logger.warn(`Failed to generate download URL for crop ${crop.id}:`, error);
+                            return { signedUrl: null, expiresAt: null };
+                          })
+                        : Promise.resolve({ signedUrl: null, expiresAt: null })
+                )
+            );
 
-                        const fileExtension = crop.r2Key.split('.').pop() || 'jpg';
-                        const filename = `${crop.cropType}_${crop.id.substring(0, 8)}.${fileExtension}`;
+            for (let i = 0; i < crops.length; i++) {
+                const crop = crops[i];
+                const preview = downloadPreviews[i];
+                if (!preview.signedUrl) continue;
 
-                        const downloadData = {
-                            id: crop.id,
-                            cropType: crop.cropType,
-                            downloadUrl: preview.signedUrl,
-                            expiresAt: preview.expiresAt ?? new Date(),
-                            filename,
-                            cropMetadata: crop.cropData,
-                        };
+                const fileExtension = crop.r2Key.split('.').pop() || 'jpg';
+                const filename = `${crop.cropType}_${crop.id.substring(0, 8)}.${fileExtension}`;
 
-                        if (crop.cropType.toLowerCase().includes('attendance')) {
-                            attendanceDownloads.push(downloadData);
-                        } else {
-                            resultDownloads.push(downloadData);
-                        }
-                    } catch (error) {
-                        this.logger.warn(`Failed to generate download URL for crop ${crop.id}:`, error);
-                    }
+                const downloadData = {
+                    id: crop.id,
+                    cropType: crop.cropType,
+                    downloadUrl: preview.signedUrl,
+                    expiresAt: preview.expiresAt ?? new Date(),
+                    filename,
+                    cropMetadata: crop.cropData,
+                };
+
+                if (crop.cropType.toLowerCase().includes('attendance')) {
+                    attendanceDownloads.push(downloadData);
+                } else {
+                    resultDownloads.push(downloadData);
                 }
             }
 
