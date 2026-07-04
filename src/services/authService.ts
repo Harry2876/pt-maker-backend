@@ -586,6 +586,77 @@ export class AuthService extends BaseService {
         }
     }
 
+        /**
+     * Guarantees the user exists in the DB before any FK-constrained operation.
+     * Called by auth middleware for cache-only users (newly registered, not yet synced).
+     * Handles race conditions with UserSyncWorker via P2002 catch.
+     */
+        async ensureUserInDb(phoneNumber: string): Promise<string | null> {
+            const normalizedPhone = PhoneUtils.normalize(phoneNumber);
+            try {
+                // Fast path: user already in DB (returning user, or already synced)
+                const existingDbUser = await this.db.user.findFirst({
+                    where: { phoneNumber: normalizedPhone }
+                });
+                if (existingDbUser) {
+                    return existingDbUser.id;
+                }
+    
+                // User not in DB — get their data from Redis and write now
+                const cacheKey = `user_cache:${normalizedPhone}`;
+                const cachedUser = await redis.hgetObject<CachedUser>(cacheKey);
+    
+                if (!cachedUser) {
+                    this.logger.warn(`ensureUserInDb: no cached user found for ${normalizedPhone}`);
+                    return null;
+                }
+    
+                try {
+                    const newUser = await this.db.user.create({
+                        data: {
+                            phoneNumber: cachedUser.phoneNumber,
+                            username: cachedUser.username,
+                            fullName: cachedUser.fullName,
+                            organization: cachedUser.organization || null,
+                            passwordHash: cachedUser.password,
+                            createdAt: new Date(cachedUser.registeredAt),
+                            updatedAt: new Date(),
+                        }
+                    });
+    
+                    this.logger.info(`ensureUserInDb: wrote ${normalizedPhone} to DB with ID ${newUser.id}`);
+    
+                    // Update Redis with real DB ID so future auth middleware calls skip this path
+                    await redis.hsetObject(cacheKey, {
+                        ...cachedUser,
+                        id: newUser.id,
+                        status: 'synced_to_db'
+                    });
+                    await redis.expire(cacheKey, 3600);
+    
+                    // Remove from UserSyncWorker's pending list — no need to sync again
+                    await redis.delete(`pending_users_list_for_dbWrite:${normalizedPhone}`);
+    
+                    return newUser.id;
+    
+                } catch (createError: any) {
+                    // P2002 = unique constraint violation = UserSyncWorker wrote the user at the same millisecond
+                    // Just read whatever it wrote
+                    if (createError?.code === 'P2002') {
+                        this.logger.info(`ensureUserInDb: race condition for ${normalizedPhone}, reading DB result`);
+                        const racedUser = await this.db.user.findFirst({
+                            where: { phoneNumber: normalizedPhone }
+                        });
+                        return racedUser?.id ?? null;
+                    }
+                    throw createError;
+                }
+            } catch (error) {
+                this.logger.error(`ensureUserInDb failed for ${normalizedPhone}:`, error);
+                return null;
+            }
+        }
+
 
     async authenticateUser(identifier: string, password: string): Promise<AuthResponse> {
         try {

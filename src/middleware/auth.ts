@@ -88,8 +88,18 @@ export const authenticateUser = async (
         .status(401)
         .json(ResponseHelper.unauthorized('Invalid or expired token'));
     }
+        // For newly registered users (not yet synced to DB), force an immediate DB write
+    // so all FK-constrained operations (createQuickMatch, slots, logos) work instantly.
+    let resolvedUserId = user.id;
+    if (user.fromCache) {
+      const realId = await authService.ensureUserInDb(user.phoneNumber);
+      if (realId) {
+        resolvedUserId = realId;
+      }
+    }
+
     req.user = {
-      id: user.id,
+      id: resolvedUserId,
       phoneNumber: user.phoneNumber,
       username: user.username,
       fullName: user.fullName,
@@ -121,8 +131,16 @@ export const optionalAuth = async (
       const user = await authService.getUserByPhone(sessionData.phoneNumber);
 
       if (user) {
+        let resolvedUserIdOptional = user.id;
+        if (user.fromCache) {
+          const realId = await authService.ensureUserInDb(user.phoneNumber);
+          if (realId) {
+            resolvedUserIdOptional = realId;
+          }
+        }
+
         req.user = {
-          id: user.id,
+          id: resolvedUserIdOptional,
           phoneNumber: user.phoneNumber,
           username: user.username,
           fullName: user.fullName,
