@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { Readable } from "stream";
 import { BaseService } from "./baseService";
 import crypto from 'crypto';
@@ -20,7 +21,13 @@ export class CloudflareR2Service extends BaseService {
             credentials: {
                 accessKeyId: process.env.R2_ACCESS_KEY_ID!,
                 secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!
-            }
+            },
+            requestHandler: new NodeHttpHandler({
+                connectionTimeout: 5000,
+                socketTimeout: 30000,
+                requestTimeout: 30000,
+                httpsAgent: { maxSockets: 300, keepAlive: true },
+            }),
         });
     }
 

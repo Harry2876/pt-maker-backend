@@ -5,6 +5,7 @@ import { extractAccessTokenFromRequest } from '../middleware/auth';
 import { authService } from '../services/authService';
 import { previewUrlService } from '../services/previewUrlService';
 import { storedFileService } from '../services/storedFileService';
+import { r2Service } from '../services/cloudflareR2Service';
 import { ServiceError } from '../utils/serviceError';
 import { StoredFileRecord } from '../types/mediaAsset';
 
@@ -55,20 +56,11 @@ export class StoredFileController {
             file = await storedFileService.assertReadable(fileId, user.id);
         }
 
-        const { stream, contentType, filename } = await storedFileService.streamFileRecord(file);
-
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-        res.setHeader('Cache-Control', 'private, max-age=300');
-
-        stream.on('error', () => {
-            if (!res.headersSent) {
-                res.status(502).json(
-                    ResponseHelper.error('Failed to stream file', 'STREAM_ERROR'),
-                );
-            }
-        });
-
-        stream.pipe(res);
+        // Issue a short-lived presigned R2 URL and redirect the client to it.
+        // This removes all image-byte traffic from Node.js — the client downloads
+        // directly from R2, which frees server sockets and CPU.
+        const presignedUrl = await r2Service.getSignedDownloadUrl(file.r2Key, 120);
+        res.setHeader('Cache-Control', 'private, max-age=110');
+        res.redirect(302, presignedUrl);
     });
 }

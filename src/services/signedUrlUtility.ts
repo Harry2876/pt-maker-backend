@@ -1,3 +1,4 @@
+import pLimit from 'p-limit';
 import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
 
@@ -84,8 +85,9 @@ export class SignedUrlUtility extends BaseService {
         config: SignedUrlConfig = {}
     ): Promise<SignedUrlResponse[]> {
         try {
+            const limit = pLimit(10);
             const results = await Promise.all(
-                r2Keys.map(key => this.generateSignedUrl(key, config))
+                r2Keys.map(key => limit(() => this.generateSignedUrl(key, config)))
             );
             
             this.logger.info(`Generated ${results.length} signed URLs in batch`);

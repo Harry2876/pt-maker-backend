@@ -27,6 +27,7 @@ import templatePresetRouter from './routes/templatePresetRoutes';
 import revenueCatWebhookRouter from './routes/revenueCatWebhookRoutes';
 import whatsappRouter from './routes/whatsappRoutes';
 import redis from './config/redis';
+import { templateService } from './services/templateService';
 import { WorkersManager } from './workers';
 import { QueueService } from './services/queueService';
 import { globalErrorHandler } from './middleware/commonMiddleware';
@@ -296,6 +297,10 @@ async function startServer() {
             logger.info(`💾 Database connected successfully`);
             // Force-flush all startup logs to Sentry after they've had time to queue
             setTimeout(() => Sentry.flush(10000).catch(() => {}), 3000);
+            // Pre-warm template cache so no user hits a cold-cache R2 burst
+            templateService.getAllTemplates()
+                .then(() => logger.info('✅ Template cache pre-warmed'))
+                .catch(err => logger.warn('⚠️  Template cache pre-warm failed (non-fatal):', err));
         });
 
         // OCR batch + standings generation can take up to ~90s.

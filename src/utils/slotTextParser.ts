@@ -169,7 +169,7 @@ export class SlotTextParser {
 
         // Check for invalid team names
         slots.forEach(slot => {
-            if (slot.teamName.length < 2) {
+            if (slot.teamName.length < 1) {
                 errors.push(`Slot ${slot.slotNumber}: Team name too short`);
             }
             if (slot.teamName.length > 50) {

@@ -9,7 +9,7 @@ export const createQuickSlotSchema = z.object({
         .max(25, 'Slot number cannot exceed 25'),
     
     teamName: z.string()
-        .min(2, 'Team name must be at least 2 characters')
+        .min(1, 'Team name must be at least 2 characters')
         .max(50, 'Team name must be at most 50 characters')
         .trim(),
     
@@ -36,14 +36,14 @@ export const bulkSlotUploadSchema = z.object({
 // Text-based slot upload (user pastes "Slot 1 - Team Name" format)
 export const textSlotUploadSchema = z.object({
     slotsText: z.string()
-        .min(10, 'Slots text is too short')
+        .min(3, 'Slots text is too short')
         .max(5000, 'Slots text is too long')
 });
 
 // Update slot
 export const updateQuickSlotSchema = z.object({
     teamName: z.string()
-        .min(2, 'Team name must be at least 2 characters')
+        .min(1, 'Team name must be at least 1 character')
         .max(50, 'Team name must be at most 50 characters')
         .optional(),
     

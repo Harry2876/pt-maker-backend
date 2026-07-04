@@ -1,3 +1,4 @@
+import pLimit from 'p-limit';
 import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
 import { storedFileService } from './storedFileService';
@@ -99,31 +100,61 @@ export class TemplateService extends BaseService {
                 };
             }
 
-            this.logger.info('No cache found, fetching from R2...');
-            const allFiles = await r2Service.listAllTemplateFiles(this.TEMPLATE_PREFIX);
-            this.logger.info(`Found ${allFiles.length} total template files in R2`);
+            // Acquire a distributed lock so only one request fetches from R2 on a cold cache.
+            // All other concurrent requests will wait and then read from cache once it is warm.
+            const LOCK_KEY = 'quickPT:templates:fetch-lock';
+            const LOCK_TTL = 60; // seconds — enough time for the R2 fetch to complete
+            const lockAcquired = await redis.setNX(LOCK_KEY, '1', LOCK_TTL);
 
-            if (allFiles.length === 0) {
-                this.logger.warn('No template files found in R2 bucket');
-                return { templates: {}, totalTemplates: 0, cacheExpiry: Date.now() + (this.CACHE_TTL * 1000) };
+            if (!lockAcquired) {
+                // Another request is already building the cache — wait up to 10 s for it
+                this.logger.info('Template cache being built by another request, waiting...');
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    const ready = await redis.get(this.CACHE_KEY);
+                    if (ready) {
+                        const parsed = JSON.parse(ready);
+                        const templatesWithFreshUrls = await this.refreshSignedUrls(parsed.templates);
+                        return {
+                            ...parsed,
+                            templates: templatesWithFreshUrls,
+                            cacheExpiry: Date.now() + (this.CACHE_TTL * 1000),
+                        };
+                    }
+                }
+                // If cache still not ready after 10 s, fall through and fetch anyway
+                this.logger.warn('Template cache wait timed out — fetching from R2 directly');
             }
 
-            const organizedTemplates = await this.organizeTemplatesByCategory(allFiles);
-            this.logger.info(`Organized templates into ${Object.keys(organizedTemplates).length} categories`);
+            try {
+                this.logger.info('No cache found, fetching from R2...');
+                const allFiles = await r2Service.listAllTemplateFiles(this.TEMPLATE_PREFIX);
+                this.logger.info(`Found ${allFiles.length} total template files in R2`);
 
-            const cacheData = {
-                templates: this.stripSignedUrls(organizedTemplates),
-                totalTemplates: this.countTemplates(organizedTemplates),
-            };
+                if (allFiles.length === 0) {
+                    this.logger.warn('No template files found in R2 bucket');
+                    return { templates: {}, totalTemplates: 0, cacheExpiry: Date.now() + (this.CACHE_TTL * 1000) };
+                }
 
-            await redis.set(this.CACHE_KEY, JSON.stringify(cacheData), this.CACHE_TTL);
-            this.logger.info('Templates cached successfully');
+                const organizedTemplates = await this.organizeTemplatesByCategory(allFiles);
+                this.logger.info(`Organized templates into ${Object.keys(organizedTemplates).length} categories`);
 
-            return {
-                templates: organizedTemplates,
-                totalTemplates: this.countTemplates(organizedTemplates),
-                cacheExpiry: Date.now() + (this.CACHE_TTL * 1000),
-            };
+                const cacheData = {
+                    templates: this.stripSignedUrls(organizedTemplates),
+                    totalTemplates: this.countTemplates(organizedTemplates),
+                };
+
+                await redis.set(this.CACHE_KEY, JSON.stringify(cacheData), this.CACHE_TTL);
+                this.logger.info('Templates cached successfully');
+
+                return {
+                    templates: organizedTemplates,
+                    totalTemplates: this.countTemplates(organizedTemplates),
+                    cacheExpiry: Date.now() + (this.CACHE_TTL * 1000),
+                };
+            } finally {
+                await redis.delete(LOCK_KEY);
+            }
         } catch (error) {
             this.logger.error('Failed to get all templates:', error);
             this.handleError(error, 'Get All Templates');
@@ -256,14 +287,13 @@ export class TemplateService extends BaseService {
     private async refreshSignedUrls(
         templates: Record<string, Omit<TemplateInfo, 'signedUrl' | 'previewUrl' | 'configUrl'>[]>
     ): Promise<Record<string, TemplateInfo[]>> {
+        const limit = pLimit(5);
         const refreshed: Record<string, TemplateInfo[]> = {};
 
-        for (const [category, templateList] of Object.entries(templates)) {
-            refreshed[category] = [];
-
-            for (const template of templateList) {
+        // Collect all refresh tasks across categories and run them concurrently (max 5 at a time)
+        const tasks = Object.entries(templates).flatMap(([category, templateList]) =>
+            templateList.map(template => limit(async () => {
                 try {
-                    // Reconstruct R2 key from fullPath (works for all categories)
                     const r2Key = `${this.TEMPLATE_PREFIX}${template.fullPath}.${template.originalExtension}`;
 
                     const configKey = template.rawConfigUrl
@@ -272,23 +302,34 @@ export class TemplateService extends BaseService {
 
                     if (!configKey) {
                         this.logger.warn(`Could not resolve config key for template: ${template.fullPath}`);
-                        continue;
+                        return null;
                     }
 
                     const previewUrls = await this.issueTemplatePreviewUrls(r2Key, configKey);
-
-                    refreshed[category].push({
-                        ...template,
-                        signedUrl: previewUrls.signedUrl,
-                        previewUrl: previewUrls.previewUrl,
-                        configUrl: previewUrls.configUrl,
-                        rawTemplateUrl: buildRawR2ObjectUrl(r2Key),
-                        rawConfigUrl: buildRawR2ObjectUrl(configKey),
-                    } as TemplateInfo);
+                    return {
+                        category,
+                        info: {
+                            ...template,
+                            signedUrl: previewUrls.signedUrl,
+                            previewUrl: previewUrls.previewUrl,
+                            configUrl: previewUrls.configUrl,
+                            rawTemplateUrl: buildRawR2ObjectUrl(r2Key),
+                            rawConfigUrl: buildRawR2ObjectUrl(configKey),
+                        } as TemplateInfo,
+                    };
                 } catch (error) {
                     this.logger.warn(`Failed to refresh signed URL for template: ${template.fullPath}`, error);
+                    return null;
                 }
-            }
+            }))
+        );
+
+        const results = await Promise.all(tasks);
+
+        for (const result of results) {
+            if (!result) continue;
+            if (!refreshed[result.category]) refreshed[result.category] = [];
+            refreshed[result.category].push(result.info);
         }
 
         return refreshed;

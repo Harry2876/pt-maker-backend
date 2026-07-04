@@ -103,6 +103,20 @@ class RedisManager {
         }
     }
 
+    /**
+     * Atomic SET if Not eXists with TTL. Returns true if the lock was acquired,
+     * false if it already exists (someone else holds it).
+     */
+    public async setNX(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+        try {
+            const result = await this.redisClient.set(key, value, 'EX', ttlSeconds, 'NX');
+            return result === 'OK';
+        } catch (error) {
+            logger.error(`Error setting NX key ${key} for Redis`, error);
+            return false;
+        }
+    }
+
     //set cached data with optional TTL
     public async set(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
         try {
