@@ -364,7 +364,7 @@ export class ExcelExportService extends BaseService {
 
         row = this.addSectionHeading(sheet, row, 'Results & Rankings', colSpan);
         row = this.addTableHeader(sheet, row, [
-            'Rank', 'Team Name', 'Matches', 'Kills', 'Pos Pts', 'Kill Pts', 'WWCD', 'Total Pts',
+            'Rank', 'Team Name', 'Matches', 'Finishes', 'Pos Pts', 'Kill Pts', 'WWCD', 'Total Pts',
         ]);
 
         for (const standing of data.standings) {
