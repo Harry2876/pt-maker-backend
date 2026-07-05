@@ -358,7 +358,7 @@ export class CropStorageService extends BaseService {
         if (explicit?.trim()) {
             return explicit.trim();
         }
-        const link = await this.db.quickSeriesMatch.findUnique({
+        const link = await this.db.quickSeriesMatch.findFirst({
             where: { quickMatchId },
             select: { seriesId: true },
         });

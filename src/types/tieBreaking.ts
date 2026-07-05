@@ -3,7 +3,7 @@ import { SeriesTeamStanding } from './quickSeries';
 
 export interface TieBreakingRule {
     priority: number;
-    method: 'KILLS' | 'BEST_POSITION' | 'MANUAL_ORDER';
+    method: 'KILLS' | 'POSITION_POINTS' | 'BEST_POSITION' | 'MANUAL_ORDER';
     isActive: boolean;
     description?: string;
 }

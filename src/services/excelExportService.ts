@@ -313,7 +313,7 @@ export class ExcelExportService extends BaseService {
 
         row = this.addSectionHeading(sheet, row, 'Results & Rankings', 7);
         row = this.addTableHeader(sheet, row, [
-            'Rank', 'Team Name', 'Position', 'Kills', 'Pos Pts', 'Kill Pts', 'Total Pts',
+            'Rank', 'Team Name', 'Position', 'Finishes', 'Pos Pts', 'Kill Pts', 'Total Pts',
         ]);
 
         for (const standing of data.standings) {

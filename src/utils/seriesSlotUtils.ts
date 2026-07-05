@@ -1,6 +1,6 @@
 /** Canonical team key for series aggregation and lookups. */
 export function normalizeTeamName(name: string): string {
-    return name.trim().toLowerCase();
+    return name.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 export function teamsMatch(a: string, b: string): boolean {
@@ -14,7 +14,7 @@ export function buildSlotFingerprint(
     return slots
         .slice()
         .sort((a, b) => a.slotNumber - b.slotNumber)
-        .map(s => `${s.slotNumber}:${s.teamName.trim().toLowerCase()}`)
+        .map(s => `${s.slotNumber}:${normalizeTeamName(s.teamName)}`)
         .join('|');
 }
 

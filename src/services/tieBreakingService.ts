@@ -12,6 +12,7 @@ import {
     SeriesTieBreakingResult,
     EnhancedMatchResult
 } from '../types/tieBreaking';
+import { normalizeTeamName } from '../utils/seriesSlotUtils';
 import { QuickMatchResultCache } from '../types/quickResult';
 import { SeriesTeamStanding } from '../types/quickSeries';
 
@@ -89,14 +90,15 @@ export class TieBreakingService extends BaseService {
             const conflictGroups: SeriesConflictGroup[] = [];
             
             // Group teams by total points
-            const pointsGroups = new Map<number, SeriesTeamStanding[]>();
+            const pointsGroups = new Map<string, SeriesTeamStanding[]>();
             
             for (const standing of standings) {
-                const points = standing.totalPoints;
-                if (!pointsGroups.has(points)) {
-                    pointsGroups.set(points, []);
+                // Only teams identical on ALL three sort fields are truly tied
+                const tieKey = `${standing.totalPoints}|${standing.positionPoints ?? 0}|${standing.finishPoints ?? 0}`;
+                if (!pointsGroups.has(tieKey)) {
+                    pointsGroups.set(tieKey, []);
                 }
-                pointsGroups.get(points)!.push(standing);
+                pointsGroups.get(tieKey)!.push(standing);
             }
 
             // Identify conflicts
@@ -104,12 +106,12 @@ export class TieBreakingService extends BaseService {
             let manualResolutionRequired = 0;
             let totalConflictedTeams = 0;
 
-            for (const [points, teams] of pointsGroups) {
+            for (const [, teams] of pointsGroups) {
                 if (teams.length > 1) {
                     const canAutoResolve = this.canAutoResolveSeriesConflict(teams);
                     
                     const conflictGroup: SeriesConflictGroup = {
-                        points,
+                        points: teams[0].totalPoints,
                         conflictedStandings: teams,
                         requiresManualResolution: !canAutoResolve
                     };
@@ -227,15 +229,16 @@ export class TieBreakingService extends BaseService {
         const ordered: SeriesTeamStanding[] = [];
 
         for (const teamName of manualResolution.userDefinedOrder) {
-            const standing = standings.find(s => s.teamName === teamName
-                || s.teamName.trim().toLowerCase() === teamName.trim().toLowerCase());
+            const standing = standings.find(s =>
+                normalizeTeamName(s.teamName) === normalizeTeamName(teamName)
+            );
             if (standing) {
                 ordered.push(standing);
             }
         }
 
         for (const standing of standings) {
-            if (!ordered.some(s => s.teamName === standing.teamName)) {
+            if (!ordered.some(s => normalizeTeamName(s.teamName) === normalizeTeamName(standing.teamName))) {
                 ordered.push(standing);
             }
         }
@@ -447,15 +450,21 @@ export class TieBreakingService extends BaseService {
             rules: [
                 {
                     priority: 1,
+                    method: 'POSITION_POINTS',
+                    isActive: true,
+                    description: 'Higher position points wins'
+                },
+                {
+                    priority: 2,
                     method: 'KILLS',
                     isActive: true,
                     description: 'Higher kills wins'
                 },
                 {
-                    priority: 2,
+                    priority: 3,
                     method: 'BEST_POSITION',
                     isActive: true,
-                    description: 'Better position wins'
+                    description: 'Better finish position wins'
                 }
             ],
             manualResolutions: [],

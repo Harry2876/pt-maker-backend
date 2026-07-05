@@ -488,7 +488,7 @@ model QuickTournamentSeries {
 model QuickSeriesMatch {
   id           String    @id @default(cuid())
   seriesId     String
-  quickMatchId String    @unique
+  quickMatchId String    
   matchOrder   Int // 1st match, 2nd match, etc.
   isCompleted  Boolean   @default(false)
   completedAt  DateTime?
@@ -506,6 +506,7 @@ model QuickSeriesMatch {
 
   // Indexes
   @@unique([seriesId, matchOrder])
+  @@unique([seriesId, quickMatchId])
   @@index([seriesId, matchOrder])
   @@index([quickMatchId])
   @@map("quick_series_matches")
@@ -552,7 +553,7 @@ model QuickMatch {
   screenshots     QuickScreenshot[]
   results         QuickMatchResult[]
   pointsTable     QuickPointsTable?
-  seriesMatch     QuickSeriesMatch?
+    seriesMatches   QuickSeriesMatch[]
   QuickMatchCrop  QuickMatchCrop[]
   mediaAssets     QuickMediaAsset[]
 

@@ -93,12 +93,12 @@ export class QuickSeriesService extends BaseService {
                 throw new ServiceError('Quick match not found', 404, 'NOT_FOUND');
             }
 
-            const existingLink = await this.db.quickSeriesMatch.findUnique({
-                where: { quickMatchId },
+            const existingLink = await this.db.quickSeriesMatch.findFirst({
+                where: { quickMatchId, seriesId },
             });
             if (existingLink) {
                 throw new ServiceError(
-                    'This match is already linked to a series',
+                    'This match is already added to this series',
                     400,
                     'MATCH_ALREADY_IN_SERIES'
                 );
@@ -158,11 +158,13 @@ export class QuickSeriesService extends BaseService {
      */
     async refreshSeriesForMatch(quickMatchId: string, userId: string): Promise<void> {
         try {
-            const series = await this.getSeriesByMatchId(quickMatchId, userId);
-            if (!series) return;
+            const allSeries = await this.getAllSeriesForMatch(quickMatchId, userId);
+            if (allSeries.length === 0) return;
 
-            this.logger.info(`Refreshing series ${series.id} leaderboard after match ${quickMatchId} results changed`);
-            await this.updateSeriesLeaderboard(series.id, userId);
+            await Promise.all(allSeries.map(async (series) => {
+                this.logger.info(`Refreshing series ${series.id} leaderboard after match ${quickMatchId} results changed`);
+                await this.updateSeriesLeaderboard(series.id, userId);
+            }));
         } catch (error) {
             this.logger.warn(`Failed to refresh series for match ${quickMatchId}:`, error);
         }
@@ -254,7 +256,7 @@ export class QuickSeriesService extends BaseService {
 
                 if (!teamStandings.has(teamKey)) {
                     teamStandings.set(teamKey, {
-                        teamName: result.teamName.trim(),
+                        teamName: result.teamName.trim().replace(/\s+/g, ' '),
                         totalPoints: 0,
                         positionPoints: 0,
                         finishPoints: 0,
@@ -622,7 +624,7 @@ export class QuickSeriesService extends BaseService {
         }
 
         const tiedTeamNames = conflictGroup.conflictedTeamNames ?? [];
-        const normalizedOrder = userDefinedOrder.map(name => name.trim());
+        const normalizedOrder = userDefinedOrder.map(name => normalizeTeamName(name));
         const normalizedTied = new Set(tiedTeamNames.map(normalizeTeamName));
 
         if (normalizedOrder.length !== tiedTeamNames.length) {
@@ -791,6 +793,9 @@ export class QuickSeriesService extends BaseService {
         rule: TieBreakingRule
     ): SeriesTeamStanding[] {
         switch (rule.method) {
+            case 'POSITION_POINTS':
+                return standings.sort((a, b) => (b.positionPoints ?? 0) - (a.positionPoints ?? 0));
+
             case 'KILLS':
                 return standings.sort((a, b) => b.totalKills - a.totalKills);
             
@@ -798,7 +803,6 @@ export class QuickSeriesService extends BaseService {
                 return standings.sort((a, b) => a.bestPosition - b.bestPosition);
             
             case 'MANUAL_ORDER':
-                // Manual order should be handled separately
                 return standings;
             
             default:
@@ -812,11 +816,15 @@ export class QuickSeriesService extends BaseService {
      */
     private isSeriesConflictResolved(standings: SeriesTeamStanding[]): boolean {
         for (let i = 1; i < standings.length; i++) {
-            // If any two consecutive teams are still tied on relevant criteria
-            if (standings[i-1].totalKills === standings[i].totalKills && 
-                standings[i-1].bestPosition === standings[i].bestPosition) {
-                return false;
-            }
+            const a = standings[i - 1];
+            const b = standings[i];
+            const stillTied =
+                a.totalPoints === b.totalPoints &&
+                (a.positionPoints ?? 0) === (b.positionPoints ?? 0) &&
+                (a.finishPoints ?? 0) === (b.finishPoints ?? 0) &&
+                a.totalKills === b.totalKills &&
+                a.bestPosition === b.bestPosition;
+            if (stillTied) return false;
         }
         return true;
     }
@@ -922,28 +930,24 @@ export class QuickSeriesService extends BaseService {
     /**
      * Find series that contains a specific match (Redis index first, then DB)
      */
-    async getSeriesByMatchId(quickMatchId: string, userId: string): Promise<QuickTournamentSeriesCache | null> {
+    async getAllSeriesForMatch(quickMatchId: string, userId: string): Promise<QuickTournamentSeriesCache[]> {
         try {
-            const cachedSeriesId = await redis.get(`quickMatch:${quickMatchId}:seriesId`);
-            if (cachedSeriesId) {
-                const series = await this.getTournamentSeriesById(cachedSeriesId, userId);
-                if (series) return series;
-            }
-
-            const seriesMatch = await this.db.quickSeriesMatch.findUnique({
+            const seriesMatches = await this.db.quickSeriesMatch.findMany({
                 where: { quickMatchId },
                 include: { series: true },
             });
 
-            if (!seriesMatch || seriesMatch.series.userId !== userId) {
-                return null;
-            }
+            const userSeriesMatches = seriesMatches.filter(sm => sm.series.userId === userId);
+            if (userSeriesMatches.length === 0) return [];
 
-            await redis.set(`quickMatch:${quickMatchId}:seriesId`, seriesMatch.seriesId, this.CACHE_TTL);
-            return await this.getTournamentSeriesById(seriesMatch.seriesId, userId);
+            const results = await Promise.all(
+                userSeriesMatches.map(sm => this.getTournamentSeriesById(sm.seriesId, userId))
+            );
+
+            return results.filter(Boolean) as QuickTournamentSeriesCache[];
         } catch (error) {
-            this.handleError(error, 'Get Series by Match ID');
-            return null;
+            this.handleError(error, 'Get All Series for Match');
+            return [];
         }
     }
 
@@ -981,9 +985,11 @@ export class QuickSeriesService extends BaseService {
 
         const referenceFingerprint = buildSlotFingerprint(referenceSlots);
         const newFingerprint = buildSlotFingerprint(newSlots);
-
+        
+        // Both empty = no slot lists defined, allow it
         if (referenceFingerprint.length === 0 && newFingerprint.length === 0) return;
-
+        
+        // One has slots, other doesn't = definite mismatch
         if (referenceFingerprint.length === 0 || newFingerprint.length === 0) {
             throw new ServiceError(
                 'All matches in a series must have the same slot/team list. One match has slots defined and the other does not.',
@@ -991,13 +997,14 @@ export class QuickSeriesService extends BaseService {
                 'SLOT_LIST_MISMATCH'
             );
         }
-
-        if (!slotFingerprintsMatch(referenceFingerprint, newFingerprint)) {
+        
+        // Slot count must match — team names are allowed to differ (case/spaces/different teams)
+        if (referenceSlots.length !== newSlots.length) {
             throw new ServiceError(
-                'This match has a different slot/team list than the other matches in the series. ' +
-                'Only matches with identical slot assignments can be combined.',
+                `This match has ${newSlots.length} slot(s) but the series has ${referenceSlots.length} slot(s). ` +
+                'Matches in a series must have the same number of slots.',
                 400,
-                'SLOT_LIST_MISMATCH'
+                'SLOT_COUNT_MISMATCH'
             );
         }
     }
