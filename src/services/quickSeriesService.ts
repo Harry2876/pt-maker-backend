@@ -970,43 +970,12 @@ export class QuickSeriesService extends BaseService {
     }
 
     private async validateMatchSlotListForSeries(
-        seriesId: string,
-        quickMatchId: string,
-        userId: string
+        _seriesId: string,
+        _quickMatchId: string,
+        _userId: string
     ): Promise<void> {
-        const existingMatches = await this.getSeriesMatches(seriesId, userId);
-        if (existingMatches.length === 0) return;
-
-        const referenceMatch = existingMatches[0];
-        const [referenceSlots, newSlots] = await Promise.all([
-            quickSlotService.listQuickMatchSlots(referenceMatch.quickMatchId, userId),
-            quickSlotService.listQuickMatchSlots(quickMatchId, userId),
-        ]);
-
-        const referenceFingerprint = buildSlotFingerprint(referenceSlots);
-        const newFingerprint = buildSlotFingerprint(newSlots);
-        
-        // Both empty = no slot lists defined, allow it
-        if (referenceFingerprint.length === 0 && newFingerprint.length === 0) return;
-        
-        // One has slots, other doesn't = definite mismatch
-        if (referenceFingerprint.length === 0 || newFingerprint.length === 0) {
-            throw new ServiceError(
-                'All matches in a series must have the same slot/team list. One match has slots defined and the other does not.',
-                400,
-                'SLOT_LIST_MISMATCH'
-            );
-        }
-        
-        // Slot count must match — team names are allowed to differ (case/spaces/different teams)
-        if (referenceSlots.length !== newSlots.length) {
-            throw new ServiceError(
-                `This match has ${newSlots.length} slot(s) but the series has ${referenceSlots.length} slot(s). ` +
-                'Matches in a series must have the same number of slots.',
-                400,
-                'SLOT_COUNT_MISMATCH'
-            );
-        }
+        // No slot/team list restrictions — matches with any slot configuration
+        // can be combined in a series. Aggregation handles missing teams gracefully.
     }
 
     /** Drop removed scoring fields from older Redis cache entries */
