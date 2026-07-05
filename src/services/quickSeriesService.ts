@@ -376,9 +376,14 @@ export class QuickSeriesService extends BaseService {
                 currentMatchNumber: dbSeries.currentMatchNumber,
                 isFinished: dbSeries.isFinished,
                 winnerTeamName: dbSeries.winnerTeamName || undefined,
-                finalStandings: dbSeries.finalStandings
-                    ? JSON.parse(JSON.stringify(dbSeries.finalStandings)) as SeriesTeamStanding[]
-                    : undefined,
+                finalStandings: (() => {
+                    const val = dbSeries.finalStandings;
+                    if (!val || val === '') return undefined;
+                    try {
+                        const parsed = JSON.parse(JSON.stringify(val)) as SeriesTeamStanding[];
+                        return Array.isArray(parsed) && parsed.length > 0 ? parsed : undefined;
+                    } catch { return undefined; }
+                })(),
                 userId: dbSeries.userId,
                 createdAt: dbSeries.createdAt.toISOString(),
                 updatedAt: dbSeries.updatedAt.toISOString(),
@@ -1010,6 +1015,11 @@ export class QuickSeriesService extends BaseService {
             scoringDescription: _scoringDescription,
             ...clean
         } = legacy;
+
+        if(!Array.isArray(clean.finalStandings)){
+            clean.finalStandings = undefined;
+        }
+
         return clean;
     }
 }
