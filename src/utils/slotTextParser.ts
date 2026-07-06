@@ -12,8 +12,8 @@ export interface ParseResult {
 export class SlotTextParser {
     // Regex patterns for different slot formats
     private static readonly PATTERNS = [
-        // "Slot 01  ->  Team Name" or "Slot 1 -> Team Name"
-        /^slot\s*(\d{1,2})\s*(?:->|–|—|:)\s*(.+)$/i,
+        // "Slot 01  ->  Team Name" or "Slot 1 -> Team Name" or "Slot 04 → Team Name"
+        /^slot\s*(\d{1,2})\s*(?:->|→|–|—|:)\s*(.+)$/i,
         // "1. Team Name" or "01. Team Name"
         /^(\d{1,2})\.\s*(.+)$/,
         // "Slot 01 - Team Name"
