@@ -140,7 +140,14 @@ export class SlotTextParser {
      */
     private static isEmptySlot(teamName: string): boolean {
         const normalized = teamName.toLowerCase().trim();
-        return this.EMPTY_INDICATORS.some(indicator => normalized.includes(indicator));
+        return this.EMPTY_INDICATORS.some(indicator => {
+            // Use word boundary for short/common words to avoid false substring matches
+            // e.g. 'na' inside 'terminator', '-' inside team names with hyphens
+            if (indicator.length <= 3 || indicator === '-' || indicator === '--') {
+                return new RegExp(`(^|\\s)${indicator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(normalized);
+            }
+            return normalized.includes(indicator);
+        });
     }
 
     /**
