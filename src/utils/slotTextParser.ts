@@ -13,7 +13,7 @@ export class SlotTextParser {
     // Regex patterns for different slot formats
     private static readonly PATTERNS = [
         // "Slot 01  ->  Team Name" or "Slot 1 -> Team Name" or "Slot 04 → Team Name"
-        /^slot\s*(\d{1,2})\s*(?:->|→|–|—|:)\s*(.+)$/i,
+        /^slot\s*(\d{1,2})\s*(?:->|→|➡|➔|⟶|–|—|:)\s*(.+)$/i,
         // "1. Team Name" or "01. Team Name"
         /^(\d{1,2})\.\s*(.+)$/,
         // "Slot 01 - Team Name"
@@ -46,8 +46,20 @@ export class SlotTextParser {
         const warnings: string[] = [];
         const seenSlotNumbers = new Set<number>();
 
-        // Split into lines and process each
-        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        // Strip code block wrappers (``` or ` with optional language tag)
+        // Handles Discord/Telegram embeds where the whole list is pasted inside backticks
+        const stripped = text.trim();
+        const unwrapped = stripped.startsWith('```')
+            ? stripped.replace(/^```[a-zA-Z]*\n?/, '').replace(/```\s*$/, '')
+            : stripped.startsWith('`') && stripped.endsWith('`')
+            ? stripped.slice(1, -1)
+            : stripped;
+
+        // Split into lines, strip normal whitespace AND invisible Unicode chars (ZWS, BOM, etc.)
+        const lines = unwrapped
+            .split('\n')
+            .map(line => line.replace(/^[\s\u200B\u200C\u200D\uFEFF\u00A0]+|[\s\u200B\u200C\u200D\uFEFF\u00A0]+$/g, ''))
+            .filter(line => line.length > 0);
 
         if (lines.length === 0) {
             errors.push('No valid slot data found in input text');
