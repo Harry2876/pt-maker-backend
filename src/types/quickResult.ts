@@ -15,6 +15,7 @@ export interface QuickMatchResultCache {
     warningType?: string;
     needsReview: boolean;
     aiConfidence?: number;
+    entryNotes?: string;
     createdAt: string;
     updatedAt: string;
     dbStatus: 'PENDING_SYNC' | 'SYNCED' | 'ERROR';
@@ -34,6 +35,7 @@ export interface CreateQuickMatchResultData {
     warningType?: string;
     needsReview?: boolean;
     aiConfidence?: number;
+    entryNotes?: string;
 }
 
 export interface UpdateQuickMatchResultData {

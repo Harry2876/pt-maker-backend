@@ -627,6 +627,7 @@ model QuickMatchResult {
   warningType      String?
   needsReview      Boolean      @default(false)
   aiConfidence     Float?
+  entryNotes       String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 

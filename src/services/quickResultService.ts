@@ -78,6 +78,7 @@ export class QuickResultService extends BaseService {
             warningType: data.warningType ?? null,
             needsReview: data.needsReview ?? false,
             aiConfidence: data.aiConfidence ?? null,
+            entryNotes: data.entryNotes ?? null,
             updatedAt: now,
         };
 
@@ -175,8 +176,7 @@ export class QuickResultService extends BaseService {
     async createManualResult(
         quickMatchId: string,
         userId: string,
-        data: CreateManualResultData,
-        options: { skipFinalize?: boolean } = {}
+        data: CreateManualResultData
     ): Promise<QuickMatchResultCache> {
         const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
         if (!quickMatch) {
@@ -209,14 +209,10 @@ export class QuickResultService extends BaseService {
                 totalPoints: pointsBreakdown.totalPoints,
                 playerResults: data.playerResults,
                 needsReview: false,
+                entryNotes: data.entryNotes,
             },
             { status: 'MANUAL_ENTRY' }
         );
-
-        if (!options.skipFinalize) {
-            await this.finalizeMatchAfterResults(quickMatchId, userId);
-        }
-
         return result;
     }
 
@@ -269,6 +265,7 @@ export class QuickResultService extends BaseService {
                 ...(data.playerResults !== undefined && {
                     playerResults: JSON.parse(JSON.stringify(data.playerResults)),
                 }),
+                ...(data.entryNotes !== undefined && { entryNotes: data.entryNotes }),
                 positionPoints,
                 killPoints,
                 totalPoints,
@@ -314,7 +311,9 @@ export class QuickResultService extends BaseService {
         };
 
         if (data.replaceExisting) {
-            await this.db.quickMatchResult.deleteMany({ where: { quickMatchId } });
+            await this.db.quickMatchResult.deleteMany({ 
+                where: { quickMatchId, status: 'MANUAL_ENTRY' } 
+            });
             const staleIds = await redis.smembers(`quickMatch:${quickMatchId}:results`);
             await Promise.all(staleIds.map((id) => redis.delete(`quickResult:${id}`)));
             await redis.delete(`quickMatch:${quickMatchId}:results`);
@@ -322,27 +321,12 @@ export class QuickResultService extends BaseService {
 
         for (const resultData of data.results) {
             try {
-                if (data.validateConstraints) {
-                    await this.ensureSlotExists(
-                        quickMatchId,
-                        userId,
-                        resultData.slotNumber,
-                        resultData.teamName
-                    );
-                    const validation = await this.validateResultConstraints(quickMatchId, resultData);
-                    if (!validation.isValid) {
-                        result.errors.push(...validation.errors);
-                        result.summary.failed++;
-                        continue;
-                    }
-                }
-
                 const created = await this.createManualResult(quickMatchId, userId, {
                     ...resultData,
                     source: 'MANUAL_ENTRY',
                     entryMethod: 'BULK',
                     enteredBy: userId,
-                }, { skipFinalize: true });
+                });
 
                 result.created.push(created);
                 result.summary.successful++;
@@ -359,9 +343,7 @@ export class QuickResultService extends BaseService {
             }
         }
 
-        if (result.errors.length > 0 && result.created.length === 0) {
-            result.success = false;
-        }
+        result.success = result.summary.failed === 0;
 
         if (result.created.length > 0) {
             await this.finalizeMatchAfterResults(quickMatchId, userId);
@@ -407,9 +389,7 @@ export class QuickResultService extends BaseService {
             }
         }
 
-        if (result.errors.length > 0 && result.updated.length === 0) {
-            result.success = false;
-        }
+        result.success = result.summary.failed === 0;
 
         if (result.updated.length > 0) {
             await this.refreshSeriesLeaderboardIfNeeded(quickMatchId, userId);
@@ -447,7 +427,7 @@ export class QuickResultService extends BaseService {
             }
         }
 
-        result.success = result.summary.successful > 0;
+        result.success = result.summary.failed === 0;
         return result;
     }
 
@@ -508,7 +488,10 @@ export class QuickResultService extends BaseService {
         result: CreateManualResultData | UpdateManualResultData,
         match: QuickMatchCache
     ): Promise<PointsBreakdown> {
-        const positionPointsConfig = match.positionPointsConfig || [20, 15, 12, 10, 8, 6, 4, 2, 1, 0];
+        const rawConfig = match.positionPointsConfig;
+        const positionPointsConfig = Array.isArray(rawConfig) && rawConfig.length > 0
+            ? rawConfig
+            : [20, 15, 12, 10, 8, 6, 4, 2, 1, 0];
         const killPointsValue = match.killPointsValue || 1;
         const position = result.position ?? 25;
         const totalKills = result.totalKills ?? 0;
@@ -576,7 +559,8 @@ export class QuickResultService extends BaseService {
             warningType: dbResult.warningType || undefined,
             needsReview: dbResult.needsReview,
             aiConfidence: dbResult.aiConfidence ?? undefined,
-            createdAt: dbResult.createdAt.toISOString(),
+entryNotes: dbResult.entryNotes ?? undefined,
+createdAt: dbResult.createdAt.toISOString(),
             updatedAt: dbResult.updatedAt.toISOString(),
             dbStatus: 'SYNCED',
         };

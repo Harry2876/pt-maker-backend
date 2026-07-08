@@ -61,6 +61,12 @@ export const updateManualResultSchema = z.object({
         .min(1, 'Position must be at least 1')
         .max(25, 'Position cannot exceed 25')
         .optional(),
+
+    rank: z.number()
+        .int('Rank must be an integer')
+        .min(1, 'Rank must be at least 1')
+        .max(25, 'Rank cannot exceed 25')
+        .optional(),
     
     totalKills: z.number()
         .int('Total kills must be an integer')
@@ -82,13 +88,13 @@ export const updateManualResultSchema = z.object({
 
 // Route params validation for routes using :id pattern
 export const manualResultParamsSchema = z.object({
-    id: z.string().uuid('Invalid match ID')
+    id: z.string().cuid('Invalid match ID')
 });
 
-// Route params validation for routes using :quickMatchId/:resultId pattern  
+// Route params validation for routes using :quickMatchId/:resultId pattern
 export const quickMatchResultParamsSchema = z.object({
-    quickMatchId: z.string().uuid('Invalid match ID'),
-    resultId: z.string().uuid('Invalid result ID')
+    quickMatchId: z.string().cuid('Invalid match ID'),
+    resultId: z.string().cuid('Invalid result ID')
 });
 
 // Bulk operations validation schemas
@@ -108,7 +114,7 @@ export const bulkCreateManualResultsSchema = z.object({
 
 export const bulkUpdateManualResultsSchema = z.object({
     updates: z.array(z.object({
-        resultId: z.string().uuid('Invalid result ID'),
+        resultId: z.string().cuid('Invalid result ID'),
         data: updateManualResultSchema
     }))
     .min(1, 'At least one update is required')
@@ -116,7 +122,7 @@ export const bulkUpdateManualResultsSchema = z.object({
 });
 
 export const bulkDeleteManualResultsSchema = z.object({
-    resultIds: z.array(z.string().uuid('Invalid result ID'))
+    resultIds: z.array(z.string().cuid('Invalid result ID'))
         .min(1, 'At least one result ID is required')
         .max(25, 'Maximum 25 deletions allowed per bulk operation')
 });
