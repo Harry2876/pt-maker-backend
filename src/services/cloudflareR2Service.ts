@@ -5,6 +5,10 @@ import { Readable } from "stream";
 import { BaseService } from "./baseService";
 import crypto from 'crypto';
 
+const UPLOAD_WARN_SIZE_BYTES = 10 * 1024 * 1024;  // 10 MB — log a warning, still attempt
+const UPLOAD_MAX_SIZE_BYTES  = 50 * 1024 * 1024;  // 50 MB — hard reject before hitting R2
+const UPLOAD_SLOW_THRESHOLD_MS = 30_000;           // warn in logs when any upload exceeds 30 s
+
 export class CloudflareR2Service extends BaseService {
     private s3Client: S3Client;
     private bucketName: string;
@@ -13,7 +17,7 @@ export class CloudflareR2Service extends BaseService {
     constructor() {
         super();
         this.bucketName = process.env.R2_BUCKET_NAME!;
-        this.publicUrl = process.env.R2_PUBLIC_URL!; // e.g., https://<account_id>.r2.cloudflarestorage.com/<bucket_name>
+        this.publicUrl = process.env.R2_PUBLIC_URL!;
 
         this.s3Client = new S3Client({
             region: 'auto',
@@ -22,10 +26,16 @@ export class CloudflareR2Service extends BaseService {
                 accessKeyId: process.env.R2_ACCESS_KEY_ID!,
                 secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!
             },
+            // Automatically retry up to 3 times with exponential backoff on
+            // transient failures (network hiccups, 5xx from R2, timeouts).
+            maxAttempts: 3,
             requestHandler: new NodeHttpHandler({
-                connectionTimeout: 5000,
-                socketTimeout: 30000,
-                requestTimeout: 30000,
+                connectionTimeout: 10000,
+                socketTimeout: 120000,
+                requestTimeout: 120000,
+                // Throw a real error on timeout so the SDK retry kicks in
+                // instead of only emitting a warning and continuing silently.
+                throwOnRequestTimeout: true,
                 httpsAgent: { maxSockets: 300, keepAlive: true },
             }),
         });
@@ -39,11 +49,20 @@ export class CloudflareR2Service extends BaseService {
         matchId: string,
         context: 'tournament' | 'quick-pt' = 'tournament'
     ): Promise<{ url: string; key: string }> {
+        const fileSizeMB = (file.length / (1024 * 1024)).toFixed(2);
+
+        if (file.length > UPLOAD_MAX_SIZE_BYTES) {
+            this.logger.error(`Upload rejected: file too large (${fileSizeMB} MB, max ${UPLOAD_MAX_SIZE_BYTES / 1024 / 1024} MB) — ${originalName}`);
+            throw new Error(`File too large: ${fileSizeMB} MB exceeds the ${UPLOAD_MAX_SIZE_BYTES / 1024 / 1024} MB limit`);
+        }
+
+        if (file.length > UPLOAD_WARN_SIZE_BYTES) {
+            this.logger.warn(`Large file upload detected: ${fileSizeMB} MB — ${originalName}. Upload may be slow in production.`);
+        }
+
         try {
             const fileExtension = originalName.split('.').pop();
-            const directory = context === 'quick-pt'
-                ? 'quick-pt'
-                : 'tournaments';
+            const directory = context === 'quick-pt' ? 'quick-pt' : 'tournaments';
             const uniqueKey = `${directory}/${screenshotType}/match-${matchId}/${Date.now()}-${crypto.randomUUID()}.${fileExtension}`;
 
             const command = new PutObjectCommand({
@@ -51,22 +70,22 @@ export class CloudflareR2Service extends BaseService {
                 Key: uniqueKey,
                 Body: file,
                 ContentType: mimeType,
-                // Make file publicly accessible
                 ACL: 'public-read'
             });
 
+            const uploadStart = Date.now();
             await this.s3Client.send(command);
+            const uploadMs = Date.now() - uploadStart;
 
-            const fileUrl = `${this.publicUrl}/${uniqueKey}`;
+            if (uploadMs > UPLOAD_SLOW_THRESHOLD_MS) {
+                this.logger.warn(`Slow R2 upload: ${uniqueKey} took ${uploadMs} ms (${fileSizeMB} MB)`);
+            } else {
+                this.logger.info(`File uploaded to R2 in ${uploadMs} ms (${fileSizeMB} MB): ${uniqueKey}`);
+            }
 
-            this.logger.info(`File uploaded successfully to R2: ${uniqueKey}`);
-
-            return {
-                url: fileUrl,
-                key: uniqueKey
-            };
+            return { url: `${this.publicUrl}/${uniqueKey}`, key: uniqueKey };
         } catch (error) {
-            this.logger.error('Failed to upload file to R2:', error);
+            this.logger.error(`Failed to upload file to R2 (${fileSizeMB} MB, ${originalName}):`, error);
             throw new Error('File upload failed');
         }
     }
@@ -133,6 +152,13 @@ export class CloudflareR2Service extends BaseService {
         r2Key: string,
         mimeType: string
     ): Promise<{ url: string; key: string }> {
+        const fileSizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
+
+        if (buffer.length > UPLOAD_MAX_SIZE_BYTES) {
+            this.logger.error(`Logo upload rejected: file too large (${fileSizeMB} MB) — ${r2Key}`);
+            throw new Error(`Logo too large: ${fileSizeMB} MB exceeds the ${UPLOAD_MAX_SIZE_BYTES / 1024 / 1024} MB limit`);
+        }
+
         try {
             const command = new PutObjectCommand({
                 Bucket: this.bucketName,
@@ -142,13 +168,19 @@ export class CloudflareR2Service extends BaseService {
                 ACL: 'public-read',
             });
 
+            const uploadStart = Date.now();
             await this.s3Client.send(command);
+            const uploadMs = Date.now() - uploadStart;
 
-            const fileUrl = `${this.publicUrl}/${r2Key}`;
-            this.logger.info(`Logo uploaded to R2: ${r2Key}`);
-            return { url: fileUrl, key: r2Key };
+            if (uploadMs > UPLOAD_SLOW_THRESHOLD_MS) {
+                this.logger.warn(`Slow R2 logo upload: ${r2Key} took ${uploadMs} ms (${fileSizeMB} MB)`);
+            } else {
+                this.logger.info(`Logo uploaded to R2 in ${uploadMs} ms (${fileSizeMB} MB): ${r2Key}`);
+            }
+
+            return { url: `${this.publicUrl}/${r2Key}`, key: r2Key };
         } catch (error) {
-            this.logger.error(`Failed to upload logo to R2: ${r2Key}`, error);
+            this.logger.error(`Failed to upload logo to R2 (${fileSizeMB} MB): ${r2Key}`, error);
             throw new Error('Logo upload failed');
         }
     }
