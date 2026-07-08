@@ -83,8 +83,8 @@ export const updateQuickMatchResultSchema = z.object({
 
 // Result params
 export const quickResultParamsSchema = z.object({
-    quickMatchId: z.string().cuid('Invalid quick match ID'),
-    resultId: z.string().cuid('Invalid result ID').optional()
+    quickMatchId: z.string().uuid('Invalid quick match ID'),
+    resultId: z.string().uuid('Invalid result ID').optional()
 });
 
 // Process results (trigger AI processing)
