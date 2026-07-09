@@ -76,6 +76,7 @@ export interface QuickPointsTableCache {
 export type WarningType = 
     | 'TEAM_NAME_MISMATCH'
     | 'SLOT_NOT_FOUND'
+    | 'SLOT_NOT_FOUND_NEAR_MISS'
     | 'DUPLICATE_TEAM'
     | 'MISSING_KILLS'
     | 'INVALID_POSITION'

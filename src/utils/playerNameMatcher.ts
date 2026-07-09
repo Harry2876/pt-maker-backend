@@ -19,7 +19,7 @@ export function playerNamesMatch(a: string, b: string): boolean {
     if (shorter.length >= 4 && longer.startsWith(shorter)) return true;
     if (shorter.length >= 4 && longer.includes(shorter)) return true;
 
-    if (shorter.length > 5) {
+    if (shorter.length >= 4) {
         const maxDist = shorter.length >= 12 ? 4 : shorter.length >= 9 ? 3 : 2;
         if (levenshtein(na, nb) <= maxDist) return true;
         if (bigramSimilarity(na, nb) >= 0.70) return true;
@@ -30,7 +30,7 @@ export function playerNamesMatch(a: string, b: string): boolean {
 
 /** Minimum overlapping players required for a confident roster match. */
 export function requiredRosterMatchCount(rosterSize: number): number {
-    if (rosterSize >= 4) return 3;
+    if (rosterSize >= 4) return 2;
     if (rosterSize === 3) return 2;
     if (rosterSize === 2) return 2;
     return 1;

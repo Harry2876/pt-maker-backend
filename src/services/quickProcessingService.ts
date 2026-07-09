@@ -352,7 +352,9 @@ export class QuickProcessingService extends BaseService {
                     if (!match.slot) {
                         unmatched++;
                         warnings.push({
-                            type: 'SLOT_NOT_FOUND',
+                            type: match.matchScore === match.requiredScore - 1
+                                ? 'SLOT_NOT_FOUND_NEAR_MISS'
+                                : 'SLOT_NOT_FOUND',
                             message: `Rank ${team.team_rank}: could not match team to an attendance slot (${match.matchScore}/${match.requiredScore} players)`,
                             details: {
                                 team_rank: team.team_rank,
