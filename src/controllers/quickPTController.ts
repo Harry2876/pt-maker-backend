@@ -137,6 +137,14 @@ export class QuickPTController {
             );
         }
 
+        if (result.created.length > 0) {
+            await quickResultService.createPlaceholderResults(
+                quickMatchId,
+                userId,
+                result.created.map(s => ({ slotNumber: s.slotNumber, teamName: s.teamName }))
+            );
+        }
+
         return res.status(201).json(
             ResponseHelper.success('Slots created successfully', {
                 created: result.created,
@@ -160,6 +168,10 @@ export class QuickPTController {
             teamName,
             playerNames
         });
+
+        await quickResultService.createPlaceholderResults(quickMatchId, userId, [
+            { slotNumber: slot.slotNumber, teamName: slot.teamName }
+        ]);
 
         return res.status(201).json(
             ResponseHelper.success('Slot created successfully', slot)

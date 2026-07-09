@@ -142,6 +142,40 @@ export class QuickResultService extends BaseService {
     }
 
     /**
+ * Seed a zero-score MANUAL_ENTRY result for every slot that has no result yet.
+ * Called after slot parsing so the manual result window always shows all teams.
+ * AI processing will upsert these placeholders with real data when teams are detected.
+ */
+async createPlaceholderResults(
+    quickMatchId: string,
+    userId: string,
+    slots: Array<{ slotNumber: number; teamName: string }>
+): Promise<{ created: number; skipped: number }> {
+    let created = 0;
+    let skipped = 0;
+
+    for (const slot of slots) {
+        const existing = await this.db.quickMatchResult.findUnique({
+            where: { quickMatchId_slotNumber: { quickMatchId, slotNumber: slot.slotNumber } },
+        });
+        if (existing) { skipped++; continue; } // real result already there — don't overwrite
+
+        await this.persistResult(quickMatchId, userId, {
+            slotNumber: slot.slotNumber,
+            teamName: slot.teamName,
+            position: 0,
+            rank: 0,
+            totalKills: 0,
+            positionPoints: 0,
+            killPoints: 0,
+            totalPoints: 0,
+        }, { status: 'MANUAL_ENTRY' });
+        created++;
+    }
+    return { created, skipped };
+}
+
+    /**
      * Get all results for a match — always reads from Postgres (source of truth).
      */
     async getMatchResults(quickMatchId: string, userId: string): Promise<QuickMatchResultCache[]> {

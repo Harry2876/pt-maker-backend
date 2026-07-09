@@ -214,7 +214,7 @@ export class QuickProcessingService extends BaseService {
             if (!isServiceError(error)) {
                 await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                     status: 'ERROR',
-                }).catch(() => {});
+                }).catch(() => { });
             }
             throw error;
         }
@@ -310,6 +310,13 @@ export class QuickProcessingService extends BaseService {
             const deletedProcessedResults = await quickResultService.deleteProcessedResults(
                 quickMatchId,
                 userId
+            );
+
+            const allSlots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId, {});
+            await quickResultService.createPlaceholderResults(
+                quickMatchId,
+                userId,
+                allSlots.map(s => ({ slotNumber: s.slotNumber, teamName: s.teamName }))
             );
 
             const resultTeams = reconciliation.teams;
@@ -472,7 +479,7 @@ export class QuickProcessingService extends BaseService {
             if (!isServiceError(error)) {
                 await quickMatchService.updateQuickMatch(quickMatchId, userId, {
                     status: 'ERROR',
-                }).catch(() => {});
+                }).catch(() => { });
             }
             throw error;
         }
