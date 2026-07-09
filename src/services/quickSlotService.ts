@@ -427,6 +427,17 @@ export class QuickSlotService extends BaseService {
                 where: { id: slotId }
             });
 
+            // 3.5 Delete the result for this slot (any status)
+            const result = await this.db.quickMatchResult.findFirst({
+                where: { quickMatchId, slotNumber: slot.slotNumber },
+                select: { id: true },
+            });
+            if (result) {
+                await this.db.quickMatchResult.delete({ where: { id: result.id } });
+                await redis.delete(`quickResult:${result.id}`);
+                await redis.srem(`quickMatch:${quickMatchId}:results`, result.id);
+            }
+
             // 4. Delete from Redis
             await redis.delete(`quickSlot:${slotId}`);
             await redis.delete(`quickMatch:${quickMatchId}:slot:${slot.slotNumber}`);
@@ -458,6 +469,17 @@ export class QuickSlotService extends BaseService {
             await this.db.quickSlotAssignment.deleteMany({
                 where: { quickMatchId }
             });
+
+            // 3.5 Delete all results for this match (any status)
+            const results = await this.db.quickMatchResult.findMany({
+                where: { quickMatchId },
+                select: { id: true },
+            });
+            if (results.length > 0) {
+                await this.db.quickMatchResult.deleteMany({ where: { quickMatchId } });
+                await Promise.all(results.map((r) => redis.delete(`quickResult:${r.id}`)));
+                await redis.delete(`quickMatch:${quickMatchId}:results`);
+            }
 
             // 4. Delete from Redis
             for (const slotId of slotIds) {
@@ -557,7 +579,7 @@ export class QuickSlotService extends BaseService {
 
         // Delete old logo if present
         if (slot.matchLogoR2Key) {
-            await r2Service.deleteFile(slot.matchLogoR2Key).catch(() => {});
+            await r2Service.deleteFile(slot.matchLogoR2Key).catch(() => { });
         }
 
         const r2Key = `match-logos/${quickMatchId}/slot-${slotNumber}-${randomUUID()}.${ext}`;
@@ -602,7 +624,7 @@ export class QuickSlotService extends BaseService {
         }
 
         if (slot.matchLogoR2Key) {
-            await r2Service.deleteFile(slot.matchLogoR2Key).catch(() => {});
+            await r2Service.deleteFile(slot.matchLogoR2Key).catch(() => { });
         }
 
         await this.db.quickSlotAssignment.update({
