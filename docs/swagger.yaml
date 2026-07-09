@@ -105,17 +105,88 @@ info:
       }
     ```
 
-    > **Android:** Use `data.resultProcessingResult.results[].playerResults` (COMPLETE)
-    > or `data.audit.saved[].playerResults` (RESULT). Same `playerResults` shape on
-    > `GET /quick-pt/matches/{id}/results`.
+    > **Note:** `playerResults` is only populated for **AI-processed** results.
+    > Manual entry results (`MANUAL_ENTRY` status) will have `playerResults: null`.
+    > Check `result.status` to determine whether per-player data is available.
 
     > **Tip:** Run both steps at once with `{ "type": "COMPLETE" }`.
+
+    #### Step 6b — Manual Result Entry (alternative to AI processing)
+    Use these endpoints when skipping AI processing (no screenshots).
+    All IDs (match, result) are UUID v4 strings.
+
+    **Single entry:**
+    ```
+    POST /quick-pt/matches/{id}/results/manual
+    {
+      "slotNumber": 1,          // integer 1–25 (required)
+      "teamName": "Team Alpha", // string 2–50 chars (required)
+      "position": 1,            // integer 1–25 (required)
+      "totalKills": 12,         // integer 0–99 (required)
+      "rank": 1,                // integer 1–25 (optional, defaults to position)
+      "entryNotes": "Verified"  // string ≤500 chars (optional)
+    }
+    → 201: { success, message, data: MatchResultItem, meta }
+    ```
+
+    **Bulk create (up to 25 teams at once):**
+    ```
+    POST /quick-pt/matches/{id}/results/bulk
+    {
+      "results": [
+        { "slotNumber": 1, "teamName": "Team Alpha", "position": 1, "totalKills": 12 },
+        { "slotNumber": 2, "teamName": "Team Beta",  "position": 2, "totalKills": 8  }
+      ],
+      "replaceExisting": true   // deletes existing MANUAL_ENTRY results first (AI results preserved)
+    }
+    → 201 (all ok) or 207 (partial) — body is BulkOperationResponse
+    ```
+
+    **Bulk update (up to 25 at once):**
+    ```
+    PUT /quick-pt/matches/{id}/results/bulk
+    {
+      "updates": [
+        {
+          "resultId": "<uuid>",
+          "data": { "position": 2, "totalKills": 10 }   // only changed fields
+        }
+      ]
+    }
+    → 200 (all ok) or 207 (partial) — body is BulkOperationResponse
+    ```
+
+    **Single update:**
+    ```
+    PUT /quick-pt/matches/{quickMatchId}/results/{resultId}
+    { "position": 3, "totalKills": 10 }   // any subset of fields
+    → 200: { success, message, data: MatchResultItem, meta }
+    ```
+
+    **Delete single:**
+    ```
+    DELETE /quick-pt/matches/{quickMatchId}/results/{resultId}
+    → 200: { success, message }
+    ```
+
+    **Bulk delete:**
+    ```
+    DELETE /quick-pt/matches/{id}/results/bulk
+    { "resultIds": ["<uuid>", "<uuid>"] }
+    → 200: BulkOperationResponse
+    ```
+
+    > **App note:** `playerResults` is always `null` for manual results.
+    > Only check `slotNumber`, `teamName`, `position`, `rank`, `totalKills`,
+    > `positionPoints`, `killPoints`, `totalPoints` for manual entries.
 
     #### Step 7 — View Results
     ```
     GET /quick-pt/matches/{id}/results
-    → { results: [...], count } — each item includes playerResults[{ playerName, kills }]
+    → { results: [...], count }
     ```
+    Each item's `status` field indicates origin: `MANUAL_ENTRY` or `PROCESSED`.
+    `playerResults` is populated only for `PROCESSED` results.
 
     #### Step 8 — Export Standings Image
     Choose a template, then generate the standings PNG.

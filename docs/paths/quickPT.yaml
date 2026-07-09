@@ -354,11 +354,11 @@ paths:
                 slotNumber:
                   type: integer
                   minimum: 1
-                  maximum: 100
+                  maximum: 25
                   example: 1
                 teamName:
                   type: string
-                  minLength: 2
+                  minLength: 1
                   maxLength: 50
                   example: "Team Alpha"
                 playerNames:
@@ -504,15 +504,15 @@ paths:
                 quickMatchId:
                   type: string
                   format: uuid
-                  example: "clx123abc456"
+                  example: "550e8400-e29b-41d4-a716-446655440000"
                 slotNumber:
                   type: integer
                   minimum: 1
-                  maximum: 100
+                  maximum: 25
                   example: 5
                 teamName:
                   type: string
-                  minLength: 2
+                  minLength: 1
                   maxLength: 50
                   example: "Team Alpha Updated"
                 playerNames:
@@ -704,7 +704,7 @@ paths:
                 quickMatchId:
                   type: string
                   format: uuid
-                  example: "clx123abc456"
+                  example: "550e8400-e29b-41d4-a716-446655440000"
                   description: "Required to verify ownership"
       responses:
         "200":
@@ -1013,9 +1013,14 @@ paths:
       tags: [Quick-PT Results]
       summary: Create a manual result entry
       description: |
-        Manually enter a team result without AI processing.
-        Points are automatically calculated from the match's scoring configuration.
-        Sets match status to `COMPLETED`.
+        Manually enter a **team-level** result without AI processing.
+        Points (`positionPoints`, `killPoints`, `totalPoints`) are automatically
+        calculated from the match's `positionPointsConfig` and `killPointsValue`.
+
+        - `rank` defaults to `position` if not supplied.
+        - If the slot does not exist yet, it is auto-created with the given `teamName`.
+        - No per-player tracking — only team position and kills.
+        - Does **not** automatically mark the match as `COMPLETED`.
       security:
         - bearerAuth: []
       parameters:
@@ -1026,18 +1031,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [slotNumber, teamName, position, rank, totalKills]
+              required: [slotNumber, teamName, position, totalKills]
               properties:
                 slotNumber:
                   type: integer
                   minimum: 1
-                  maximum: 100
+                  maximum: 25
                   example: 1
                 teamName:
                   type: string
-                  minLength: 2
+                  minLength: 1
                   maxLength: 50
-                  example: "Team Alpha"
+                  example: "T"
                 position:
                   type: integer
                   minimum: 1
@@ -1048,26 +1053,17 @@ paths:
                   minimum: 1
                   maximum: 25
                   example: 1
-                  description: "Same as position for standard matches"
+                  description: "Defaults to position value if omitted"
                 totalKills:
                   type: integer
                   minimum: 0
                   maximum: 99
                   example: 12
-                playerResults:
-                  type: array
-                  maxItems: 4
-                  items:
-                    type: object
-                    required: [playerName, kills]
-                    properties:
-                      playerName:
-                        type: string
-                        example: "Player1"
-                      kills:
-                        type: integer
-                        minimum: 0
-                        example: 5
+                entryNotes:
+                  type: string
+                  maxLength: 500
+                  example: "Manually verified by organizer"
+                  description: "Optional note stored with this result"
       responses:
         "201":
           description: Manual result created
@@ -1100,9 +1096,14 @@ paths:
       tags: [Quick-PT Results]
       summary: Create multiple results in bulk (up to 25)
       description: |
-        Create up to 25 result records in a single request.
-        Points are automatically calculated for each entry.
-        Sets match status to `COMPLETED` if any results are created successfully.
+        Create up to 25 **team-level** result records in a single request.
+        Points are automatically calculated for each entry from the match's scoring config.
+
+        - `rank` defaults to `position` per item if omitted.
+        - Slots are auto-created if they do not exist.
+        - No per-player tracking — team position and kills only.
+        - `replaceExisting: true` only deletes existing `MANUAL_ENTRY` results — AI-processed results are preserved.
+        - `success` in the response is `true` only when **all** items succeed (not partial).
       security:
         - bearerAuth: []
       parameters:
@@ -1121,15 +1122,15 @@ paths:
                   maxItems: 25
                   items:
                     type: object
-                    required: [slotNumber, teamName, position, rank, totalKills]
+                    required: [slotNumber, teamName, position, totalKills]
                     properties:
                       slotNumber:
                         type: integer
                         minimum: 1
-                        maximum: 100
+                        maximum: 25
                       teamName:
                         type: string
-                        minLength: 2
+                        minLength: 1
                         maxLength: 50
                       position:
                         type: integer
@@ -1139,29 +1140,22 @@ paths:
                         type: integer
                         minimum: 1
                         maximum: 25
+                        description: "Defaults to position if omitted"
                       totalKills:
                         type: integer
                         minimum: 0
                         maximum: 99
-                      playerResults:
-                        type: array
-                        maxItems: 4
-                        items:
-                          type: object
-                          properties:
-                            playerName:
-                              type: string
-                            kills:
-                              type: integer
-                              minimum: 0
+                      entryNotes:
+                        type: string
+                        maxLength: 500
                 replaceExisting:
                   type: boolean
                   default: false
-                  description: "If true, deletes all existing results before inserting"
+                  description: "If true, deletes only existing MANUAL_ENTRY results before inserting. AI-processed results are preserved."
                 validateConstraints:
                   type: boolean
                   default: true
-                  description: "If true, validates slot existence and position uniqueness before inserting"
+                  description: "Reserved for future use — accepted but currently not enforced server-side."
       responses:
         "201":
           description: All results created
@@ -1187,6 +1181,11 @@ paths:
     put:
       tags: [Quick-PT Results]
       summary: Update multiple results in bulk (up to 25)
+      description: |
+        Update up to 25 existing results in one request.
+        At least one field in `data` must be provided per item.
+        Points are recalculated automatically when `position` or `totalKills` change.
+        `success` is `true` only when **all** items succeed.
       security:
         - bearerAuth: []
       parameters:
@@ -1210,11 +1209,15 @@ paths:
                       resultId:
                         type: string
                         format: uuid
+                        description: "UUID of the result to update"
                       data:
                         type: object
+                        description: "Fields to update — all optional but at least one required"
                         properties:
                           teamName:
                             type: string
+                            minLength: 1
+                            maxLength: 50
                           position:
                             type: integer
                             minimum: 1
@@ -1227,16 +1230,9 @@ paths:
                             type: integer
                             minimum: 0
                             maximum: 99
-                          playerResults:
-                            type: array
-                            maxItems: 4
-                            items:
-                              type: object
-                              properties:
-                                playerName:
-                                  type: string
-                                kills:
-                                  type: integer
+                          entryNotes:
+                            type: string
+                            maxLength: 500
       responses:
         "200":
           description: All results updated
@@ -1302,7 +1298,11 @@ paths:
     put:
       tags: [Quick-PT Results]
       summary: Update a single result
-      description: "Points are automatically recalculated when position or totalKills change."
+      description: |
+        Update one result by its UUID.
+        All fields are optional — send only the fields you want to change.
+        Points (`positionPoints`, `killPoints`, `totalPoints`) are automatically
+        recalculated when `position` or `totalKills` change.
       security:
         - bearerAuth: []
       parameters:
@@ -1312,22 +1312,25 @@ paths:
           schema:
             type: string
             format: uuid
+            description: "UUID of the Quick Match"
         - in: path
           name: resultId
           required: true
           schema:
             type: string
             format: uuid
+            description: "UUID of the result to update"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              description: "All fields optional — at least one required"
               properties:
                 teamName:
                   type: string
-                  minLength: 2
+                  minLength: 1
                   maxLength: 50
                 position:
                   type: integer
@@ -1341,16 +1344,10 @@ paths:
                   type: integer
                   minimum: 0
                   maximum: 99
-                playerResults:
-                  type: array
-                  maxItems: 4
-                  items:
-                    type: object
-                    properties:
-                      playerName:
-                        type: string
-                      kills:
-                        type: integer
+                entryNotes:
+                  type: string
+                  maxLength: 500
+                  nullable: true
       responses:
         "200":
           description: Result updated
@@ -4032,10 +4029,15 @@ components:
           maximum: 1
           nullable: true
           example: 0.92
+        entryNotes:
+          type: string
+          nullable: true
+          example: "Manually verified by organizer"
+          description: "Note attached during manual entry (null for AI-processed results)"
         playerResults:
           type: array
           nullable: true
-          description: "Per-player finish counts (OCR or manual entry)"
+          description: "Per-player kill breakdown. Populated by AI processing only — null for MANUAL_ENTRY results."
           items:
             $ref: "#/components/schemas/PlayerResultItem"
         updatedAt:

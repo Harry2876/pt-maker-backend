@@ -84,17 +84,17 @@ export class QuickResultService extends BaseService {
 
         const dbResult = existing
             ? await this.db.quickMatchResult.update({
-                  where: { id: existing.id },
-                  data: dbPayload,
-              })
+                where: { id: existing.id },
+                data: dbPayload,
+            })
             : await this.db.quickMatchResult.create({
-                  data: {
-                      id: randomUUID(),
-                      quickMatchId,
-                      ...dbPayload,
-                      createdAt: now,
-                  },
-              });
+                data: {
+                    id: randomUUID(),
+                    quickMatchId,
+                    ...dbPayload,
+                    createdAt: now,
+                },
+            });
 
         const result = this.convertDbToCache(dbResult);
         await this.cacheResult(result);
@@ -311,8 +311,8 @@ export class QuickResultService extends BaseService {
         };
 
         if (data.replaceExisting) {
-            await this.db.quickMatchResult.deleteMany({ 
-                where: { quickMatchId, status: 'MANUAL_ENTRY' } 
+            await this.db.quickMatchResult.deleteMany({
+                where: { quickMatchId, status: 'MANUAL_ENTRY' }
             });
             const staleIds = await redis.smembers(`quickMatch:${quickMatchId}:results`);
             await Promise.all(staleIds.map((id) => redis.delete(`quickResult:${id}`)));
@@ -334,9 +334,8 @@ export class QuickResultService extends BaseService {
                 result.errors.push({
                     field: 'general',
                     code: error instanceof ServiceError ? error.code : 'CREATION_ERROR',
-                    message: `Failed to create result for slot ${resultData.slotNumber}: ${
-                        error instanceof Error ? error.message : 'Unknown error'
-                    }`,
+                    message: `Failed to create result for slot ${resultData.slotNumber}: ${error instanceof Error ? error.message : 'Unknown error'
+                        }`,
                     value: resultData.slotNumber,
                 });
                 result.summary.failed++;
@@ -380,9 +379,8 @@ export class QuickResultService extends BaseService {
                 result.errors.push({
                     field: 'resultId',
                     code: error instanceof ServiceError ? error.code : 'UPDATE_ERROR',
-                    message: `Failed to update result ${updateItem.resultId}: ${
-                        error instanceof Error ? error.message : 'Unknown error'
-                    }`,
+                    message: `Failed to update result ${updateItem.resultId}: ${error instanceof Error ? error.message : 'Unknown error'
+                        }`,
                     value: updateItem.resultId,
                 });
                 result.summary.failed++;
@@ -418,9 +416,8 @@ export class QuickResultService extends BaseService {
                 result.errors.push({
                     field: 'resultId',
                     code: error instanceof ServiceError ? error.code : 'DELETE_ERROR',
-                    message: `Failed to delete result ${resultId}: ${
-                        error instanceof Error ? error.message : 'Unknown error'
-                    }`,
+                    message: `Failed to delete result ${resultId}: ${error instanceof Error ? error.message : 'Unknown error'
+                        }`,
                     value: resultId,
                 });
                 result.summary.failed++;
@@ -559,8 +556,8 @@ export class QuickResultService extends BaseService {
             warningType: dbResult.warningType || undefined,
             needsReview: dbResult.needsReview,
             aiConfidence: dbResult.aiConfidence ?? undefined,
-entryNotes: dbResult.entryNotes ?? undefined,
-createdAt: dbResult.createdAt.toISOString(),
+            entryNotes: dbResult.entryNotes ?? undefined,
+            createdAt: dbResult.createdAt.toISOString(),
             updatedAt: dbResult.updatedAt.toISOString(),
             dbStatus: 'SYNCED',
         };

@@ -20,7 +20,7 @@ export const createManualResultSchema = z.object({
         .max(25, 'Slot number cannot exceed 25'),
     
     teamName: z.string()
-        .min(2, 'Team name must be at least 2 characters')
+        .min(1, 'Team name is required')
         .max(50, 'Team name must be at most 50 characters'),
     
     position: z.number()
@@ -52,7 +52,7 @@ export const createManualResultSchema = z.object({
 // Update manual result schema
 export const updateManualResultSchema = z.object({
     teamName: z.string()
-        .min(2, 'Team name must be at least 2 characters')
+        .min(1, 'Team name is required')
         .max(50, 'Team name must be at most 50 characters')
         .optional(),
     
@@ -81,6 +81,7 @@ export const updateManualResultSchema = z.object({
     
     entryNotes: z.string()
         .max(500, 'Notes must be at most 500 characters')
+        .nullable()
         .optional()
 }).refine(data => Object.keys(data).length > 0, {
     message: 'At least one field must be provided for update'
