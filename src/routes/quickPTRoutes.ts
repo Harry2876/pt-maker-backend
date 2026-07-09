@@ -3010,155 +3010,6 @@ quickPTRouter.post('/matches/:id/results/manual',
     QuickPTController.createManualResult
 );
 
-/**
- * @swagger
- * /api/v1/quick-pt/matches/{quickMatchId}/results/{resultId}:
- *   put:
- *     tags: [Quick-PT]
- *     summary: Update manual result entry
- *     description: Update an existing manual result entry
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: quickMatchId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Quick Match ID
- *         example: "clx123abc456"
- *       - in: path
- *         name: resultId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Result ID
- *         example: "result_xyz789"
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               teamName:
- *                 type: string
- *                 minLength: 2
- *                 maxLength: 50
- *                 example: "Team Alpha Updated"
- *               position:
- *                 type: integer
- *                 minimum: 1
- *                 maximum: 25
- *                 example: 2
- *               totalKills:
- *                 type: integer
- *                 minimum: 0
- *                 maximum: 99
- *                 example: 10
- *               playerResults:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required:
- *                     - playerName
- *                     - kills
- *                   properties:
- *                     playerName:
- *                       type: string
- *                       example: "Player1"
- *                     kills:
- *                       type: integer
- *                       example: 3
- *                 maxItems: 4
- *               entryNotes:
- *                 type: string
- *                 maxLength: 500
- *                 example: "Updated kill count"
- *             description: At least one field must be provided for update
- *     responses:
- *       200:
- *         description: Result updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Result updated successfully"
- *                 data:
- *                   type: object
- *                   description: Updated result data
- *       400:
- *         description: Validation error
- *       404:
- *         description: Result not found
- *       401:
- *         description: Unauthorized
- */
-quickPTRouter.put('/matches/:quickMatchId/results/:resultId',
-    validateRequest(quickMatchResultParamsSchema, 'params'),
-    validateRequest(updateManualResultSchema, 'body'),
-    QuickPTController.updateManualResult
-);
-
-/**
- * @swagger
- * /api/v1/quick-pt/matches/{quickMatchId}/results/{resultId}:
- *   delete:
- *     tags: [Quick-PT]
- *     summary: Delete manual result entry
- *     description: Delete a specific result entry
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: quickMatchId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Quick Match ID
- *         example: "clx123abc456"
- *       - in: path
- *         name: resultId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Result ID to delete
- *         example: "result_xyz789"
- *     responses:
- *       200:
- *         description: Result deleted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Result deleted successfully"
- *       404:
- *         description: Result not found
- *       401:
- *         description: Unauthorized
- */
-quickPTRouter.delete('/matches/:quickMatchId/results/:resultId',
-    validateRequest(quickMatchResultParamsSchema, 'params'),
-    QuickPTController.deleteResult
-);
-
-
 // ========================================
 // BULK MANUAL RESULT ROUTES
 // ========================================
@@ -3528,6 +3379,19 @@ quickPTRouter.delete('/matches/:id/results/bulk',
     validateRequest(manualResultParamsSchema, 'params'),
     validateRequest(bulkDeleteManualResultsSchema, 'body'),
     QuickPTController.deleteBulkManualResults
+);
+
+// Single result routes — registered AFTER bulk so Express doesn't
+// consume the literal path segment "bulk" as a :resultId value.
+quickPTRouter.put('/matches/:quickMatchId/results/:resultId',
+    validateRequest(quickMatchResultParamsSchema, 'params'),
+    validateRequest(updateManualResultSchema, 'body'),
+    QuickPTController.updateManualResult
+);
+
+quickPTRouter.delete('/matches/:quickMatchId/results/:resultId',
+    validateRequest(quickMatchResultParamsSchema, 'params'),
+    QuickPTController.deleteResult
 );
 
 // ========================================
