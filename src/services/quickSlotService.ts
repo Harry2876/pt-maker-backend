@@ -415,21 +415,30 @@ export class QuickSlotService extends BaseService {
             if (!quickMatch) {
                 throw new Error('Quick Match not found or access denied');
             }
-
-            // 2. Get slot to find slot number
-            const slot = await redis.hgetObject<QuickSlotCache>(`quickSlot:${slotId}`);
-            if (!slot) {
+    
+            // 2. Get slot from DB (source of truth)
+            const dbSlot = await this.db.quickSlotAssignment.findFirst({
+                where: { id: slotId, quickMatchId },
+                select: { id: true, slotNumber: true, matchLogoR2Key: true },
+            });
+    
+            if (!dbSlot) {
                 throw new Error('Slot not found');
             }
-
-            // 3. Delete from database
+    
+            // 2.5 Delete match logo from R2 if attached (same pattern as removeMatchLogo)
+            if (dbSlot.matchLogoR2Key) {
+                await r2Service.deleteFile(dbSlot.matchLogoR2Key).catch(() => { });
+            }
+    
+            // 3. Delete slot from database
             await this.db.quickSlotAssignment.delete({
-                where: { id: slotId }
+                where: { id: slotId },
             });
-
-            // 3.5 Delete the result for this slot (any status)
+    
+            // 3.5 Delete the result for this slot (any status — including placeholder 0s)
             const result = await this.db.quickMatchResult.findFirst({
-                where: { quickMatchId, slotNumber: slot.slotNumber },
+                where: { quickMatchId, slotNumber: dbSlot.slotNumber },
                 select: { id: true },
             });
             if (result) {
@@ -437,14 +446,14 @@ export class QuickSlotService extends BaseService {
                 await redis.delete(`quickResult:${result.id}`);
                 await redis.srem(`quickMatch:${quickMatchId}:results`, result.id);
             }
-
+    
             // 4. Delete from Redis
             await redis.delete(`quickSlot:${slotId}`);
-            await redis.delete(`quickMatch:${quickMatchId}:slot:${slot.slotNumber}`);
+            await redis.delete(`quickMatch:${quickMatchId}:slot:${dbSlot.slotNumber}`);
             await redis.srem(`quickMatch:${quickMatchId}:slots`, slotId);
-
+    
             this.logger.info(`Slot ${slotId} deleted from Quick Match ${quickMatchId}`);
-
+    
         } catch (error) {
             this.handleError(error, 'Delete Quick Slot');
             throw error;
@@ -462,8 +471,18 @@ export class QuickSlotService extends BaseService {
                 throw new Error('Quick Match not found or access denied');
             }
 
-            // 2. Get all slot IDs
-            const slotIds = await redis.smembers(`quickMatch:${quickMatchId}:slots`);
+            // 2. Get all slots from DB before bulk delete (source of truth)
+            const dbSlots = await this.db.quickSlotAssignment.findMany({
+                where: { quickMatchId },
+                select: { id: true, slotNumber: true, matchLogoR2Key: true },
+            });
+
+            // 2.5 Delete match logos from R2
+            for (const slot of dbSlots) {
+                if (slot.matchLogoR2Key) {
+                    await r2Service.deleteFile(slot.matchLogoR2Key).catch(() => { });
+                }
+            }
 
             // 3. Delete from database (bulk delete)
             await this.db.quickSlotAssignment.deleteMany({
@@ -482,12 +501,9 @@ export class QuickSlotService extends BaseService {
             }
 
             // 4. Delete from Redis
-            for (const slotId of slotIds) {
-                const slot = await redis.hgetObject<QuickSlotCache>(`quickSlot:${slotId}`);
-                if (slot) {
-                    await redis.delete(`quickSlot:${slotId}`);
-                    await redis.delete(`quickMatch:${quickMatchId}:slot:${slot.slotNumber}`);
-                }
+            for (const slot of dbSlots) {
+                await redis.delete(`quickSlot:${slot.id}`);
+                await redis.delete(`quickMatch:${quickMatchId}:slot:${slot.slotNumber}`);
             }
             await redis.delete(`quickMatch:${quickMatchId}:slots`);
 

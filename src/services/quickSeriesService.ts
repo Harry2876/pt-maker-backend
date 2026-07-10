@@ -788,23 +788,37 @@ export class QuickSeriesService extends BaseService {
      * Apply single tie-breaking rule to series standings
      * @private
      */
+    private getSeriesWwcdCount(standing: SeriesTeamStanding): number {
+        return standing.matchResults.filter((m) => m.position === 1).length;
+    }
+
     private applySingleSeriesTieBreakingRule(
         standings: SeriesTeamStanding[],
         rule: TieBreakingRule
     ): SeriesTeamStanding[] {
         switch (rule.method) {
             case 'POSITION_POINTS':
-                return standings.sort((a, b) => (b.positionPoints ?? 0) - (a.positionPoints ?? 0));
+                return [...standings].sort((a, b) => (b.positionPoints ?? 0) - (a.positionPoints ?? 0));
+
+            case 'CHICKEN_DINNER':
+                return [...standings].sort((a, b) => {
+                    const aWwcd = this.getSeriesWwcdCount(a);
+                    const bWwcd = this.getSeriesWwcdCount(b);
+                    if ((aWwcd > 0) !== (bWwcd > 0)) {
+                        return bWwcd > 0 ? 1 : -1;
+                    }
+                    return bWwcd - aWwcd;
+                });
 
             case 'KILLS':
-                return standings.sort((a, b) => b.totalKills - a.totalKills);
-            
+                return [...standings].sort((a, b) => b.totalKills - a.totalKills);
+
             case 'BEST_POSITION':
-                return standings.sort((a, b) => a.bestPosition - b.bestPosition);
-            
+                return [...standings].sort((a, b) => a.bestPosition - b.bestPosition);
+
             case 'MANUAL_ORDER':
                 return standings;
-            
+
             default:
                 return standings;
         }
@@ -821,6 +835,7 @@ export class QuickSeriesService extends BaseService {
             const stillTied =
                 a.totalPoints === b.totalPoints &&
                 (a.positionPoints ?? 0) === (b.positionPoints ?? 0) &&
+                this.getSeriesWwcdCount(a) === this.getSeriesWwcdCount(b) &&
                 (a.finishPoints ?? 0) === (b.finishPoints ?? 0) &&
                 a.totalKills === b.totalKills &&
                 a.bestPosition === b.bestPosition;

@@ -231,6 +231,21 @@ export class QuickPTController {
         );
     });
 
+    /**
+ * DELETE /api/v1/quick-pt/matches/:id/slots/:slotId
+ * Delete a single slot and its result
+ */
+    static deleteSlot = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId, slotId } = req.params;
+        const userId = req.user!.id;
+
+        await quickSlotService.deleteSlot(slotId, quickMatchId, userId);
+
+        return res.json(
+            ResponseHelper.success('Slot deleted successfully')
+        );
+    });
+
     // ========================================
     // SCREENSHOT ENDPOINTS
     // ========================================
@@ -278,13 +293,13 @@ export class QuickPTController {
                 'quick-pt',
                 quickMatchId,
                 userId,
-                { 
-                    files: uploadInfo.files, 
+                {
+                    files: uploadInfo.files,
                     uploadId: uploadInfo.uploadId,
                     screenshotType: type || 'RESULT' // Safe fallback
                 }
             );
-            
+
             if (Array.isArray(screenshots) && screenshots.length > 0) {
                 results.push(...screenshots);
             } else {
@@ -318,7 +333,7 @@ export class QuickPTController {
 
         try {
             return res.status(success ? 201 : (hasSuccessfulUploads ? 207 : 400)).json(
-                success 
+                success
                     ? ResponseHelper.success('Screenshots uploaded successfully', responseData)
                     : hasSuccessfulUploads
                         ? ResponseHelper.success('Screenshots uploaded with some errors', responseData)
@@ -755,199 +770,199 @@ export class QuickPTController {
         );
     });
 
-/**
- * POST /api/v1/quick-pt/matches/:id/results/manual
- * Create a manual result entry
- */
-static createManualResult = asyncHandler(async (req: Request, res: Response) => {
-    const { id: quickMatchId } = req.params;
-    const userId = req.user!.id;
-    const resultData = req.body;
+    /**
+     * POST /api/v1/quick-pt/matches/:id/results/manual
+     * Create a manual result entry
+     */
+    static createManualResult = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const resultData = req.body;
 
-    const result = await quickResultService.createManualResult(quickMatchId, userId, {
-        ...resultData,
-        source: 'MANUAL_ENTRY',
-        entryMethod: 'INDIVIDUAL',
-        enteredBy: userId
-    });
-
-    return res.status(201).json(
-        ResponseHelper.success('Manual result created successfully', result)
-    );
-});
-
-/**
- * PUT /api/v1/quick-pt/matches/:quickMatchId/results/:resultId
- * Update an existing result
- */
-static updateManualResult = asyncHandler(async (req: Request, res: Response) => {
-    const { resultId } = req.params;
-    const userId = req.user!.id;
-    const updateData = req.body;
-
-    const result = await quickResultService.updateManualResult(resultId, userId, {
-        ...updateData,
-        modifiedBy: userId
-    });
-
-    return res.json(
-        ResponseHelper.success('Result updated successfully', result)
-    );
-});
-/**
- * POST /api/v1/quick-pt/matches/:id/results/bulk
- * Create multiple manual results in bulk
- */
-static createBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
-    const { id: quickMatchId } = req.params;
-    const userId = req.user!.id;
-    const bulkData = req.body;
-
-    const result = await quickResultService.createBulkManualResults(quickMatchId, userId, {
-        ...bulkData,
-        results: bulkData.results.map((r: any) => ({
-            ...r,
+        const result = await quickResultService.createManualResult(quickMatchId, userId, {
+            ...resultData,
             source: 'MANUAL_ENTRY',
-            entryMethod: 'BULK',
+            entryMethod: 'INDIVIDUAL',
             enteredBy: userId
-        }))
+        });
+
+        return res.status(201).json(
+            ResponseHelper.success('Manual result created successfully', result)
+        );
     });
 
-    const statusCode = result.success ? 201 : (result.created.length > 0 ? 207 : 400);
-    
-    return res.status(statusCode).json(
-        result.success 
-            ? ResponseHelper.success('Bulk results created successfully', result)
-            : {
-                success: false,
-                message: 'Bulk operation completed with errors',
-                data: result,
-                error: {
-                    code: 'BULK_PARTIAL_SUCCESS',
-                    timestamp: new Date().toISOString()
-                },
-                meta: {
-                    timestamp: new Date().toISOString(),
-                    version: '1.0'
+    /**
+     * PUT /api/v1/quick-pt/matches/:quickMatchId/results/:resultId
+     * Update an existing result
+     */
+    static updateManualResult = asyncHandler(async (req: Request, res: Response) => {
+        const { resultId } = req.params;
+        const userId = req.user!.id;
+        const updateData = req.body;
+
+        const result = await quickResultService.updateManualResult(resultId, userId, {
+            ...updateData,
+            modifiedBy: userId
+        });
+
+        return res.json(
+            ResponseHelper.success('Result updated successfully', result)
+        );
+    });
+    /**
+     * POST /api/v1/quick-pt/matches/:id/results/bulk
+     * Create multiple manual results in bulk
+     */
+    static createBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const bulkData = req.body;
+
+        const result = await quickResultService.createBulkManualResults(quickMatchId, userId, {
+            ...bulkData,
+            results: bulkData.results.map((r: any) => ({
+                ...r,
+                source: 'MANUAL_ENTRY',
+                entryMethod: 'BULK',
+                enteredBy: userId
+            }))
+        });
+
+        const statusCode = result.success ? 201 : (result.created.length > 0 ? 207 : 400);
+
+        return res.status(statusCode).json(
+            result.success
+                ? ResponseHelper.success('Bulk results created successfully', result)
+                : {
+                    success: false,
+                    message: 'Bulk operation completed with errors',
+                    data: result,
+                    error: {
+                        code: 'BULK_PARTIAL_SUCCESS',
+                        timestamp: new Date().toISOString()
+                    },
+                    meta: {
+                        timestamp: new Date().toISOString(),
+                        version: '1.0'
+                    }
                 }
-            }
-    );
-});
+        );
+    });
 
-/**
- * PUT /api/v1/quick-pt/matches/:id/results/bulk
- * Update multiple results in bulk
- */
-static updateBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
-    const { id: quickMatchId } = req.params;
-    const userId = req.user!.id;
-    const { updates } = req.body;
+    /**
+     * PUT /api/v1/quick-pt/matches/:id/results/bulk
+     * Update multiple results in bulk
+     */
+    static updateBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const { updates } = req.body;
 
-    const result = await quickResultService.updateBulkManualResults(quickMatchId, userId, updates);
+        const result = await quickResultService.updateBulkManualResults(quickMatchId, userId, updates);
 
-    const statusCode = result.success ? 200 : (result.updated.length > 0 ? 207 : 400);
-    
-    return res.status(statusCode).json(
-        result.success 
-            ? ResponseHelper.success('Bulk results updated successfully', result)
-            : {
-                success: false,
-                message: 'Bulk update completed with errors',
-                data: result,
-                error: {
-                    code: 'BULK_PARTIAL_SUCCESS',
-                    timestamp: new Date().toISOString()
-                },
-                meta: {
-                    timestamp: new Date().toISOString(),
-                    version: '1.0'
+        const statusCode = result.success ? 200 : (result.updated.length > 0 ? 207 : 400);
+
+        return res.status(statusCode).json(
+            result.success
+                ? ResponseHelper.success('Bulk results updated successfully', result)
+                : {
+                    success: false,
+                    message: 'Bulk update completed with errors',
+                    data: result,
+                    error: {
+                        code: 'BULK_PARTIAL_SUCCESS',
+                        timestamp: new Date().toISOString()
+                    },
+                    meta: {
+                        timestamp: new Date().toISOString(),
+                        version: '1.0'
+                    }
                 }
-            }
-    );
-});
+        );
+    });
 
-/**
- * DELETE /api/v1/quick-pt/matches/:id/results/bulk  
- * Delete multiple results in bulk
- */
-static deleteBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
-    const { id: quickMatchId } = req.params;
-    const userId = req.user!.id;
-    const { resultIds } = req.body;
+    /**
+     * DELETE /api/v1/quick-pt/matches/:id/results/bulk  
+     * Delete multiple results in bulk
+     */
+    static deleteBulkManualResults = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const { resultIds } = req.body;
 
-    const result = await quickResultService.deleteBulkManualResults(quickMatchId, userId, resultIds);
+        const result = await quickResultService.deleteBulkManualResults(quickMatchId, userId, resultIds);
 
-    const statusCode = result.success ? 200 : 400;
-    
-    return res.json(
-        result.success 
-            ? ResponseHelper.success('Bulk results deleted successfully', result)
-            : {
-                success: false,
-                message: 'Bulk deletion failed',
-                data: result,
-                error: {
-                    code: 'BULK_DELETE_ERROR',
-                    timestamp: new Date().toISOString()
-                },
-                meta: {
-                    timestamp: new Date().toISOString(),
-                    version: '1.0'
+        const statusCode = result.success ? 200 : 400;
+
+        return res.json(
+            result.success
+                ? ResponseHelper.success('Bulk results deleted successfully', result)
+                : {
+                    success: false,
+                    message: 'Bulk deletion failed',
+                    data: result,
+                    error: {
+                        code: 'BULK_DELETE_ERROR',
+                        timestamp: new Date().toISOString()
+                    },
+                    meta: {
+                        timestamp: new Date().toISOString(),
+                        version: '1.0'
+                    }
                 }
-            }
-    );
-});
-/**
- * DELETE /api/v1/quick-pt/matches/:quickMatchId/results/:resultId
- * Delete a result
- */
-static deleteResult = asyncHandler(async (req: Request, res: Response) => {
-    const { resultId } = req.params;
-    const userId = req.user!.id;
+        );
+    });
+    /**
+     * DELETE /api/v1/quick-pt/matches/:quickMatchId/results/:resultId
+     * Delete a result
+     */
+    static deleteResult = asyncHandler(async (req: Request, res: Response) => {
+        const { resultId } = req.params;
+        const userId = req.user!.id;
 
-    await quickResultService.deleteResult(resultId, userId);
+        await quickResultService.deleteResult(resultId, userId);
 
-    return res.json(
-        ResponseHelper.success('Result deleted successfully')
-    );
-});
+        return res.json(
+            ResponseHelper.success('Result deleted successfully')
+        );
+    });
 
-// ========================================
-// TEMPLATE ENDPOINTS
-// ========================================
+    // ========================================
+    // TEMPLATE ENDPOINTS
+    // ========================================
 
-/**
- * GET /api/quick-pt/templates
- * Get all available template images
- */
-static getAvailableTemplates = asyncHandler(async (req: Request, res: Response) => {
-    const templates = await templateService.getAllTemplates();
+    /**
+     * GET /api/quick-pt/templates
+     * Get all available template images
+     */
+    static getAvailableTemplates = asyncHandler(async (req: Request, res: Response) => {
+        const templates = await templateService.getAllTemplates();
 
-    return res.json(
-        ResponseHelper.success('Templates retrieved successfully', templates)
-    );
-});
+        return res.json(
+            ResponseHelper.success('Templates retrieved successfully', templates)
+        );
+    });
 
-/**
- * GET /api/v1/quick-pt/matches/:id/export/excel
- * Export match results to Excel format (single sheet)
- */
-static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
-    const { id: quickMatchId } = req.params;
-    const userId = req.user!.id;
-    const queryData = (req as any).validatedQuery || req.query;
-    const { customFilename } = queryData;
+    /**
+     * GET /api/v1/quick-pt/matches/:id/export/excel
+     * Export match results to Excel format (single sheet)
+     */
+    static exportToExcel = asyncHandler(async (req: Request, res: Response) => {
+        const { id: quickMatchId } = req.params;
+        const userId = req.user!.id;
+        const queryData = (req as any).validatedQuery || req.query;
+        const { customFilename } = queryData;
 
-    const result = await excelExportService.exportMatchToExcel(
-        quickMatchId,
-        userId,
-        { customFilename: customFilename as string | undefined }
-    );
+        const result = await excelExportService.exportMatchToExcel(
+            quickMatchId,
+            userId,
+            { customFilename: customFilename as string | undefined }
+        );
 
-    return res.json(
-        ResponseHelper.success('Excel export completed successfully', result)
-    );
-});
+        return res.json(
+            ResponseHelper.success('Excel export completed successfully', result)
+        );
+    });
 
     /**
      * GET /api/v1/quick-pt/fonts

@@ -5,7 +5,7 @@ import { z } from 'zod';
  * Matches the TieBreakingRule interface exactly so validated data can be used directly.
  */
 export const tieBreakingRuleSchema = z.object({
-    method: z.enum(['KILLS', 'BEST_POSITION', 'MANUAL_ORDER']),
+    method: z.enum(['KILLS', 'POSITION_POINTS', 'CHICKEN_DINNER', 'BEST_POSITION', 'MANUAL_ORDER']),
     priority: z.number().min(1).max(10),
     isActive: z.boolean().default(true),
     description: z.string().optional()
@@ -23,8 +23,12 @@ export const setTieBreakingRulesSchema = z.object({
  * Validation schema for resolving match conflicts manually
  */
 export const resolveConflictsSchema = z.object({
-    conflictGroupId: z.string().uuid('Invalid conflict group ID format'),
-    userDefinedOrder: z.array(z.string().uuid('Invalid result ID format')).min(2),
+    conflictGroupId: z.string()
+        .min(1, 'Conflict group ID is required')
+        .max(20, 'Conflict group ID is too long'),
+    userDefinedOrder: z.array(
+        z.string().min(1, 'Team name cannot be empty').max(100, 'Team name is too long')
+    ).min(2, 'At least two teams are required for manual ordering'),
     reason: z.string().min(1).max(500).optional()
 });
 

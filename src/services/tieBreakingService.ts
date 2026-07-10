@@ -361,36 +361,40 @@ export class TieBreakingService extends BaseService {
     }
 
     // Private helper methods
-    private canAutoResolveConflict(teams: QuickMatchResultCache[]): boolean {
-        // Check if teams have different kill counts
-        const killCounts = teams.map(t => t.totalKills);
-        const uniqueKillCounts = new Set(killCounts);
-        
-        if (uniqueKillCounts.size > 1) {
-            return true; // Can resolve by kills
-        }
+    private hasMatchWwcd(result: QuickMatchResultCache): boolean {
+        return (result.rank ?? result.position) === 1;
+    }
 
-        // Check if teams have different positions (in case of manual entries)
-        const positions = teams.map(t => t.position);
-        const uniquePositions = new Set(positions);
-        
-        return uniquePositions.size > 1; // Can resolve by best position
+    private getSeriesWwcdCount(standing: SeriesTeamStanding): number {
+        return standing.matchResults.filter((m) => m.position === 1).length;
+    }
+
+    private canAutoResolveConflict(teams: QuickMatchResultCache[]): boolean {
+        const positionPoints = new Set(teams.map((t) => t.positionPoints));
+        if (positionPoints.size > 1) return true;
+
+        const wwcdFlags = new Set(teams.map((t) => this.hasMatchWwcd(t)));
+        if (wwcdFlags.size > 1) return true;
+
+        const killCounts = new Set(teams.map((t) => t.totalKills));
+        if (killCounts.size > 1) return true;
+
+        const positions = new Set(teams.map((t) => t.position));
+        return positions.size > 1;
     }
 
     private canAutoResolveSeriesConflict(standings: SeriesTeamStanding[]): boolean {
-        // Check if teams have different kill counts
-        const killCounts = standings.map(s => s.totalKills);
-        const uniqueKillCounts = new Set(killCounts);
-        
-        if (uniqueKillCounts.size > 1) {
-            return true;
-        }
+        const positionPoints = new Set(standings.map((s) => s.positionPoints ?? 0));
+        if (positionPoints.size > 1) return true;
 
-        // Check if teams have different best positions
-        const bestPositions = standings.map(s => s.bestPosition);
-        const uniqueBestPositions = new Set(bestPositions);
-        
-        return uniqueBestPositions.size > 1;
+        const wwcdCounts = new Set(standings.map((s) => this.getSeriesWwcdCount(s)));
+        if (wwcdCounts.size > 1) return true;
+
+        const killCounts = new Set(standings.map((s) => s.totalKills));
+        if (killCounts.size > 1) return true;
+
+        const bestPositions = new Set(standings.map((s) => s.bestPosition));
+        return bestPositions.size > 1;
     }
 
     private applySingleTieBreakingRule(
@@ -398,29 +402,40 @@ export class TieBreakingService extends BaseService {
         rule: TieBreakingRule
     ): QuickMatchResultCache[] {
         switch (rule.method) {
+            case 'POSITION_POINTS':
+                return [...teams].sort((a, b) => b.positionPoints - a.positionPoints);
+
+            case 'CHICKEN_DINNER':
+                return [...teams].sort((a, b) => {
+                    const aWwcd = this.hasMatchWwcd(a) ? 1 : 0;
+                    const bWwcd = this.hasMatchWwcd(b) ? 1 : 0;
+                    return bWwcd - aWwcd;
+                });
+
             case 'KILLS':
-                return teams.sort((a, b) => b.totalKills - a.totalKills);
-            
+                return [...teams].sort((a, b) => b.totalKills - a.totalKills);
+
             case 'BEST_POSITION':
-                return teams.sort((a, b) => a.position - b.position);
-            
+                return [...teams].sort((a, b) => a.position - b.position);
+
             case 'MANUAL_ORDER':
-                // Manual order should be handled separately
                 return teams;
-            
+
             default:
                 return teams;
         }
     }
 
     private isConflictResolved(teams: QuickMatchResultCache[]): boolean {
-        // Check if all teams now have unique values for the tie-breaking criteria
         for (let i = 1; i < teams.length; i++) {
-            // If any two consecutive teams are still tied, conflict not resolved
-            if (teams[i-1].totalKills === teams[i].totalKills && 
-                teams[i-1].position === teams[i].position) {
-                return false;
-            }
+            const a = teams[i - 1];
+            const b = teams[i];
+            const stillTied =
+                a.positionPoints === b.positionPoints &&
+                this.hasMatchWwcd(a) === this.hasMatchWwcd(b) &&
+                a.totalKills === b.totalKills &&
+                a.position === b.position;
+            if (stillTied) return false;
         }
         return true;
     }
@@ -452,23 +467,23 @@ export class TieBreakingService extends BaseService {
                     priority: 1,
                     method: 'POSITION_POINTS',
                     isActive: true,
-                    description: 'Higher position points wins'
+                    description: 'Higher position points wins',
                 },
                 {
                     priority: 2,
-                    method: 'KILLS',
+                    method: 'CHICKEN_DINNER',
                     isActive: true,
-                    description: 'Higher kills wins'
+                    description: 'Team with chicken dinner wins',
                 },
                 {
                     priority: 3,
-                    method: 'BEST_POSITION',
+                    method: 'KILLS',
                     isActive: true,
-                    description: 'Better finish position wins'
-                }
+                    description: 'Higher kills wins',
+                },
             ],
             manualResolutions: [],
-            autoResolveEnabled: true
+            autoResolveEnabled: true,
         };
     }
 }

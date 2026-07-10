@@ -478,8 +478,10 @@ async createPlaceholderResults(
             select: { id: true, position: true, slotNumber: true, teamName: true },
         });
 
-        if ('position' in data && data.position !== undefined) {
-            const conflict = existingResults.find((r) => r.position === data.position);
+        if ('position' in data && data.position !== undefined && data.position !== 0) {
+            const conflict = existingResults.find(
+                (r) => r.position === data.position && r.position !== 0
+            );
             if (conflict) {
                 errors.push({
                     field: 'position',

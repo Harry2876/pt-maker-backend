@@ -949,6 +949,12 @@ quickPTRouter.delete(
     QuickPTController.deleteAllSlots
 );
 
+quickPTRouter.delete(
+    '/matches/:id/slots/:slotId',
+    validateRequest(quickMatchParamsSchema, 'params'),  // validates :id only
+    QuickPTController.deleteSlot
+);
+
 // ========================================
 // SCREENSHOT ROUTES
 // ========================================
