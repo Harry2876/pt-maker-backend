@@ -344,7 +344,8 @@ export class QuickSeriesService extends BaseService {
                         tieBreakingConfig?.autoResolveEnabled ?? false
                     );
                     this.logger.info(`Series tie-breaking applied for ${seriesId}`);
-                    return sortSeriesStandingsForLeaderboard(resolved);
+                    // Stable sort by total points — preserve manual/rule order within tied groups
+                    return [...resolved].sort((a, b) => b.totalPoints - a.totalPoints);
                 }
             }
         } catch (error) {
@@ -608,7 +609,19 @@ export class QuickSeriesService extends BaseService {
             }
 
             // 2. Detect conflicts
+            const tieBreakingConfig = await tieBreakingService.getTieBreakingConfig(seriesId, 'series');
+            const autoResolveEnabled = tieBreakingConfig?.autoResolveEnabled ?? false;
+
             const conflictDetection = await tieBreakingService.detectSeriesConflicts(standings);
+
+            if (!autoResolveEnabled && conflictDetection.conflictGroups.length > 0) {
+                conflictDetection.conflictGroups = conflictDetection.conflictGroups.map((group) => ({
+                    ...group,
+                    requiresManualResolution: true,
+                }));
+                conflictDetection.manualResolutionRequired = conflictDetection.conflictGroups.length;
+                conflictDetection.autoResolvableCount = 0;
+            }
             
             this.logger.info(`Series conflict detection for ${seriesId}: ${conflictDetection.conflictGroups.length} conflicts found`);
             

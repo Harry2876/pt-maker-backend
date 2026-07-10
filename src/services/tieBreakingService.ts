@@ -89,16 +89,15 @@ export class TieBreakingService extends BaseService {
         try {
             const conflictGroups: SeriesConflictGroup[] = [];
             
-            // Group teams by total points
-            const pointsGroups = new Map<string, SeriesTeamStanding[]>();
+            // Group teams by total series points (same grouping as applySeriesTieBreaking)
+            const pointsGroups = new Map<number, SeriesTeamStanding[]>();
             
             for (const standing of standings) {
-                // Only teams identical on ALL three sort fields are truly tied
-                const tieKey = `${standing.totalPoints}|${standing.positionPoints ?? 0}|${standing.finishPoints ?? 0}`;
-                if (!pointsGroups.has(tieKey)) {
-                    pointsGroups.set(tieKey, []);
+                const points = standing.totalPoints;
+                if (!pointsGroups.has(points)) {
+                    pointsGroups.set(points, []);
                 }
-                pointsGroups.get(tieKey)!.push(standing);
+                pointsGroups.get(points)!.push(standing);
             }
 
             // Identify conflicts

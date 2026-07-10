@@ -110,6 +110,8 @@ export class QuickResultService extends BaseService {
         return result;
     }
 
+
+
     /**
      * Remove AI-processed results before a fresh OCR run.
      * Manual entries (MANUAL_ENTRY, VERIFIED) are preserved.
@@ -151,34 +153,34 @@ export class QuickResultService extends BaseService {
  * Called after slot parsing so the manual result window always shows all teams.
  * AI processing will upsert these placeholders with real data when teams are detected.
  */
-async createPlaceholderResults(
-    quickMatchId: string,
-    userId: string,
-    slots: Array<{ slotNumber: number; teamName: string }>
-): Promise<{ created: number; skipped: number }> {
-    let created = 0;
-    let skipped = 0;
+    async createPlaceholderResults(
+        quickMatchId: string,
+        userId: string,
+        slots: Array<{ slotNumber: number; teamName: string }>
+    ): Promise<{ created: number; skipped: number }> {
+        let created = 0;
+        let skipped = 0;
 
-    for (const slot of slots) {
-        const existing = await this.db.quickMatchResult.findUnique({
-            where: { quickMatchId_slotNumber: { quickMatchId, slotNumber: slot.slotNumber } },
-        });
-        if (existing) { skipped++; continue; } // real result already there — don't overwrite
+        for (const slot of slots) {
+            const existing = await this.db.quickMatchResult.findUnique({
+                where: { quickMatchId_slotNumber: { quickMatchId, slotNumber: slot.slotNumber } },
+            });
+            if (existing) { skipped++; continue; } // real result already there — don't overwrite
 
-        await this.persistResult(quickMatchId, userId, {
-            slotNumber: slot.slotNumber,
-            teamName: slot.teamName,
-            position: 0,
-            rank: 0,
-            totalKills: 0,
-            positionPoints: 0,
-            killPoints: 0,
-            totalPoints: 0,
-        }, { status: 'MANUAL_ENTRY' });
-        created++;
+            await this.persistResult(quickMatchId, userId, {
+                slotNumber: slot.slotNumber,
+                teamName: slot.teamName,
+                position: 0,
+                rank: 0,
+                totalKills: 0,
+                positionPoints: 0,
+                killPoints: 0,
+                totalPoints: 0,
+            }, { status: 'MANUAL_ENTRY' });
+            created++;
+        }
+        return { created, skipped };
     }
-    return { created, skipped };
-}
 
     /**
      * Get all results for a match — always reads from Postgres (source of truth).
@@ -441,6 +443,12 @@ async createPlaceholderResults(
             summary: { total: updates.length, successful: 0, failed: 0 },
         };
 
+        // NEW — Phase 1: stage positions for any rank changes
+        const hasPositionChanges = updates.some((u) => u.data.position !== undefined);
+        if (hasPositionChanges) {
+            await this.stageBulkPositions(updates, userId);
+        }
+
         for (const updateItem of updates) {
             try {
                 const updatedResult = await this.updateManualResult(
@@ -649,6 +657,38 @@ async createPlaceholderResults(
             updatedAt: dbResult.updatedAt.toISOString(),
             dbStatus: 'SYNCED',
         };
+    }
+
+    /**
+ * Bulk-only: move results to temporary positions so rank reshuffles
+ * don't hit DUPLICATE_POSITION during sequential updates.
+ */
+    private async stageBulkPositions(
+        updates: Array<{ resultId: string; data: UpdateManualResultData }>,
+        userId: string
+    ): Promise<void> {
+        const STAGING_OFFSET = 100; // 101–125, outside valid ranks 1–25
+
+        for (const { resultId, data } of updates) {
+            if (data.position === undefined) continue;
+
+            const existing = await this.getResultById(resultId, userId);
+            if (!existing) continue;
+            if (existing.position === data.position) continue; // no move needed
+
+            const stagedPosition = STAGING_OFFSET + existing.slotNumber;
+
+            const dbResult = await this.db.quickMatchResult.update({
+                where: { id: resultId },
+                data: {
+                    position: stagedPosition,
+                    rank: stagedPosition,
+                    updatedAt: new Date(),
+                },
+            });
+
+            await this.cacheResult(this.convertDbToCache(dbResult));
+        }
     }
 }
 
