@@ -13,7 +13,8 @@ import {
     createQuickSlotSchema,
     textSlotUploadSchema,
     updateQuickSlotSchema,
-    quickSlotParamsSchema
+    quickSlotParamsSchema,
+    deleteQuickSlotParamsSchema
 } from '../validations/quickSlotValidation';
 import {
     uploadQuickScreenshotSchema,
@@ -951,7 +952,7 @@ quickPTRouter.delete(
 
 quickPTRouter.delete(
     '/matches/:id/slots/:slotId',
-    validateRequest(quickMatchParamsSchema, 'params'),  // validates :id only
+    validateRequest(deleteQuickSlotParamsSchema, 'params'),
     QuickPTController.deleteSlot
 );
 

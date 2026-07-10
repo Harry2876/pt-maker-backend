@@ -433,7 +433,7 @@ export class QuickSlotService extends BaseService {
     
             // 3. Delete slot from database
             await this.db.quickSlotAssignment.delete({
-                where: { id: slotId },
+                where: { id: dbSlot.id },
             });
     
             // 3.5 Delete the result for this slot (any status — including placeholder 0s)
@@ -448,11 +448,14 @@ export class QuickSlotService extends BaseService {
             }
     
             // 4. Delete from Redis
-            await redis.delete(`quickSlot:${slotId}`);
+            await redis.delete(`quickSlot:${dbSlot.id}`);
             await redis.delete(`quickMatch:${quickMatchId}:slot:${dbSlot.slotNumber}`);
-            await redis.srem(`quickMatch:${quickMatchId}:slots`, slotId);
-    
-            this.logger.info(`Slot ${slotId} deleted from Quick Match ${quickMatchId}`);
+            await redis.srem(`quickMatch:${quickMatchId}:slots`, dbSlot.id);
+
+            const { quickSeriesService } = await import('./quickSeriesService');
+            await quickSeriesService.refreshSeriesForMatch(quickMatchId, userId);
+
+            this.logger.info(`Slot ${dbSlot.id} deleted from Quick Match ${quickMatchId}`);
     
         } catch (error) {
             this.handleError(error, 'Delete Quick Slot');

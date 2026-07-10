@@ -13,6 +13,7 @@ import {
 } from '../types/quickSeries';
 import { quickMatchService } from './quickMatchService';
 import { quickResultService } from './quickResultService';
+import { QuickMatchResultCache } from '../types/quickResult';
 import { quickSlotService } from './quickSlotService';
 import { tieBreakingService } from './tieBreakingService';
 import { ServiceError } from '../utils/serviceError';
@@ -141,8 +142,12 @@ export class QuickSeriesService extends BaseService {
                 userId
             );
 
-            // Rebuild immediately if this match already has results (added after processing)
-            await this.updateSeriesLeaderboard(seriesId, userId);
+            // Rebuild in background when match already has results — don't block the API response
+            if (hasResults) {
+                void this.updateSeriesLeaderboard(seriesId, userId).catch((err) =>
+                    this.logger.warn(`Deferred series leaderboard rebuild failed for ${seriesId}:`, err)
+                );
+            }
 
             this.logger.info(`Match ${quickMatchId} added to series ${seriesId} at position ${seriesMatch.matchOrder}`);
             return seriesMatch;
@@ -181,8 +186,15 @@ export class QuickSeriesService extends BaseService {
     async updateSeriesLeaderboard(seriesId: string, userId: string): Promise<QuickSeriesLeaderboardCache> {
         try {
             const seriesMatches = await this.getSeriesMatches(seriesId, userId);
-            const matchesWithResults = await this.filterMatchesWithResults(seriesMatches, userId);
-            const teamStandings = await this.calculateSeriesStandings(matchesWithResults, userId);
+            const resultsByMatch = await quickResultService.getResultsGroupedByMatch(
+                seriesMatches.map((match) => match.quickMatchId)
+            );
+            const matchesWithResults = this.filterMatchesWithResults(seriesMatches, resultsByMatch);
+            const teamStandings = await this.calculateSeriesStandings(
+                matchesWithResults,
+                userId,
+                { resultsByMatch }
+            );
 
             const leaderboard: QuickSeriesLeaderboardCache = {
                 id: randomUUID(),
@@ -209,7 +221,11 @@ export class QuickSeriesService extends BaseService {
                     matchesCompleted: matchesWithResults.length,
                 });
 
-                if (matchesWithResults.length >= series.totalMatches) {
+                if (
+                    matchesWithResults.length >= series.totalMatches &&
+                    !series.isFinished &&
+                    series.status !== 'COMPLETED'
+                ) {
                     await this.completeSeries(seriesId, userId, teamStandings);
                 }
             }
@@ -227,9 +243,13 @@ export class QuickSeriesService extends BaseService {
     private async calculateSeriesStandings(
         completedMatches: QuickSeriesMatchCache[],
         userId: string,
-        options?: { skipTieBreaking?: boolean }
+        options?: { skipTieBreaking?: boolean; resultsByMatch?: Map<string, QuickMatchResultCache[]> }
     ): Promise<SeriesTeamStanding[]> {
-        const rawStandings = await this.aggregateSeriesStandings(completedMatches, userId);
+        const rawStandings = await this.aggregateSeriesStandings(
+            completedMatches,
+            userId,
+            options?.resultsByMatch
+        );
         const seriesId = completedMatches[0]?.seriesId;
 
         if (options?.skipTieBreaking || !seriesId) {
@@ -244,12 +264,15 @@ export class QuickSeriesService extends BaseService {
      */
     private async aggregateSeriesStandings(
         completedMatches: QuickSeriesMatchCache[],
-        userId: string
+        userId: string,
+        resultsByMatch?: Map<string, QuickMatchResultCache[]>
     ): Promise<SeriesTeamStanding[]> {
         const teamStandings = new Map<string, SeriesTeamStanding>();
 
         for (const seriesMatch of completedMatches) {
-            const matchResults = await quickResultService.getMatchResults(seriesMatch.quickMatchId, userId);
+            const matchResults = resultsByMatch
+                ? (resultsByMatch.get(seriesMatch.quickMatchId) ?? [])
+                : await quickResultService.getMatchResults(seriesMatch.quickMatchId, userId);
 
             for (const result of matchResults) {
                 const teamKey = normalizeTeamName(result.teamName);
@@ -565,8 +588,14 @@ export class QuickSeriesService extends BaseService {
         try {
             // 1. Get only completed matches (incomplete matches have no results to aggregate)
             const allMatches = await this.getSeriesMatches(seriesId, userId);
-            const matchesWithResults = await this.filterMatchesWithResults(allMatches, userId);
-            const standings = await this.calculateSeriesStandings(matchesWithResults, userId, { skipTieBreaking: true });
+            const resultsByMatch = await quickResultService.getResultsGroupedByMatch(
+                allMatches.map((match) => match.quickMatchId)
+            );
+            const matchesWithResults = this.filterMatchesWithResults(allMatches, resultsByMatch);
+            const standings = await this.calculateSeriesStandings(matchesWithResults, userId, {
+                skipTieBreaking: true,
+                resultsByMatch,
+            });
             
             if (standings.length === 0) {
                 return {
@@ -607,8 +636,14 @@ export class QuickSeriesService extends BaseService {
         }
 
         const allMatches = await this.getSeriesMatches(seriesId, userId);
-        const matchesWithResults = await this.filterMatchesWithResults(allMatches, userId);
-        const rawStandings = await this.calculateSeriesStandings(matchesWithResults, userId, { skipTieBreaking: true });
+        const resultsByMatch = await quickResultService.getResultsGroupedByMatch(
+            allMatches.map((match) => match.quickMatchId)
+        );
+        const matchesWithResults = this.filterMatchesWithResults(allMatches, resultsByMatch);
+        const rawStandings = await this.calculateSeriesStandings(matchesWithResults, userId, {
+            skipTieBreaking: true,
+            resultsByMatch,
+        });
 
         if (rawStandings.length === 0) {
             throw new ServiceError('No series standings to resolve', 400, 'NO_STANDINGS');
@@ -966,22 +1001,18 @@ export class QuickSeriesService extends BaseService {
         }
     }
 
-    private async matchHasResults(quickMatchId: string, userId: string): Promise<boolean> {
-        const results = await quickResultService.getMatchResults(quickMatchId, userId);
-        return results.length > 0;
+    private async matchHasResults(quickMatchId: string, _userId: string): Promise<boolean> {
+        const count = await this.db.quickMatchResult.count({ where: { quickMatchId } });
+        return count > 0;
     }
 
-    private async filterMatchesWithResults(
+    private filterMatchesWithResults(
         seriesMatches: QuickSeriesMatchCache[],
-        userId: string
-    ): Promise<QuickSeriesMatchCache[]> {
-        const withResults: QuickSeriesMatchCache[] = [];
-        for (const match of seriesMatches) {
-            if (await this.matchHasResults(match.quickMatchId, userId)) {
-                withResults.push(match);
-            }
-        }
-        return withResults;
+        resultsByMatch: Map<string, QuickMatchResultCache[]>
+    ): QuickSeriesMatchCache[] {
+        return seriesMatches.filter(
+            (match) => (resultsByMatch.get(match.quickMatchId)?.length ?? 0) > 0
+        );
     }
 
     private async validateMatchSlotListForSeries(

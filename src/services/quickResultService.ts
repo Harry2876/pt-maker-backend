@@ -26,6 +26,11 @@ export interface PersistResultOptions {
     skipFinalize?: boolean;
 }
 
+export interface ManualResultSideEffectOptions {
+    /** Skip series leaderboard rebuild (used during bulk update/delete). */
+    skipSeriesRefresh?: boolean;
+}
+
 export class QuickResultService extends BaseService {
     private readonly CACHE_TTL = 600;
 
@@ -193,6 +198,35 @@ async createPlaceholderResults(
         return results;
     }
 
+    /**
+     * Batch read for series aggregation — Postgres only, no Redis write-back.
+     */
+    async getResultsGroupedByMatch(
+        quickMatchIds: string[]
+    ): Promise<Map<string, QuickMatchResultCache[]>> {
+        const grouped = new Map<string, QuickMatchResultCache[]>();
+        if (quickMatchIds.length === 0) {
+            return grouped;
+        }
+
+        const dbResults = await this.db.quickMatchResult.findMany({
+            where: { quickMatchId: { in: quickMatchIds } },
+        });
+
+        for (const row of dbResults) {
+            const cache = this.convertDbToCache(row);
+            const list = grouped.get(row.quickMatchId) ?? [];
+            list.push(cache);
+            grouped.set(row.quickMatchId, list);
+        }
+
+        for (const [matchId, results] of grouped) {
+            grouped.set(matchId, sortMatchResultsForStandings(results));
+        }
+
+        return grouped;
+    }
+
     async getResultById(resultId: string, userId: string): Promise<QuickMatchResultCache | null> {
         const dbResult = await this.db.quickMatchResult.findUnique({ where: { id: resultId } });
         if (!dbResult) return null;
@@ -253,7 +287,8 @@ async createPlaceholderResults(
     async updateManualResult(
         resultId: string,
         userId: string,
-        data: UpdateManualResultData
+        data: UpdateManualResultData,
+        options: ManualResultSideEffectOptions = {}
     ): Promise<QuickMatchResultCache | null> {
         const existing = await this.getResultById(resultId, userId);
         if (!existing) {
@@ -310,11 +345,17 @@ async createPlaceholderResults(
 
         const updated = this.convertDbToCache(dbResult);
         await this.cacheResult(updated);
-        await this.refreshSeriesLeaderboardIfNeeded(existing.quickMatchId, userId);
+        if (!options.skipSeriesRefresh) {
+            await this.refreshSeriesLeaderboardIfNeeded(existing.quickMatchId, userId);
+        }
         return updated;
     }
 
-    async deleteResult(resultId: string, userId: string): Promise<void> {
+    async deleteResult(
+        resultId: string,
+        userId: string,
+        options: ManualResultSideEffectOptions = {}
+    ): Promise<void> {
         const existing = await this.getResultById(resultId, userId);
         if (!existing) {
             throw new ServiceError('Result not found', 404, 'NOT_FOUND');
@@ -323,7 +364,9 @@ async createPlaceholderResults(
         await this.db.quickMatchResult.delete({ where: { id: resultId } });
         await redis.delete(`quickResult:${resultId}`);
         await redis.srem(`quickMatch:${existing.quickMatchId}:results`, resultId);
-        await this.refreshSeriesLeaderboardIfNeeded(existing.quickMatchId, userId);
+        if (!options.skipSeriesRefresh) {
+            await this.refreshSeriesLeaderboardIfNeeded(existing.quickMatchId, userId);
+        }
     }
 
     async createBulkManualResults(
@@ -403,7 +446,8 @@ async createPlaceholderResults(
                 const updatedResult = await this.updateManualResult(
                     updateItem.resultId,
                     userId,
-                    updateItem.data
+                    updateItem.data,
+                    { skipSeriesRefresh: true }
                 );
                 if (updatedResult) {
                     result.updated.push(updatedResult);
@@ -442,9 +486,12 @@ async createPlaceholderResults(
             summary: { total: resultIds.length, successful: 0, failed: 0 },
         };
 
+        let deletedAny = false;
+
         for (const resultId of resultIds) {
             try {
-                await this.deleteResult(resultId, userId);
+                await this.deleteResult(resultId, userId, { skipSeriesRefresh: true });
+                deletedAny = true;
                 result.summary.successful++;
             } catch (error) {
                 result.errors.push({
@@ -459,6 +506,11 @@ async createPlaceholderResults(
         }
 
         result.success = result.summary.failed === 0;
+
+        if (deletedAny) {
+            await this.refreshSeriesLeaderboardIfNeeded(quickMatchId, userId);
+        }
+
         return result;
     }
 

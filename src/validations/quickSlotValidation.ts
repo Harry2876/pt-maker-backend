@@ -63,3 +63,9 @@ export const quickSlotParamsSchema = z.object({
     quickMatchId: z.string().uuid('Invalid quick match ID'),
     slotId: z.string().uuid('Invalid slot ID').optional()
 });
+
+// Delete single slot — route uses :id and :slotId
+export const deleteQuickSlotParamsSchema = z.object({
+    id: z.string().uuid('Invalid quick match ID'),
+    slotId: z.string().uuid('Invalid slot ID'),
+});
