@@ -1,0 +1,3782 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# TOURNAMENT MODULE — docs/paths/tournaments.yaml
+#
+# Full BGMI tournament lifecycle APIs (excludes Quick PT).
+# Auto-loaded by docsloader.ts alongside docs/swagger.yaml.
+#
+# Base URL: /api/v1  (see servers in docs/swagger.yaml)
+# Auth: JWT Bearer on every endpoint below.
+#
+# Integration flow:
+#   1. POST /tournaments/create
+#   2. POST /tournament-stages/tournaments/{tournamentId}/stages
+#   3. POST /groups/tournaments/{tournamentId}/groups/create
+#   4. POST /team-registrations/tournaments/{tournamentId}/registrations/create
+#   5. POST /slot-management/groups/{groupId}/slots/assign
+#   6. POST /matches/tournaments/{tournamentId}/matches/create
+#   7. POST /uploads/matches/{id}/screenshots/upload?type=RESULT_IMAGE
+#   8. POST /match-results/matches/{matchId}/results
+#   9. GET  /leaderboards/tournament/{tournamentId}
+# ══════════════════════════════════════════════════════════════════════════════
+
+components:
+
+  schemas:
+
+    # ── Shared envelope helpers ───────────────────────────────────────────────
+
+    TournamentSuccessEnvelope:
+      type: object
+      required: [success, message, data, meta]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed successfully"
+        data:
+          type: object
+          description: Endpoint-specific payload
+        meta:
+          $ref: '#/components/schemas/MetaObject'
+
+    # ── Core tournament ───────────────────────────────────────────────────────
+
+    TournamentStatus:
+      type: string
+      enum: [UPCOMING, ONGOING, COMPLETED]
+      example: UPCOMING
+
+    TournamentType:
+      type: string
+      enum: [TOURNAMENT]
+      example: TOURNAMENT
+
+    TournamentFormat:
+      type: string
+      enum: [ELIMINATION, ROUND_ROBIN, MIXED]
+      example: ELIMINATION
+
+    TournamentObject:
+      type: object
+      description: |
+        Tournament record. New tournaments are written to Redis first (`dbStatus: PENDING_SYNC`)
+        and synced to PostgreSQL asynchronously.
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        name:
+          type: string
+          example: "BGMI Pro League S1"
+        game:
+          type: string
+          example: "BGMI"
+        tournamentType:
+          $ref: '#/components/schemas/TournamentType'
+        status:
+          $ref: '#/components/schemas/TournamentStatus'
+        userId:
+          type: string
+          format: uuid
+          example: "456e7890-e12c-34f5-b678-789012345678"
+        maxTeams:
+          type: integer
+          nullable: true
+          example: null
+        entryFee:
+          type: number
+          nullable: true
+          example: null
+        prizePool:
+          type: number
+          nullable: true
+          example: null
+        totalStages:
+          type: integer
+          example: 1
+          description: Present when loaded from database
+        currentStage:
+          type: integer
+          example: 1
+          description: Present when loaded from database
+        tournamentFormat:
+          $ref: '#/components/schemas/TournamentFormat'
+        maxTeamsPerGroup:
+          type: integer
+          example: 25
+          description: Present when loaded from database
+        allowCollaborators:
+          type: boolean
+          example: false
+          description: Present when loaded from database
+        registrationFields:
+          type: array
+          nullable: true
+          items:
+            type: object
+          description: Custom registration field config (JSON, DB only)
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED]
+          example: PENDING_SYNC
+        createdAt:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00.000Z"
+        matches:
+          type: array
+          description: Included on GET /tournaments/get/{id} when loaded from DB
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              matchNumber:
+                type: integer
+              status:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
+        _count:
+          type: object
+          properties:
+            matches:
+              type: integer
+
+    CreateTournamentRequest:
+      type: object
+      required: [name, game]
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9\s\-_]+$'
+          example: "BGMI Pro League S1"
+        game:
+          type: string
+          minLength: 2
+          maxLength: 50
+          example: "BGMI"
+        tournamentType:
+          $ref: '#/components/schemas/TournamentType'
+        maxTeams:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          example: 64
+          description: Validated but not persisted by controller (only name, game, status are saved today)
+        entryFee:
+          type: number
+          exclusiveMinimum: 0
+          example: 100
+          description: Validated but not persisted by controller
+        prizePool:
+          type: number
+          exclusiveMinimum: 0
+          example: 50000
+          description: Validated but not persisted by controller
+        status:
+          $ref: '#/components/schemas/TournamentStatus'
+
+    UpdateTournamentRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 100
+          example: "BGMI Pro League S1 — Finals"
+        game:
+          type: string
+          minLength: 2
+          maxLength: 50
+          example: "BGMI"
+        status:
+          $ref: '#/components/schemas/TournamentStatus'
+
+    TournamentListData:
+      type: object
+      properties:
+        tournaments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TournamentObject'
+        count:
+          type: integer
+          example: 3
+
+    # ── Stages ────────────────────────────────────────────────────────────────
+
+    StageFormat:
+      type: string
+      enum: [ELIMINATION, ROUND_ROBIN]
+      example: ELIMINATION
+
+    TournamentStageObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "223e4567-e89b-12d3-a456-426614174001"
+        name:
+          type: string
+          example: "Quarter Finals"
+        stageNumber:
+          type: integer
+          minimum: 1
+          maximum: 10
+          example: 2
+        totalGroups:
+          type: integer
+          example: 4
+        qualificationSpots:
+          type: integer
+          example: 8
+        stageFormat:
+          $ref: '#/components/schemas/StageFormat'
+        isActive:
+          type: boolean
+          example: true
+        isCompleted:
+          type: boolean
+          example: false
+        tournamentId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED]
+
+    CreateStageRequest:
+      type: object
+      required: [name, stageNumber]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: "Quarter Finals"
+        stageNumber:
+          type: integer
+          minimum: 1
+          maximum: 10
+          example: 2
+        totalGroups:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 1
+          example: 4
+        qualificationSpots:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 8
+          example: 8
+        stageFormat:
+          $ref: '#/components/schemas/StageFormat'
+
+    UpdateStageRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        totalGroups:
+          type: integer
+          minimum: 1
+          maximum: 50
+        qualificationSpots:
+          type: integer
+          minimum: 1
+          maximum: 100
+        stageFormat:
+          $ref: '#/components/schemas/StageFormat'
+        isActive:
+          type: boolean
+        isCompleted:
+          type: boolean
+
+    StageAdvanceData:
+      type: object
+      properties:
+        completedStage:
+          $ref: '#/components/schemas/TournamentStageObject'
+        nextStage:
+          allOf:
+            - $ref: '#/components/schemas/TournamentStageObject'
+          nullable: true
+        tournamentCompleted:
+          type: boolean
+          example: false
+
+    # ── Groups ────────────────────────────────────────────────────────────────
+
+    GroupObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "323e4567-e89b-12d3-a456-426614174002"
+        name:
+          type: string
+          example: "Group A"
+        maxTeams:
+          type: integer
+          example: 24
+        qualificationSpots:
+          type: integer
+          example: 8
+        matchCount:
+          type: integer
+          example: 1
+          description: Present when loaded from database
+        maxSlots:
+          type: integer
+          example: 25
+          description: Present when loaded from database
+        tournamentId:
+          type: string
+          format: uuid
+        stageId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED]
+
+    CreateGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9\s\-_]+$'
+          example: "Group A"
+        maxTeams:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 24
+        qualificationSpots:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 8
+
+    UpdateGroupRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9\s\-_]+$'
+        maxTeams:
+          type: integer
+          minimum: 1
+          maximum: 100
+        qualificationSpots:
+          type: integer
+          minimum: 1
+          maximum: 50
+
+    # ── Team registrations ────────────────────────────────────────────────────
+
+    RegistrationStatus:
+      type: string
+      enum: [PENDING, CONFIRMED, QUALIFIED, ELIMINATED]
+      example: PENDING
+
+    TeamRegistrationObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "423e4567-e89b-12d3-a456-426614174003"
+        teamName:
+          type: string
+          example: "Team Phoenix"
+        contactInfo:
+          type: string
+          example: "captain@teamphoenix.com"
+        registrationStatus:
+          $ref: '#/components/schemas/RegistrationStatus'
+        finalPosition:
+          type: integer
+          nullable: true
+          example: null
+        totalPoints:
+          type: integer
+          example: 0
+        tournamentId:
+          type: string
+          format: uuid
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+        currentStage:
+          type: integer
+          example: 1
+        playerDetails:
+          type: object
+          nullable: true
+        slotNumber:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED]
+
+    CreateTeamRegistrationRequest:
+      type: object
+      required: [teamName, contactInfo]
+      properties:
+        teamName:
+          type: string
+          minLength: 2
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9\s\-_]+$'
+          example: "Team Phoenix"
+        contactInfo:
+          type: string
+          minLength: 5
+          maxLength: 100
+          example: "captain@teamphoenix.com"
+        groupId:
+          type: string
+          format: uuid
+          description: Optional — assign team to a group at registration time
+
+    UpdateTeamRegistrationRequest:
+      type: object
+      minProperties: 1
+      properties:
+        teamName:
+          type: string
+          minLength: 2
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9\s\-_]+$'
+        contactInfo:
+          type: string
+          minLength: 5
+          maxLength: 100
+        registrationStatus:
+          $ref: '#/components/schemas/RegistrationStatus'
+        finalPosition:
+          type: integer
+          minimum: 1
+        totalPoints:
+          type: integer
+          minimum: 0
+        groupId:
+          type: string
+          format: uuid
+
+    # ── Matches ───────────────────────────────────────────────────────────────
+
+    MatchStatus:
+      type: string
+      enum: [PENDING_PROCESSING, PROCESSED, ERROR]
+      example: PENDING_PROCESSING
+
+    ResultStatus:
+      type: string
+      enum: [PENDING, PROCESSED, VERIFIED, MANUAL_ENTRY]
+      example: PENDING
+
+    MatchObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "523e4567-e89b-12d3-a456-426614174004"
+        matchNumber:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 1
+        matchDate:
+          type: string
+          format: date-time
+          example: "2024-12-25T10:00:00.000Z"
+        status:
+          $ref: '#/components/schemas/MatchStatus'
+        resultStatus:
+          $ref: '#/components/schemas/ResultStatus'
+        tournamentId:
+          type: string
+          format: uuid
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+        stageNumber:
+          type: integer
+          nullable: true
+        processedData:
+          type: object
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED]
+
+    CreateMatchRequest:
+      type: object
+      required: [matchNumber]
+      properties:
+        matchNumber:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 1
+        matchDate:
+          type: string
+          format: date-time
+          example: "2024-12-25T10:00:00.000Z"
+        groupId:
+          type: string
+          format: uuid
+          description: Validated but not passed to service by controller today
+
+    UpdateMatchRequest:
+      type: object
+      minProperties: 1
+      properties:
+        matchNumber:
+          type: integer
+          minimum: 1
+          maximum: 100
+        matchDate:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/MatchStatus'
+        processedData:
+          type: object
+
+    # ── Match results ─────────────────────────────────────────────────────────
+
+    TeamResultInput:
+      type: object
+      required: [teamId, kills, placement]
+      properties:
+        teamId:
+          type: string
+          format: uuid
+          description: Team registration ID
+          example: "423e4567-e89b-12d3-a456-426614174003"
+        kills:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 12
+        placement:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 3
+        damage:
+          type: number
+          minimum: 0
+        survivalTime:
+          type: number
+          minimum: 0
+
+    CreateMatchResultRequest:
+      type: object
+      required: [teamResults]
+      properties:
+        screenshotUrl:
+          type: string
+          format: uri
+        teamResults:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/TeamResultInput'
+        notes:
+          type: string
+          maxLength: 1000
+
+    UpdateMatchResultRequest:
+      type: object
+      minProperties: 1
+      properties:
+        screenshotUrl:
+          type: string
+          format: uri
+        teamResults:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/TeamResultInput'
+        notes:
+          type: string
+          maxLength: 1000
+        status:
+          $ref: '#/components/schemas/ResultStatus'
+
+    VerifyResultsRequest:
+      type: object
+      required: [verificationStatus]
+      properties:
+        verificationStatus:
+          $ref: '#/components/schemas/ResultStatus'
+        verificationNotes:
+          type: string
+          maxLength: 500
+
+    PublishResultsRequest:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: boolean
+          enum: [true]
+          example: true
+
+    CalculateScoresRequest:
+      type: object
+      properties:
+        scoringRuleId:
+          type: string
+          format: uuid
+          description: Zod-validated field; controller currently reads `teamResults` instead (see endpoint note)
+
+    MatchResultObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        matchId:
+          type: string
+          format: uuid
+        teamRegistrationId:
+          type: string
+          format: uuid
+        slotNumber:
+          type: integer
+        position:
+          type: integer
+        totalKills:
+          type: integer
+        killPoints:
+          type: integer
+        positionPoints:
+          type: integer
+        totalMatchPoints:
+          type: integer
+        playerResults:
+          type: object
+        verifiedBy:
+          type: string
+          format: uuid
+          nullable: true
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── Leaderboards ──────────────────────────────────────────────────────────
+
+    LeaderboardEntry:
+      type: object
+      required: [teamRegistrationId, teamName, totalMatches, totalKills, totalPoints, rank]
+      properties:
+        teamRegistrationId:
+          type: string
+          example: "423e4567-e89b-12d3-a456-426614174003"
+        teamName:
+          type: string
+          example: "Team Phoenix"
+        totalMatches:
+          type: integer
+          example: 6
+        totalKills:
+          type: integer
+          example: 42
+        totalPoints:
+          type: integer
+          example: 87
+        averageKills:
+          type: number
+          format: float
+          example: 7.0
+        averagePosition:
+          type: number
+          format: float
+          example: 5.5
+        bestPosition:
+          type: integer
+          example: 1
+        wins:
+          type: integer
+          example: 2
+        top5Finishes:
+          type: integer
+          example: 4
+        top10Finishes:
+          type: integer
+          example: 5
+        winRate:
+          type: number
+          format: float
+          example: 33.3
+        rank:
+          type: integer
+          example: 1
+        previousRank:
+          type: integer
+          example: 2
+        rankChange:
+          type: string
+          enum: [UP, DOWN, SAME]
+          example: UP
+        lastUpdated:
+          type: string
+          format: date-time
+
+    TournamentLeaderboard:
+      type: object
+      required: [tournamentId, tournamentName, totalTeams, totalMatches, entries, generatedAt]
+      properties:
+        tournamentId:
+          type: string
+        tournamentName:
+          type: string
+          example: "BGMI Pro League S1"
+        totalTeams:
+          type: integer
+          example: 16
+        totalMatches:
+          type: integer
+          example: 6
+        lastUpdated:
+          type: string
+          format: date-time
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+        generatedAt:
+          type: string
+          format: date-time
+
+    GroupLeaderboard:
+      type: object
+      required: [groupId, groupName, tournamentId, totalTeams, totalMatches, entries, generatedAt]
+      properties:
+        groupId:
+          type: string
+        groupName:
+          type: string
+          example: "Group A"
+        tournamentId:
+          type: string
+        totalTeams:
+          type: integer
+        totalMatches:
+          type: integer
+        lastUpdated:
+          type: string
+          format: date-time
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+        generatedAt:
+          type: string
+          format: date-time
+
+    LeaderboardSearchRequest:
+      type: object
+      description: At least one of tournamentId or groupId is required by the service
+      properties:
+        tournamentId:
+          type: string
+          format: uuid
+        groupId:
+          type: string
+          format: uuid
+        teamName:
+          type: string
+        minKills:
+          type: integer
+        maxKills:
+          type: integer
+        minPosition:
+          type: integer
+        maxPosition:
+          type: integer
+        rankRange:
+          type: object
+          properties:
+            from:
+              type: integer
+            to:
+              type: integer
+
+    RefreshLeaderboardRequest:
+      type: object
+      properties:
+        forceRefresh:
+          type: boolean
+          default: true
+        includeGroups:
+          type: boolean
+        notifyTeams:
+          type: boolean
+        groupIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        stageId:
+          type: string
+          format: uuid
+
+    # ── Team advancement ──────────────────────────────────────────────────────
+
+    DistributionStrategy:
+      type: string
+      enum: [RANDOM, BALANCED, SNAKE_DRAFT, SEEDED]
+      example: SNAKE_DRAFT
+
+    TeamDistributionRequest:
+      type: object
+      required: [strategy]
+      properties:
+        strategy:
+          $ref: '#/components/schemas/DistributionStrategy'
+        preserveTopPerformers:
+          type: boolean
+          example: true
+        balanceByPoints:
+          type: boolean
+          example: true
+
+    CreateStageGroupsRequest:
+      type: object
+      required: [groupsData]
+      properties:
+        groupsData:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 50
+                example: "Group A"
+              maxTeams:
+                type: integer
+                minimum: 2
+                maximum: 50
+                default: 24
+              qualificationSpots:
+                type: integer
+                minimum: 1
+                default: 8
+
+    QualifiedTeamObject:
+      type: object
+      required: [teamRegistrationId, teamName, finalGroupPosition, totalPoints, totalKills, fromGroupId, fromGroupName, qualificationReason]
+      properties:
+        teamRegistrationId:
+          type: string
+          format: uuid
+          example: "423e4567-e89b-12d3-a456-426614174003"
+        teamName:
+          type: string
+          example: "Team Phoenix"
+        finalGroupPosition:
+          type: integer
+          example: 1
+        totalPoints:
+          type: integer
+          example: 87
+        totalKills:
+          type: integer
+          example: 42
+        fromGroupId:
+          type: string
+          format: uuid
+          example: "323e4567-e89b-12d3-a456-426614174002"
+        fromGroupName:
+          type: string
+          example: "Group A"
+        qualificationReason:
+          type: string
+          example: "Qualified as #1 (Top 4)"
+
+    EliminatedTeamObject:
+      type: object
+      required: [teamRegistrationId, teamName, finalGroupPosition, totalPoints, eliminationReason]
+      properties:
+        teamRegistrationId:
+          type: string
+          format: uuid
+        teamName:
+          type: string
+          example: "Team Delta"
+        finalGroupPosition:
+          type: integer
+          example: 5
+        totalPoints:
+          type: integer
+          example: 34
+        eliminationReason:
+          type: string
+          example: "Eliminated at #5 (Only top 4 qualify)"
+
+    GroupQualificationResultObject:
+      type: object
+      required: [groupId, groupName, totalTeams, qualificationSpots, qualifiedTeams, eliminatedTeams]
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        groupName:
+          type: string
+          example: "Group A"
+        totalTeams:
+          type: integer
+          example: 8
+        qualificationSpots:
+          type: integer
+          example: 4
+        qualifiedTeams:
+          type: array
+          items:
+            $ref: '#/components/schemas/QualifiedTeamObject'
+        eliminatedTeams:
+          type: array
+          items:
+            $ref: '#/components/schemas/EliminatedTeamObject'
+
+    StageQualificationResultObject:
+      type: object
+      description: Returned by POST qualify and GET qualification-results (cached in Redis)
+      required: [stageId, stageName, totalGroups, totalTeamsStarted, totalTeamsQualified, groupResults, qualificationSummary]
+      properties:
+        stageId:
+          type: string
+          format: uuid
+        stageName:
+          type: string
+          example: "Quarter Finals"
+        totalGroups:
+          type: integer
+          example: 2
+        totalTeamsStarted:
+          type: integer
+          example: 16
+        totalTeamsQualified:
+          type: integer
+          example: 8
+        groupResults:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupQualificationResultObject'
+        qualificationSummary:
+          type: object
+          required: [teamsAdvanced, teamsEliminated, averagePointsToQualify]
+          properties:
+            teamsAdvanced:
+              type: integer
+              example: 8
+            teamsEliminated:
+              type: integer
+              example: 8
+            averagePointsToQualify:
+              type: integer
+              example: 72
+
+    GroupTeamAssignmentObject:
+      type: object
+      required: [groupId, groupName, assignedTeams, managementSlots, totalSlots, filledSlots]
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        groupName:
+          type: string
+          example: "Group A"
+        assignedTeams:
+          type: array
+          items:
+            $ref: '#/components/schemas/QualifiedTeamObject'
+        managementSlots:
+          type: integer
+          example: 2
+          description: Reserved management slots per group (default 2 in service)
+        totalSlots:
+          type: integer
+          example: 24
+        filledSlots:
+          type: integer
+          example: 4
+
+    StageProgressionResultObject:
+      type: object
+      description: Returned by POST progress and GET progression-results (cached in Redis)
+      required: [fromStage, toStage, teamDistribution, progressionSummary]
+      properties:
+        fromStage:
+          type: object
+          required: [stageId, stageName, totalTeamsQualified]
+          properties:
+            stageId:
+              type: string
+              format: uuid
+            stageName:
+              type: string
+              example: "Quarter Finals"
+            totalTeamsQualified:
+              type: integer
+              example: 8
+        toStage:
+          type: object
+          required: [stageId, stageName, totalGroups, maxTeamsPerGroup]
+          properties:
+            stageId:
+              type: string
+              format: uuid
+            stageName:
+              type: string
+              example: "Semi Finals"
+            totalGroups:
+              type: integer
+              example: 2
+            maxTeamsPerGroup:
+              type: integer
+              example: 24
+        teamDistribution:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupTeamAssignmentObject'
+        progressionSummary:
+          type: object
+          required: [teamsAdvanced, newGroupsPopulated, averageTeamsPerGroup, managementSlotsReserved]
+          properties:
+            teamsAdvanced:
+              type: integer
+              example: 8
+            newGroupsPopulated:
+              type: integer
+              example: 2
+            averageTeamsPerGroup:
+              type: integer
+              example: 4
+            managementSlotsReserved:
+              type: integer
+              example: 4
+
+    StageGroupsResultObject:
+      type: object
+      description: Returned by POST /team-advancement/stage/{stageId}/groups
+      required: [stageId, stageName, totalGroups, createdGroups]
+      properties:
+        stageId:
+          type: string
+          format: uuid
+        stageName:
+          type: string
+          example: "Semi Finals"
+        totalGroups:
+          type: integer
+          example: 2
+        createdGroups:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupObject'
+
+    StageGroupsListData:
+      type: object
+      description: Returned by GET /team-advancement/stage/{stageId}/groups
+      required: [stageId, totalGroups, groups]
+      properties:
+        stageId:
+          type: string
+          format: uuid
+        totalGroups:
+          type: integer
+          example: 2
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupObject'
+
+    StageAdvancementResultObject:
+      type: object
+      description: Stage transition result from advanceStage (used inside complete-progression)
+      required: [completedStage, nextStage, tournamentCompleted]
+      properties:
+        completedStage:
+          $ref: '#/components/schemas/TournamentStageObject'
+        nextStage:
+          allOf:
+            - $ref: '#/components/schemas/TournamentStageObject'
+          nullable: true
+        tournamentCompleted:
+          type: boolean
+          example: false
+
+    SlotAssignmentBatchResultObject:
+      type: object
+      description: Auto slot assignment summary from completeStageProgression
+      required: [totalSlotsAssigned, groupResults]
+      properties:
+        totalSlotsAssigned:
+          type: integer
+          example: 8
+        groupResults:
+          type: array
+          items:
+            type: object
+            required: [groupId, groupName, teamsAssigned, slotsUsed]
+            properties:
+              groupId:
+                type: string
+                format: uuid
+              groupName:
+                type: string
+                example: "Group A"
+              teamsAssigned:
+                type: integer
+                example: 4
+              slotsUsed:
+                type: integer
+                example: 4
+
+    CompleteStageProgressionData:
+      type: object
+      description: Returned by POST complete-progression
+      required: [qualificationResult, progressionResult, slotAssignmentResults, stageAdvancementResult, summary]
+      properties:
+        qualificationResult:
+          $ref: '#/components/schemas/StageQualificationResultObject'
+        progressionResult:
+          $ref: '#/components/schemas/StageProgressionResultObject'
+        slotAssignmentResults:
+          $ref: '#/components/schemas/SlotAssignmentBatchResultObject'
+        stageAdvancementResult:
+          $ref: '#/components/schemas/StageAdvancementResultObject'
+        summary:
+          type: object
+          required: [teamsQualified, teamsEliminated, newGroupsPopulated, slotsAssigned, nextStageActivated]
+          properties:
+            teamsQualified:
+              type: integer
+              example: 8
+            teamsEliminated:
+              type: integer
+              example: 8
+            newGroupsPopulated:
+              type: integer
+              example: 2
+            slotsAssigned:
+              type: integer
+              example: 8
+            nextStageActivated:
+              type: boolean
+              example: true
+
+    TournamentStageProgressItem:
+      type: object
+      required: [stage, groups, qualification, progression]
+      properties:
+        stage:
+          type: object
+          required: [id, name, stageNumber, isActive, isCompleted, totalGroups]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: "Quarter Finals"
+            stageNumber:
+              type: integer
+              example: 1
+            isActive:
+              type: boolean
+              example: false
+            isCompleted:
+              type: boolean
+              example: true
+            totalGroups:
+              type: integer
+              example: 2
+        groups:
+          type: integer
+          example: 2
+          description: Count of groups in this stage (not the group objects themselves)
+        qualification:
+          type: object
+          nullable: true
+          properties:
+            teamsQualified:
+              type: integer
+              example: 8
+            teamsEliminated:
+              type: integer
+              example: 8
+            averagePointsToQualify:
+              type: integer
+              example: 72
+        progression:
+          type: object
+          nullable: true
+          properties:
+            teamsAdvanced:
+              type: integer
+              example: 8
+            newGroupsPopulated:
+              type: integer
+              example: 2
+
+    TournamentProgressData:
+      type: object
+      description: Returned by GET /team-advancement/tournament/{tournamentId}/progress
+      required: [tournamentId, totalStages, completedStages, currentStage, overallProgress, stageProgress]
+      properties:
+        tournamentId:
+          type: string
+          format: uuid
+        totalStages:
+          type: integer
+          example: 3
+        completedStages:
+          type: integer
+          example: 1
+        currentStage:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: "Semi Finals"
+            stageNumber:
+              type: integer
+              example: 2
+        overallProgress:
+          type: integer
+          example: 33
+          description: Percentage rounded — (completedStages / totalStages) * 100
+        stageProgress:
+          type: array
+          items:
+            $ref: '#/components/schemas/TournamentStageProgressItem'
+
+    # ── Slot management ───────────────────────────────────────────────────────
+
+    SlotType:
+      type: string
+      enum: [TEAM_SLOT, MANAGEMENT_SLOT, RESERVED_SLOT]
+      example: TEAM_SLOT
+
+    AssignSlotRequest:
+      type: object
+      required: [slotNumber, teamRegistrationId]
+      properties:
+        slotNumber:
+          type: integer
+          minimum: 1
+          maximum: 25
+          example: 5
+        teamRegistrationId:
+          type: string
+          format: uuid
+        slotType:
+          $ref: '#/components/schemas/SlotType'
+          description: Documented in route swagger; controller reads only slotNumber and teamRegistrationId
+
+    AutoAssignSlotsRequest:
+      type: object
+      required: [strategy]
+      properties:
+        strategy:
+          type: string
+          enum: [RANDOM, BALANCED, SKILL_BASED, MANUAL_ORDER]
+          example: BALANCED
+        excludeSlots:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 25
+          example: [1, 25]
+        teamPriorities:
+          type: array
+          items:
+            type: object
+            properties:
+              teamRegistrationId:
+                type: string
+                format: uuid
+              priority:
+                type: integer
+
+    SwapSlotsRequest:
+      type: object
+      required: [slot1, slot2]
+      properties:
+        slot1:
+          type: integer
+          minimum: 1
+          maximum: 25
+          example: 5
+        slot2:
+          type: integer
+          minimum: 1
+          maximum: 25
+          example: 10
+        reason:
+          type: string
+          maxLength: 200
+
+    SlotAssignmentObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slotNumber:
+          type: integer
+        groupId:
+          type: string
+          format: uuid
+        teamRegistrationId:
+          type: string
+          format: uuid
+          nullable: true
+        slotType:
+          $ref: '#/components/schemas/SlotType'
+        isActive:
+          type: boolean
+        assignedAt:
+          type: string
+          format: date-time
+        assignedBy:
+          type: string
+          format: uuid
+
+    GroupSlotsData:
+      type: object
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        totalSlots:
+          type: integer
+          example: 25
+        occupiedSlots:
+          type: integer
+          example: 16
+        availableSlots:
+          type: integer
+          example: 9
+        slots:
+          type: array
+          items:
+            type: object
+            properties:
+              slotNumber:
+                type: integer
+              teamRegistrationId:
+                type: string
+                format: uuid
+                nullable: true
+              teamName:
+                type: string
+                nullable: true
+              slotType:
+                $ref: '#/components/schemas/SlotType'
+              isOccupied:
+                type: boolean
+
+    # ── Tournament uploads ────────────────────────────────────────────────────
+
+    ScreenshotType:
+      type: string
+      enum: [ATTENDANCE_IMAGE, RESULT_IMAGE]
+      example: RESULT_IMAGE
+
+paths:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TOURNAMENTS — /tournaments
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /tournaments:
+    get:
+      tags: [Tournaments]
+      summary: List tournaments for authenticated user
+      description: |
+        Returns **all** tournaments owned by the authenticated user.
+
+        **Important:** No query parameters are processed by the controller today
+        (pagination, search, and filters in legacy swagger are not implemented).
+
+        Returns `404` when the user has zero tournaments.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tournaments retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "User tournaments fetched successfully"
+                      data:
+                        $ref: '#/components/schemas/TournamentListData'
+              example:
+                success: true
+                message: "User tournaments fetched successfully"
+                data:
+                  tournaments:
+                    - id: "123e4567-e89b-12d3-a456-426614174000"
+                      name: "BGMI Pro League S1"
+                      game: "BGMI"
+                      tournamentType: "TOURNAMENT"
+                      status: "UPCOMING"
+                      userId: "456e7890-e12c-34f5-b678-789012345678"
+                      maxTeams: null
+                      entryFee: null
+                      prizePool: null
+                      dbStatus: "PENDING_SYNC"
+                      createdAt: "2024-01-15T10:30:00.000Z"
+                      updatedAt: "2024-01-15T10:30:00.000Z"
+                  count: 1
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /tournaments/create:
+    post:
+      tags: [Tournaments]
+      summary: Create tournament
+      description: |
+        Creates a tournament and associates it with the authenticated user.
+
+        **Persisted fields today:** `name`, `game`, `status` (defaults to `UPCOMING`).
+        Other validated fields (`maxTeams`, `entryFee`, `prizePool`, `tournamentType`) are accepted
+        by validation but not passed through by the controller.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTournamentRequest'
+            examples:
+              minimal:
+                summary: Minimum required fields
+                value:
+                  name: "BGMI Weekly Scrims"
+                  game: "BGMI"
+              with_status:
+                summary: With explicit status
+                value:
+                  name: "BGMI Pro League S1"
+                  game: "BGMI"
+                  status: "UPCOMING"
+      responses:
+        '201':
+          description: Tournament created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Tournament created successfully"
+                      data:
+                        $ref: '#/components/schemas/TournamentObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /tournaments/get/{id}:
+    get:
+      tags: [Tournaments]
+      summary: Get tournament by ID
+      description: Only the tournament owner (`userId`) can access this resource.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Tournament retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Tournament fetched successfully"
+                      data:
+                        $ref: '#/components/schemas/TournamentObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /tournaments/update/{id}:
+    put:
+      tags: [Tournaments]
+      summary: Update tournament
+      description: At least one field required. Owner-only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTournamentRequest'
+            example:
+              name: "BGMI Pro League S1 — Week 2"
+              status: "ONGOING"
+      responses:
+        '200':
+          description: Tournament updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Tournament updated successfully"
+                      data:
+                        $ref: '#/components/schemas/TournamentObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /tournaments/delete/{id}:
+    delete:
+      tags: [Tournaments]
+      summary: Delete tournament
+      description: Soft-deletes from Redis immediately and queues DB cleanup. Owner-only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Tournament deleted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Tournament deleted successfully"
+                      data:
+                        type: object
+                        properties:
+                          success:
+                            type: boolean
+                            example: true
+                          message:
+                            type: string
+                            example: "Tournament deleted successfully"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TOURNAMENT STAGES — /tournament-stages
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /tournament-stages/tournaments/{tournamentId}/stages:
+    post:
+      tags: [Tournament Stages]
+      summary: Create stage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStageRequest'
+            example:
+              name: "Quarter Finals"
+              stageNumber: 2
+              totalGroups: 4
+              qualificationSpots: 8
+              stageFormat: "ELIMINATION"
+      responses:
+        '201':
+          description: Stage created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Tournament stage created successfully"
+                      data:
+                        $ref: '#/components/schemas/TournamentStageObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    get:
+      tags: [Tournament Stages]
+      summary: List stages for tournament
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Stages retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Stages retrieved successfully"
+                      data:
+                        type: object
+                        properties:
+                          stages:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TournamentStageObject'
+                          count:
+                            type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /tournament-stages/stages/{stageId}:
+    get:
+      tags: [Tournament Stages]
+      summary: Get stage by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      responses:
+        '200':
+          description: Stage retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TournamentStageObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    put:
+      tags: [Tournament Stages]
+      summary: Update stage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStageRequest'
+      responses:
+        '200':
+          description: Stage updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TournamentStageObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    delete:
+      tags: [Tournament Stages]
+      summary: Delete stage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      responses:
+        '200':
+          description: Stage deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /tournament-stages/stages/{stageId}/advance:
+    post:
+      tags: [Tournament Stages]
+      summary: Advance tournament to next stage
+      description: Marks current stage complete and activates the next stage when available.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      responses:
+        '200':
+          description: Stage advanced
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/StageAdvanceData'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # GROUPS — /groups
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /groups/tournaments/{tournamentId}/groups:
+    get:
+      tags: [Groups]
+      summary: List groups in tournament
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Groups retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          groups:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/GroupObject'
+                          count:
+                            type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /groups/tournaments/{tournamentId}/groups/create:
+    post:
+      tags: [Groups]
+      summary: Create group
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+            example:
+              name: "Group A"
+              maxTeams: 24
+              qualificationSpots: 8
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /groups/get/{id}:
+    get:
+      tags: [Groups]
+      summary: Get group by ID
+      description: |
+        **Known issue:** Route param is `id` but Zod schema expects `groupId`.
+        Requests may fail validation until the schema is aligned with the route.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPathAsId'
+      responses:
+        '200':
+          description: Group retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /groups/update/{id}:
+    put:
+      tags: [Groups]
+      summary: Update group
+      description: See `/groups/get/{id}` for param validation note.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPathAsId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupRequest'
+      responses:
+        '200':
+          description: Group updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /groups/delete/{id}:
+    delete:
+      tags: [Groups]
+      summary: Delete group
+      description: See `/groups/get/{id}` for param validation note.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPathAsId'
+      responses:
+        '200':
+          description: Group deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TEAM REGISTRATIONS — /team-registrations
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /team-registrations/tournaments/{tournamentId}/registrations:
+    get:
+      tags: [Team Registrations]
+      summary: List team registrations for tournament
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Registrations retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          registrations:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TeamRegistrationObject'
+                          count:
+                            type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /team-registrations/tournaments/{tournamentId}/registrations/create:
+    post:
+      tags: [Team Registrations]
+      summary: Register team to tournament
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTeamRegistrationRequest'
+            example:
+              teamName: "Team Phoenix"
+              contactInfo: "captain@teamphoenix.com"
+              groupId: "323e4567-e89b-12d3-a456-426614174002"
+      responses:
+        '201':
+          description: Registration created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TeamRegistrationObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /team-registrations/groups/{groupId}/registrations:
+    get:
+      tags: [Team Registrations]
+      summary: List registrations in group
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+      responses:
+        '200':
+          description: Group registrations retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          registrations:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TeamRegistrationObject'
+                          count:
+                            type: integer
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /team-registrations/get/{id}:
+    get:
+      tags: [Team Registrations]
+      summary: Get registration by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RegistrationIdPath'
+      responses:
+        '200':
+          description: Registration retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TeamRegistrationObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /team-registrations/update/{id}:
+    put:
+      tags: [Team Registrations]
+      summary: Update registration
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RegistrationIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTeamRegistrationRequest'
+            example:
+              registrationStatus: "CONFIRMED"
+              groupId: "323e4567-e89b-12d3-a456-426614174002"
+      responses:
+        '200':
+          description: Registration updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TeamRegistrationObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # MATCHES — /matches
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /matches/tournaments/{tournamentId}/matches:
+    get:
+      tags: [Matches]
+      summary: List matches in tournament
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Matches retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          matches:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/MatchObject'
+                          count:
+                            type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /matches/tournaments/{tournamentId}/matches/create:
+    post:
+      tags: [Matches]
+      summary: Create match
+      description: |
+        Controller persists `matchNumber` and optional `matchDate` only.
+        `groupId` is validated but not forwarded to the service today.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMatchRequest'
+            example:
+              matchNumber: 1
+              matchDate: "2024-12-25T10:00:00.000Z"
+      responses:
+        '201':
+          description: Match created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MatchObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /matches/get/{id}:
+    get:
+      tags: [Matches]
+      summary: Get match by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MatchIdPath'
+      responses:
+        '200':
+          description: Match retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MatchObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /matches/update/{id}:
+    put:
+      tags: [Matches]
+      summary: Update match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MatchIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMatchRequest'
+      responses:
+        '200':
+          description: Match updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MatchObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /matches/delete/{id}:
+    delete:
+      tags: [Matches]
+      summary: Delete match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MatchIdPath'
+      responses:
+        '200':
+          description: Match deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # MATCH RESULTS — /match-results
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /match-results/matches/{matchId}/results:
+    post:
+      tags: [Match Results]
+      summary: Submit match results
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MatchIdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMatchResultRequest'
+            example:
+              teamResults:
+                - teamId: "423e4567-e89b-12d3-a456-426614174003"
+                  kills: 12
+                  placement: 1
+                - teamId: "523e4567-e89b-12d3-a456-426614174005"
+                  kills: 8
+                  placement: 2
+              notes: "Manual entry from organizer"
+      responses:
+        '201':
+          description: Results created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MatchResultObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    get:
+      tags: [Match Results]
+      summary: List results for match
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MatchIdPathParam'
+      responses:
+        '200':
+          description: Results retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          results:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/MatchResultObject'
+                          count:
+                            type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /match-results/results/{resultId}:
+    get:
+      tags: [Match Results]
+      summary: Get result by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResultIdPath'
+      responses:
+        '200':
+          description: Result retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MatchResultObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    put:
+      tags: [Match Results]
+      summary: Update result
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResultIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMatchResultRequest'
+      responses:
+        '200':
+          description: Result updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MatchResultObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    delete:
+      tags: [Match Results]
+      summary: Delete result
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResultIdPath'
+      responses:
+        '200':
+          description: Result deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /match-results/results/{resultId}/verify:
+    post:
+      tags: [Match Results]
+      summary: Verify match results
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResultIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyResultsRequest'
+            example:
+              verificationStatus: "VERIFIED"
+              verificationNotes: "Checked against screenshot"
+      responses:
+        '200':
+          description: Results verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /match-results/results/{resultId}/publish:
+    post:
+      tags: [Match Results]
+      summary: Publish verified results
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResultIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishResultsRequest'
+      responses:
+        '200':
+          description: Results published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /match-results/tournaments/{tournamentId}/calculate-scores:
+    post:
+      tags: [Match Results]
+      summary: Calculate team scores (utility)
+      description: |
+        **Implementation note:** Zod validates optional `scoringRuleId`, but the controller
+        reads `teamResults` from the request body. Align client payloads with whichever
+        field the deployed controller expects.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculateScoresRequest'
+      responses:
+        '200':
+          description: Scores calculated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          teamResults:
+                            type: array
+                            items:
+                              type: object
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /match-results/tournaments/{tournamentId}/results:
+    get:
+      tags: [Match Results]
+      summary: Tournament results summary (stub)
+      description: |
+        Placeholder endpoint — returns a ready message and `tournamentId`.
+        Full tournament-wide results aggregation is not implemented yet.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Stub response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message:
+                            type: string
+                            example: "This endpoint will provide tournament-wide results summary"
+                          tournamentId:
+                            type: string
+                            format: uuid
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # LEADERBOARDS — /leaderboards
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /leaderboards/tournament/{tournamentId}:
+    get:
+      tags: [Leaderboards]
+      summary: Get tournament leaderboard
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Leaderboard retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TournamentLeaderboard'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /leaderboards/group/{groupId}:
+    get:
+      tags: [Leaderboards]
+      summary: Get group leaderboard
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+      responses:
+        '200':
+          description: Group leaderboard retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupLeaderboard'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /leaderboards/live/{tournamentId}:
+    get:
+      tags: [Leaderboards]
+      summary: Get live standings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Live standings retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /leaderboards/refresh/{tournamentId}:
+    post:
+      tags: [Leaderboards]
+      summary: Refresh leaderboard
+      description: |
+        For tournaments with more than 1000 teams, processing is queued asynchronously
+        and the response includes `processingStrategy` metadata.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshLeaderboardRequest'
+      responses:
+        '200':
+          description: Leaderboard refreshed or queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /leaderboards/search:
+    post:
+      tags: [Leaderboards]
+      summary: Search leaderboard entries
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaderboardSearchRequest'
+            example:
+              tournamentId: "123e4567-e89b-12d3-a456-426614174000"
+              teamName: "Phoenix"
+              minKills: 10
+      responses:
+        '200':
+          description: Search completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /leaderboards/top-performers/{tournamentId}:
+    get:
+      tags: [Leaderboards]
+      summary: Get top performers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+        - name: limit
+          in: query
+          schema:
+            type: string
+            default: "10"
+          example: "10"
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [points, kills, wins, average]
+            default: points
+          example: points
+      responses:
+        '200':
+          description: Top performers retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                          performers:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/LeaderboardEntry'
+                          count:
+                            type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /leaderboards/stats/{tournamentId}:
+    get:
+      tags: [Leaderboards]
+      summary: Get leaderboard statistics
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Stats retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TEAM ADVANCEMENT — /team-advancement
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /team-advancement/stage/{stageId}/qualify:
+    post:
+      tags: [Team Advancement]
+      summary: Qualify teams from stage
+      description: |
+        Runs qualification for every group in the stage using group leaderboards.
+        Qualification method is `TOP_POINTS` with tie-breakers `TOTAL_KILLS` then `BEST_POSITION`.
+        Result is cached at `stage:{stageId}:qualification:result` (TTL 5 min).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      responses:
+        '200':
+          description: Teams qualified
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Teams qualified successfully"
+                      data:
+                        $ref: '#/components/schemas/StageQualificationResultObject'
+              example:
+                success: true
+                message: "Teams qualified successfully"
+                data:
+                  stageId: "223e4567-e89b-12d3-a456-426614174001"
+                  stageName: "Quarter Finals"
+                  totalGroups: 2
+                  totalTeamsStarted: 16
+                  totalTeamsQualified: 8
+                  groupResults:
+                    - groupId: "323e4567-e89b-12d3-a456-426614174002"
+                      groupName: "Group A"
+                      totalTeams: 8
+                      qualificationSpots: 4
+                      qualifiedTeams:
+                        - teamRegistrationId: "423e4567-e89b-12d3-a456-426614174003"
+                          teamName: "Team Phoenix"
+                          finalGroupPosition: 1
+                          totalPoints: 87
+                          totalKills: 42
+                          fromGroupId: "323e4567-e89b-12d3-a456-426614174002"
+                          fromGroupName: "Group A"
+                          qualificationReason: "Qualified as #1 (Top 4)"
+                      eliminatedTeams:
+                        - teamRegistrationId: "523e4567-e89b-12d3-a456-426614174005"
+                          teamName: "Team Delta"
+                          finalGroupPosition: 5
+                          totalPoints: 34
+                          eliminationReason: "Eliminated at #5 (Only top 4 qualify)"
+                  qualificationSummary:
+                    teamsAdvanced: 8
+                    teamsEliminated: 8
+                    averagePointsToQualify: 72
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /team-advancement/stage/{stageId}/qualification-results:
+    get:
+      tags: [Team Advancement]
+      summary: Get cached qualification results
+      description: Reads the cached `StageQualificationResult` written by POST qualify. Returns 404 if qualify has not been run yet.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      responses:
+        '200':
+          description: Qualification results retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Qualification results retrieved successfully"
+                      data:
+                        $ref: '#/components/schemas/StageQualificationResultObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /team-advancement/progress/{currentStageId}/to/{nextStageId}:
+    post:
+      tags: [Team Advancement]
+      summary: Progress qualified teams to next stage
+      description: |
+        Requires cached qualification results on `currentStageId` and pre-created groups on `nextStageId`.
+        Distributes qualified teams into next-stage groups and updates team registrations.
+        Result is cached at `stage:{currentStageId}:progression:result`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CurrentStageIdPath'
+        - $ref: '#/components/parameters/NextStageIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamDistributionRequest'
+            example:
+              strategy: "SNAKE_DRAFT"
+              preserveTopPerformers: true
+              balanceByPoints: true
+      responses:
+        '200':
+          description: Teams progressed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Teams progressed to next stage successfully"
+                      data:
+                        $ref: '#/components/schemas/StageProgressionResultObject'
+              example:
+                success: true
+                message: "Teams progressed to next stage successfully"
+                data:
+                  fromStage:
+                    stageId: "223e4567-e89b-12d3-a456-426614174001"
+                    stageName: "Quarter Finals"
+                    totalTeamsQualified: 8
+                  toStage:
+                    stageId: "223e4567-e89b-12d3-a456-426614174099"
+                    stageName: "Semi Finals"
+                    totalGroups: 2
+                    maxTeamsPerGroup: 24
+                  teamDistribution:
+                    - groupId: "323e4567-e89b-12d3-a456-426614174010"
+                      groupName: "Group A"
+                      assignedTeams:
+                        - teamRegistrationId: "423e4567-e89b-12d3-a456-426614174003"
+                          teamName: "Team Phoenix"
+                          finalGroupPosition: 1
+                          totalPoints: 87
+                          totalKills: 42
+                          fromGroupId: "323e4567-e89b-12d3-a456-426614174002"
+                          fromGroupName: "Group A"
+                          qualificationReason: "Qualified as #1 (Top 4)"
+                      managementSlots: 2
+                      totalSlots: 24
+                      filledSlots: 4
+                  progressionSummary:
+                    teamsAdvanced: 8
+                    newGroupsPopulated: 2
+                    averageTeamsPerGroup: 4
+                    managementSlotsReserved: 4
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /team-advancement/complete-progression/{currentStageId}/to/{nextStageId}:
+    post:
+      tags: [Team Advancement]
+      summary: Complete stage progression (qualify + progress + slot assign + advance)
+      description: |
+        All-in-one endpoint that runs, in order:
+        1. `qualifyTeamsFromStage`
+        2. `progressTeamsToNextStage`
+        3. Auto-assign slots in new groups
+        4. `advanceStage` (mark current complete, activate next)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CurrentStageIdPath'
+        - $ref: '#/components/parameters/NextStageIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamDistributionRequest'
+            example:
+              strategy: "SNAKE_DRAFT"
+              preserveTopPerformers: true
+      responses:
+        '200':
+          description: Progression completed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Stage progression completed successfully"
+                      data:
+                        $ref: '#/components/schemas/CompleteStageProgressionData'
+              example:
+                success: true
+                message: "Stage progression completed successfully"
+                data:
+                  qualificationResult:
+                    stageId: "223e4567-e89b-12d3-a456-426614174001"
+                    stageName: "Quarter Finals"
+                    totalGroups: 2
+                    totalTeamsStarted: 16
+                    totalTeamsQualified: 8
+                    groupResults: []
+                    qualificationSummary:
+                      teamsAdvanced: 8
+                      teamsEliminated: 8
+                      averagePointsToQualify: 72
+                  progressionResult:
+                    fromStage:
+                      stageId: "223e4567-e89b-12d3-a456-426614174001"
+                      stageName: "Quarter Finals"
+                      totalTeamsQualified: 8
+                    toStage:
+                      stageId: "223e4567-e89b-12d3-a456-426614174099"
+                      stageName: "Semi Finals"
+                      totalGroups: 2
+                      maxTeamsPerGroup: 24
+                    teamDistribution: []
+                    progressionSummary:
+                      teamsAdvanced: 8
+                      newGroupsPopulated: 2
+                      averageTeamsPerGroup: 4
+                      managementSlotsReserved: 4
+                  slotAssignmentResults:
+                    totalSlotsAssigned: 8
+                    groupResults:
+                      - groupId: "323e4567-e89b-12d3-a456-426614174010"
+                        groupName: "Group A"
+                        teamsAssigned: 4
+                        slotsUsed: 4
+                  stageAdvancementResult:
+                    completedStage:
+                      id: "223e4567-e89b-12d3-a456-426614174001"
+                      name: "Quarter Finals"
+                      stageNumber: 1
+                      isActive: false
+                      isCompleted: true
+                    nextStage:
+                      id: "223e4567-e89b-12d3-a456-426614174099"
+                      name: "Semi Finals"
+                      stageNumber: 2
+                      isActive: true
+                      isCompleted: false
+                    tournamentCompleted: false
+                  summary:
+                    teamsQualified: 8
+                    teamsEliminated: 8
+                    newGroupsPopulated: 2
+                    slotsAssigned: 8
+                    nextStageActivated: true
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /team-advancement/stage/{stageId}/groups:
+    post:
+      tags: [Team Advancement]
+      summary: Create groups for a stage
+      description: Creates groups linked to the stage via Redis set `stage:{stageId}:groups`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStageGroupsRequest'
+            example:
+              groupsData:
+                - name: "Group A"
+                  maxTeams: 8
+                  qualificationSpots: 4
+                - name: "Group B"
+                  maxTeams: 8
+                  qualificationSpots: 4
+      responses:
+        '201':
+          description: Stage groups created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Stage groups created successfully"
+                      data:
+                        $ref: '#/components/schemas/StageGroupsResultObject'
+              example:
+                success: true
+                message: "Stage groups created successfully"
+                data:
+                  stageId: "223e4567-e89b-12d3-a456-426614174099"
+                  stageName: "Semi Finals"
+                  totalGroups: 2
+                  createdGroups:
+                    - id: "323e4567-e89b-12d3-a456-426614174010"
+                      name: "Group A"
+                      maxTeams: 8
+                      qualificationSpots: 4
+                      tournamentId: "123e4567-e89b-12d3-a456-426614174000"
+                      stageId: "223e4567-e89b-12d3-a456-426614174099"
+                      createdAt: "2024-01-15T10:30:00.000Z"
+                      updatedAt: "2024-01-15T10:30:00.000Z"
+                      dbStatus: "PENDING_SYNC"
+                    - id: "323e4567-e89b-12d3-a456-426614174011"
+                      name: "Group B"
+                      maxTeams: 8
+                      qualificationSpots: 4
+                      tournamentId: "123e4567-e89b-12d3-a456-426614174000"
+                      stageId: "223e4567-e89b-12d3-a456-426614174099"
+                      createdAt: "2024-01-15T10:30:00.000Z"
+                      updatedAt: "2024-01-15T10:30:00.000Z"
+                      dbStatus: "PENDING_SYNC"
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    get:
+      tags: [Team Advancement]
+      summary: List groups for stage
+      description: Always returns 200 with an array (may be empty if no groups created yet).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      responses:
+        '200':
+          description: Stage groups retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Stage groups retrieved successfully"
+                      data:
+                        $ref: '#/components/schemas/StageGroupsListData'
+              example:
+                success: true
+                message: "Stage groups retrieved successfully"
+                data:
+                  stageId: "223e4567-e89b-12d3-a456-426614174099"
+                  totalGroups: 2
+                  groups:
+                    - id: "323e4567-e89b-12d3-a456-426614174010"
+                      name: "Group A"
+                      maxTeams: 8
+                      qualificationSpots: 4
+                      tournamentId: "123e4567-e89b-12d3-a456-426614174000"
+                      stageId: "223e4567-e89b-12d3-a456-426614174099"
+                      createdAt: "2024-01-15T10:30:00.000Z"
+                      updatedAt: "2024-01-15T10:30:00.000Z"
+                      dbStatus: "PENDING_SYNC"
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /team-advancement/stage/{stageId}/progression-results:
+    get:
+      tags: [Team Advancement]
+      summary: Get stage progression results
+      description: Reads cached `StageProgressionResult` from `stage:{stageId}:progression:result`. Returns 404 if progress has not been run yet.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StageIdPath'
+      responses:
+        '200':
+          description: Progression results retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Progression results retrieved successfully"
+                      data:
+                        $ref: '#/components/schemas/StageProgressionResultObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /team-advancement/tournament/{tournamentId}/progress:
+    get:
+      tags: [Team Advancement]
+      summary: Get tournament progression overview
+      description: |
+        Aggregates per-stage qualification and progression cache plus group counts.
+        `stageProgress[].groups` is a **number** (group count), not a group array.
+        `qualification` and `progression` are `null` when that step has not run for the stage.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Tournament progress retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Tournament progress retrieved successfully"
+                      data:
+                        $ref: '#/components/schemas/TournamentProgressData'
+              example:
+                success: true
+                message: "Tournament progress retrieved successfully"
+                data:
+                  tournamentId: "123e4567-e89b-12d3-a456-426614174000"
+                  totalStages: 3
+                  completedStages: 1
+                  currentStage:
+                    id: "223e4567-e89b-12d3-a456-426614174099"
+                    name: "Semi Finals"
+                    stageNumber: 2
+                  overallProgress: 33
+                  stageProgress:
+                    - stage:
+                        id: "223e4567-e89b-12d3-a456-426614174001"
+                        name: "Quarter Finals"
+                        stageNumber: 1
+                        isActive: false
+                        isCompleted: true
+                        totalGroups: 2
+                      groups: 2
+                      qualification:
+                        teamsQualified: 8
+                        teamsEliminated: 8
+                        averagePointsToQualify: 72
+                      progression:
+                        teamsAdvanced: 8
+                        newGroupsPopulated: 2
+                    - stage:
+                        id: "223e4567-e89b-12d3-a456-426614174099"
+                        name: "Semi Finals"
+                        stageNumber: 2
+                        isActive: true
+                        isCompleted: false
+                        totalGroups: 2
+                      groups: 2
+                      qualification: null
+                      progression: null
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: No stages found for tournament
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "No stages found for this tournament"
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # SLOT MANAGEMENT — /slot-management
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /slot-management/groups/{groupId}/slots/assign:
+    post:
+      tags: [Slot Management]
+      summary: Assign team to slot
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignSlotRequest'
+            example:
+              slotNumber: 5
+              teamRegistrationId: "423e4567-e89b-12d3-a456-426614174003"
+              slotType: "TEAM_SLOT"
+      responses:
+        '201':
+          description: Slot assigned
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SlotAssignmentObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /slot-management/groups/{groupId}/slots:
+    get:
+      tags: [Slot Management]
+      summary: Get all slot assignments for group
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+      responses:
+        '200':
+          description: Slots retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupSlotsData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /slot-management/groups/{groupId}/slots/{slotNumber}:
+    put:
+      tags: [Slot Management]
+      summary: Update slot assignment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+        - $ref: '#/components/parameters/SlotNumberPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                teamRegistrationId:
+                  type: string
+                  format: uuid
+                slotType:
+                  $ref: '#/components/schemas/SlotType'
+      responses:
+        '200':
+          description: Slot updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SlotAssignmentObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    delete:
+      tags: [Slot Management]
+      summary: Clear slot assignment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+        - $ref: '#/components/parameters/SlotNumberPath'
+      responses:
+        '200':
+          description: Slot cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /slot-management/groups/{groupId}/slots/availability:
+    get:
+      tags: [Slot Management]
+      summary: Get available slots
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+      responses:
+        '200':
+          description: Availability retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /slot-management/groups/{groupId}/slots/auto-assign:
+    post:
+      tags: [Slot Management]
+      summary: Auto-assign teams to slots
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutoAssignSlotsRequest'
+            example:
+              strategy: "BALANCED"
+              excludeSlots: [1, 25]
+      responses:
+        '200':
+          description: Auto-assignment completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /slot-management/groups/{groupId}/slots/swap:
+    post:
+      tags: [Slot Management]
+      summary: Swap teams between two slots
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwapSlotsRequest'
+            example:
+              slot1: 5
+              slot2: 10
+              reason: "Team requested swap"
+      responses:
+        '200':
+          description: Slots swapped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TOURNAMENT UPLOADS — /uploads (tournament match screenshots only)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /uploads/matches/{id}/screenshots/upload:
+    post:
+      tags: [Tournament Uploads]
+      summary: Upload match screenshots
+      description: |
+        Multipart upload for tournament match screenshots (not Quick PT).
+
+        **Required query param:** `type=ATTENDANCE_IMAGE` or `type=RESULT_IMAGE`
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MatchIdPath'
+        - name: type
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/ScreenshotType'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [screenshots]
+              properties:
+                screenshots:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  minItems: 1
+                  maxItems: 10
+      responses:
+        '201':
+          description: Screenshots uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Screenshots uploaded successfully"
+                  data:
+                    type: object
+                    properties:
+                      screenshots:
+                        type: array
+                        items:
+                          type: object
+                      uploadId:
+                        type: string
+                        format: uuid
+                      count:
+                        type: integer
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /uploads/matches/{id}/screenshots:
+    get:
+      tags: [Tournament Uploads]
+      summary: List match screenshots
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MatchIdPath'
+      responses:
+        '200':
+          description: Screenshots retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+                  meta:
+                    $ref: '#/components/schemas/MetaObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /uploads/screenshots/{id}/delete:
+    delete:
+      tags: [Tournament Uploads]
+      summary: Delete screenshot
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Screenshot UUID
+      responses:
+        '200':
+          description: Screenshot deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /uploads/progress/{uploadId}:
+    get:
+      tags: [Tournament Uploads]
+      summary: Get upload progress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Upload progress retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  parameters:
+
+    TournamentIdPath:
+      name: tournamentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: "123e4567-e89b-12d3-a456-426614174000"
+
+    StageIdPath:
+      name: stageId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: "223e4567-e89b-12d3-a456-426614174001"
+
+    CurrentStageIdPath:
+      name: currentStageId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    NextStageIdPath:
+      name: nextStageId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    GroupIdPath:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: "323e4567-e89b-12d3-a456-426614174002"
+
+    GroupIdPathAsId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Group UUID (route uses `id`, validation schema expects `groupId`)
+
+    RegistrationIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Team registration UUID
+
+    MatchIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Match UUID
+
+    MatchIdPathParam:
+      name: matchId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Match UUID
+
+    ResultIdPath:
+      name: resultId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    SlotNumberPath:
+      name: slotNumber
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 25
+      example: 5

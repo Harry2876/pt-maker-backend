@@ -135,9 +135,12 @@ export class ScoringRuleController {
         const { rules } = req.body;
         const userId = req.user!.id;
 
+        const { replaceExisting } = req.body;
+
         const result = await scoringRuleService.bulkCreateRules({
             tournamentId,
-            rules
+            rules,
+            replaceExisting
         }, userId);
 
         return res.status(201).json(ResponseHelper.success('Bulk scoring rules created', result));

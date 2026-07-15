@@ -312,6 +312,7 @@ info:
     | Teams | `/teams` | Team enrollment and management |
     | Team Registration | `/team-registrations` | Register teams to tournaments |
     | Groups | `/groups` | Tournament group/pool management |
+    | Scoring Rules | `/scoring-rules` | Tournament kill/placement scoring configuration |
     | Leaderboards | `/leaderboards` | Rankings and standings |
     | Uploads | `/uploads` | File and media upload handling |
 
