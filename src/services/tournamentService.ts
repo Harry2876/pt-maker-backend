@@ -10,6 +10,9 @@ interface TournamentCache {
     game: string;
     status: string;
     userId: string;
+    positionPointsConfig?: number[];
+    killPointsValue?: number;
+    scoringDescription?: string;
     createdAt: string;
     updatedAt: string;
     dbStatus: string;
@@ -32,11 +35,18 @@ export class TournamentService extends BaseService {
         status?: TournamentStatus,
         totalStages?: number,
         tournamentFormat?: 'ELIMINATION' | 'ROUND_ROBIN' | 'MIXED',
-        maxTeamsPerGroup?: number
+        maxTeamsPerGroup?: number,
+        positionPointsConfig?: number[],
+        killPointsValue?: number,
+        scoringDescription?: string
     }) {
         try {
             //generate tournament id
             const tournamentId = randomUUID();
+
+            const positionPointsConfig = data.positionPointsConfig || [20, 15, 12, 10, 8, 6, 4, 2, 1, 0];
+            const killPointsValue = data.killPointsValue ?? 1;
+            const scoringDescription = data.scoringDescription || 'Standard BGMI Scoring';
 
             //create the tournament object
             const tournament = {
@@ -53,6 +63,9 @@ export class TournamentService extends BaseService {
                 tournamentFormat: data.tournamentFormat || 'ELIMINATION',
                 maxTeamsPerGroup: data.maxTeamsPerGroup ?? 25,
                 allowCollaborators: false,
+                positionPointsConfig,
+                killPointsValue,
+                scoringDescription,
                 userId,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
@@ -186,10 +199,21 @@ export class TournamentService extends BaseService {
             //cache the result
             await redis.hsetObject(`tournament:${tournamentId}`, {
                 ...dbTournament,
+                positionPointsConfig: Array.isArray(dbTournament.positionPointsConfig)
+                    ? dbTournament.positionPointsConfig as number[]
+                    : undefined,
+                scoringDescription: dbTournament.scoringDescription ?? undefined,
                 dbStatus: 'SYNCED'
             });
 
-            return dbTournament;
+            return {
+                ...dbTournament,
+                positionPointsConfig: Array.isArray(dbTournament.positionPointsConfig)
+                    ? dbTournament.positionPointsConfig as number[]
+                    : undefined,
+                scoringDescription: dbTournament.scoringDescription ?? undefined,
+                dbStatus: 'SYNCED' as const
+            };
         } catch (error) {
             this.handleError(error, 'Get tournament by ID');
             return null;
@@ -233,7 +257,11 @@ export class TournamentService extends BaseService {
 
             //update related caches
             const cacheCompatibleTournament: TournamentCache = {
-                ...updatedTournament,
+                ...(updatedTournament as TournamentCache),
+                positionPointsConfig: Array.isArray(updatedTournament.positionPointsConfig)
+                    ? updatedTournament.positionPointsConfig as number[]
+                    : undefined,
+                scoringDescription: updatedTournament.scoringDescription ?? undefined,
                 createdAt: typeof updatedTournament.createdAt === 'string'
                     ? updatedTournament.createdAt
                     : updatedTournament.createdAt.toISOString(),

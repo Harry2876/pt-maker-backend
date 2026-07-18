@@ -1,7 +1,7 @@
 import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
-import { scoringRuleService } from './scoringRuleService';
+import { PointsCalculator, ScoringConfig } from '../utils/pointsCalculator';
 import { leaderboardService } from './leaderboardService';
 import { teamRegistrationService } from './teamRegistrationService';
 import { randomUUID } from 'crypto';
@@ -64,6 +64,59 @@ export class MatchResultService extends BaseService {
         }
 
         return normalized;
+    }
+
+    private async getTournamentScoringConfig(tournamentId: string): Promise<ScoringConfig> {
+        const cached = await redis.hgetObject<TournamentCache>(`tournament:${tournamentId}`);
+        if (cached?.positionPointsConfig?.length) {
+            return {
+                positionPointsConfig: cached.positionPointsConfig,
+                killPointsValue: cached.killPointsValue ?? 1
+            };
+        }
+
+        const dbTournament = await this.db.tournament.findUnique({
+            where: { id: tournamentId },
+            select: { positionPointsConfig: true, killPointsValue: true }
+        });
+
+        if (dbTournament?.positionPointsConfig) {
+            const positionPointsConfig = Array.isArray(dbTournament.positionPointsConfig)
+                ? dbTournament.positionPointsConfig as number[]
+                : [];
+
+            if (positionPointsConfig.length > 0) {
+                return {
+                    positionPointsConfig,
+                    killPointsValue: dbTournament.killPointsValue ?? 1
+                };
+            }
+        }
+
+        return PointsCalculator.getDefaultBGMIConfig();
+    }
+
+    private buildScoreBreakdown(
+        position: number,
+        kills: number,
+        config: ScoringConfig
+    ): TeamMatchResult['scoreBreakdown'] {
+        const breakdown = PointsCalculator.calculatePoints(position, kills, config);
+
+        return [
+            {
+                ruleName: 'Position Points',
+                ruleType: 'POSITION_POINTS',
+                points: breakdown.positionPoints,
+                calculation: `Position #${position} = ${breakdown.positionPoints}pts`
+            },
+            {
+                ruleName: 'Kill Points',
+                ruleType: 'KILL_POINTS',
+                points: breakdown.killPoints,
+                calculation: `${kills} kills × ${config.killPointsValue} = ${breakdown.killPoints}pts`
+            }
+        ];
     }
 
     private queueMatchResultUpdate(resultId: string, updated: MatchResultCache, userId: string) {
@@ -332,7 +385,7 @@ export class MatchResultService extends BaseService {
         }
     }
 
-    // Calculate team scores using scoring rules
+    // Calculate team scores using tournament scoring config
     async calculateTeamScores(
         tournamentId: string,
         teamResults: TeamMatchResult[] | Array<Record<string, unknown>>
@@ -343,26 +396,25 @@ export class MatchResultService extends BaseService {
                 ? await this.normalizeTeamResultsInput(teamResults as Array<Record<string, unknown>>)
                 : teamResults as TeamMatchResult[];
 
+            const scoringConfig = await this.getTournamentScoringConfig(tournamentId);
             const processedResults: TeamMatchResult[] = [];
 
             for (const teamResult of normalized) {
-                // Use ScoringRuleService to calculate scores
-                const scoreResult = await scoringRuleService.calculateScore(tournamentId, {
-                    kills: teamResult.kills,
-                    position: teamResult.position,
-                    survivalTime: teamResult.survivalTime,
-                    customData: {
-                        damage: teamResult.damage
-                    }
-                });
+                const breakdown = PointsCalculator.calculatePoints(
+                    teamResult.position,
+                    teamResult.kills,
+                    scoringConfig
+                );
 
-                const processedResult: TeamMatchResult = {
+                processedResults.push({
                     ...teamResult,
-                    totalScore: scoreResult.totalScore,
-                    scoreBreakdown: scoreResult.breakdown
-                };
-
-                processedResults.push(processedResult);
+                    totalScore: breakdown.totalPoints,
+                    scoreBreakdown: this.buildScoreBreakdown(
+                        teamResult.position,
+                        teamResult.kills,
+                        scoringConfig
+                    )
+                });
             }
 
             return processedResults;
@@ -374,18 +426,25 @@ export class MatchResultService extends BaseService {
                 ? await this.normalizeTeamResultsInput(teamResults as Array<Record<string, unknown>>)
                 : teamResults as TeamMatchResult[];
 
-            return fallbackInput.map(result => ({
-                ...result,
-                totalScore: result.totalScore || (result.kills + Math.max(0, 26 - result.position) * 2),
-                scoreBreakdown: result.scoreBreakdown?.length ? result.scoreBreakdown : [
-                    {
-                        ruleName: 'Default Scoring',
-                        ruleType: 'FALLBACK',
-                        points: result.totalScore || 0,
-                        calculation: 'Fallback calculation'
-                    }
-                ]
-            }));
+            const fallbackConfig = PointsCalculator.getDefaultBGMIConfig();
+
+            return fallbackInput.map(result => {
+                const breakdown = PointsCalculator.calculatePoints(
+                    result.position,
+                    result.kills,
+                    fallbackConfig
+                );
+
+                return {
+                    ...result,
+                    totalScore: breakdown.totalPoints,
+                    scoreBreakdown: this.buildScoreBreakdown(
+                        result.position,
+                        result.kills,
+                        fallbackConfig
+                    )
+                };
+            });
         }
     }
 

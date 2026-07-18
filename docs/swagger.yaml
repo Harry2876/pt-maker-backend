@@ -315,8 +315,6 @@ info:
     | Groups | `/groups` | Tournament group/pool management (stage-linked) |
     | Slot Management | `/slot-management` | Group slot assignment (1–25) |
     | Team Advancement | `/team-advancement` | Qualify, progress, and advance stages |
-    | Scoring Rules | `/scoring-rules` | Tournament kill/placement scoring configuration |
-    | Collaborators | `/collaborators` | Tournament staff / co-host invites, roles, permissions |
     | Leaderboards | `/leaderboards` | Rankings and standings |
     | Uploads | `/uploads` | Tournament match screenshot **storage only** (not Quick PT — see below) |
     | Players | `/players` | Player roster management |
@@ -353,12 +351,12 @@ info:
 
     **`PUT /groups/update/{id}`** — exists; use for name / maxTeams / qualificationSpots. No `stageId`.
 
-    **`totalStages` / `tournamentFormat`** — set on `POST /tournaments/create` only. `PUT /tournaments/update/{id}` accepts name, game, status only.
+    **`totalStages` / `tournamentFormat` / scoring** — set on `POST /tournaments/create` only (`positionPointsConfig`, `killPointsValue`, `scoringDescription`). Same shape as Quick PT match creation. One config applies to all matches in the tournament. `PUT /tournaments/update/{id}` accepts name, game, status only.
 
     ### Setup flow
 
     ```
-    1. POST /tournaments/create          (totalStages, tournamentFormat optional)
+    1. POST /tournaments/create          (scoring config + totalStages/tournamentFormat optional)
     2. POST /tournament-stages/.../stages
     3. POST /groups/.../groups/create  (stageId in body, or omit)
     4. teams → slots → matches → results → leaderboard
@@ -397,8 +395,6 @@ tags:
     description: Staff / co-host invites, roles, permissions
   - name: Players
     description: Player roster management
-  - name: Scoring Rules
-    description: Tournament kill/placement scoring configuration
 
 # ══════════════════════════════════════════════════════════════════════════════
 # COMPONENTS — defined once, reused across all path files via $ref

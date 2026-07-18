@@ -44,6 +44,21 @@ export const createTournamentSchema = z.object({
         .positive('Max teams per group must be positive')
         .min(1, 'Max teams per group must be at least 1')
         .max(100, 'Max teams per group cannot exceed 100')
+        .optional(),
+
+    positionPointsConfig: z.array(z.number().int().min(0).max(100))
+        .length(10, 'Position points must have exactly 10 values (for ranks 1-10)')
+        .optional(),
+
+    killPointsValue: z.number()
+        .int('Kill points must be an integer')
+        .min(0, 'Kill points cannot be negative')
+        .max(10, 'Kill points cannot exceed 10')
+        .optional()
+        .default(1),
+
+    scoringDescription: z.string()
+        .max(100, 'Scoring description must be at most 100 characters')
         .optional()
 });
 

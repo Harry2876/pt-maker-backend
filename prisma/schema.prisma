@@ -223,6 +223,9 @@ model Tournament {
   registrationFields Json?
   totalStages        Int                      @default(1)
   tournamentFormat   TournamentFormat         @default(ELIMINATION)
+  positionPointsConfig Json?
+  killPointsValue      Int                    @default(1)
+  scoringDescription   String?
   groups             Group[]
   matches            Match[]
   playerStats        PlayerStat[]

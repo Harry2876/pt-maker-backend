@@ -16,7 +16,10 @@ export class TournamentController {
             prizePool,
             totalStages,
             tournamentFormat,
-            maxTeamsPerGroup
+            maxTeamsPerGroup,
+            positionPointsConfig,
+            killPointsValue,
+            scoringDescription
         } = req.body;
 
         const userId = req.user!.id;
@@ -31,7 +34,10 @@ export class TournamentController {
             prizePool,
             totalStages,
             tournamentFormat,
-            maxTeamsPerGroup
+            maxTeamsPerGroup,
+            positionPointsConfig,
+            killPointsValue,
+            scoringDescription
         });
 
         return res.status(201).json(ResponseHelper.success('Tournament created successfully', tournament));

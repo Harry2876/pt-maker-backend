@@ -120,6 +120,9 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     tournamentFormat: tournamentData.tournamentFormat || 'ELIMINATION',
                     maxTeamsPerGroup: tournamentData.maxTeamsPerGroup ?? 25,
                     allowCollaborators: tournamentData.allowCollaborators ?? false,
+                    positionPointsConfig: tournamentData.positionPointsConfig,
+                    killPointsValue: tournamentData.killPointsValue ?? 1,
+                    scoringDescription: tournamentData.scoringDescription,
                     createdAt: new Date(tournamentData.createdAt),
                     updatedAt: new Date(tournamentData.updatedAt || tournamentData.createdAt)
                 }

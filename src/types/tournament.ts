@@ -17,6 +17,10 @@ export interface TournamentCache {
     maxTeamsPerGroup: number;
     registrationFields?: RegistrationField[];
     allowCollaborators: boolean;
+
+    positionPointsConfig?: number[];
+    killPointsValue?: number;
+    scoringDescription?: string;
     
     // Existing fields
     userId: string;
@@ -40,6 +44,9 @@ export interface CreateTournamentData {
     maxTeamsPerGroup?: number;
     registrationFields?: RegistrationField[];
     allowCollaborators?: boolean;
+    positionPointsConfig?: number[];
+    killPointsValue?: number;
+    scoringDescription?: string;
 }
 
 export interface UpdateTournamentData {
@@ -58,6 +65,9 @@ export interface UpdateTournamentData {
     maxTeamsPerGroup?: number;
     registrationFields?: RegistrationField[];
     allowCollaborators?: boolean;
+    positionPointsConfig?: number[];
+    killPointsValue?: number;
+    scoringDescription?: string;
 }
 
 // Registration field configuration

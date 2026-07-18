@@ -131,6 +131,25 @@ components:
         allowCollaborators:
           type: boolean
           example: false
+        positionPointsConfig:
+          type: array
+          minItems: 10
+          maxItems: 10
+          items:
+            type: integer
+            minimum: 0
+          description: "10 integers — points for positions 1 through 10"
+          example: [20, 15, 12, 10, 8, 6, 4, 2, 1, 0]
+        killPointsValue:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 1
+          example: 1
+        scoringDescription:
+          type: string
+          maxLength: 100
+          example: "Standard BGMI Scoring"
         registrationFields:
           type: array
           nullable: true
@@ -217,6 +236,25 @@ components:
           maximum: 100
           example: 25
           description: Defaults to 25
+        positionPointsConfig:
+          type: array
+          minItems: 10
+          maxItems: 10
+          items:
+            type: integer
+            minimum: 0
+          description: "10 integers — points for positions 1 through 10. Defaults to standard BGMI scoring."
+          example: [20, 15, 12, 10, 8, 6, 4, 2, 1, 0]
+        killPointsValue:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 1
+          example: 1
+        scoringDescription:
+          type: string
+          maxLength: 100
+          example: "Standard BGMI Scoring"
 
     UpdateTournamentRequest:
       type: object
@@ -830,10 +868,6 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/TeamResultInput'
-        scoringRuleId:
-          type: string
-          format: uuid
-          description: Optional — reserved for future rule override
 
     VerifyResultsData:
       type: object
@@ -1882,7 +1916,7 @@ paths:
                   name: "BGMI Weekly Scrims"
                   game: "BGMI"
               with_config:
-                summary: With tournament config
+                summary: With tournament config and scoring
                 value:
                   name: "BGMI Pro League S1"
                   game: "BGMI"
@@ -1891,6 +1925,9 @@ paths:
                   totalStages: 3
                   tournamentFormat: "ELIMINATION"
                   maxTeamsPerGroup: 16
+                  positionPointsConfig: [20, 15, 12, 10, 8, 6, 4, 2, 1, 0]
+                  killPointsValue: 1
+                  scoringDescription: "Standard BGMI Scoring"
       responses:
         '201':
           description: Tournament created
@@ -3127,6 +3164,7 @@ paths:
       summary: Calculate team scores (utility)
       description: |
         Dry-run scoring for a `teamResults` payload without creating a match result record.
+        Uses the tournament's scoring config (`positionPointsConfig`, `killPointsValue`) set at creation.
         Uses the same input shape as result create (`teamId`, `kills`, `placement`).
         Returns scored `teamResults` with `totalScore` and `scoreBreakdown` per team.
       security:

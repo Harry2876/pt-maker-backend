@@ -87,10 +87,7 @@ export const publishResultsSchema = z.object({
 export const calculateScoresSchema = z.object({
     teamResults: z.array(teamResultInputSchema)
         .min(1, 'At least one team result is required')
-        .max(100, 'Cannot exceed 100 team results'),
-    scoringRuleId: z.string()
-        .uuid('Invalid scoring rule ID format')
-        .optional()
+        .max(100, 'Cannot exceed 100 team results')
 });
 
 // Parameter schemas
