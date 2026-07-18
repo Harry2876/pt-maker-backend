@@ -17,29 +17,34 @@ export class GroupService extends BaseService {
                 throw new Error('Tournament not found or access denied');
             }
 
-            // 2. Generate group ID
+            // 2. Resolve stage — use provided stageId or default to active/single stage
+            const resolvedStageId = await this.resolveStageId(tournamentId, data.stageId);
+
+            // 3. Generate group ID
             const groupId = randomUUID();
 
-            // 3. Create group object
+            // 4. Create group object
             const group: GroupCache = {
                 id: groupId,
                 name: data.name,
                 maxTeams: data.maxTeams || 24,
                 qualificationSpots: data.qualificationSpots || 8,
                 tournamentId,
+                stageId: resolvedStageId,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 dbStatus: 'PENDING_SYNC'
             };
 
-            // 4. Store in Redis immediately
+            // 5. Store in Redis immediately
             await redis.hsetObject(`group:${groupId}`, group);
             await redis.sadd(`tournament:${tournamentId}:groups`, groupId);
+            await redis.sadd(`stage:${resolvedStageId}:groups`, groupId);
 
             //Update cached group list intelligently
             await this.updateGroupListCache(tournamentId, group, 'ADD');
 
-            // 5. Queue database sync
+            // 6. Queue database sync
             await QueueService.syncImmediately('GROUP', groupId, group, userId);
 
             this.logger.info(`Group ${groupId} created for tournament ${tournamentId}`);
@@ -233,6 +238,10 @@ export class GroupService extends BaseService {
             await redis.delete(`group:${groupId}`);
             await redis.srem(`tournament:${group.tournamentId}:groups`, groupId);
 
+            if (group.stageId) {
+                await redis.srem(`stage:${group.stageId}:groups`, groupId);
+            }
+
             // 3. Queue database deletion
             await QueueService.queueDatabaseSync({
                 type: 'GROUP_DELETE',
@@ -270,6 +279,41 @@ export class GroupService extends BaseService {
         }
     }
 
+    private async resolveStageId(tournamentId: string, stageId?: string): Promise<string> {
+        if (stageId) {
+            const stage = await redis.hgetObject<TournamentStageCache>(`stage:${stageId}`);
+            if (!stage || stage.tournamentId !== tournamentId) {
+                throw new Error('Invalid stage for this tournament');
+            }
+            return stageId;
+        }
+
+        const stageIds = await redis.smembers(`tournament:${tournamentId}:stages`);
+        const stages: TournamentStageCache[] = [];
+
+        for (const id of stageIds) {
+            const stage = await redis.hgetObject<TournamentStageCache>(`stage:${id}`);
+            if (stage) {
+                stages.push(stage);
+            }
+        }
+
+        if (stages.length === 0) {
+            throw new Error('No tournament stages found. Create a stage before adding groups.');
+        }
+
+        const activeStage = stages.find(stage => stage.isActive);
+        if (activeStage) {
+            return activeStage.id;
+        }
+
+        if (stages.length === 1) {
+            return stages[0].id;
+        }
+
+        throw new Error('stageId is required when the tournament has multiple stages and no active stage');
+    }
+
     // Helper method to populate cache
     private async populateGroupCache(tournamentId: string, groups: any[]) {
         try {
@@ -283,6 +327,9 @@ export class GroupService extends BaseService {
 
                 await redis.hsetObject(`group:${group.id}`, cacheGroup);
                 await redis.sadd(`tournament:${tournamentId}:groups`, group.id);
+                if (group.stageId) {
+                    await redis.sadd(`stage:${group.stageId}:groups`, group.id);
+                }
             });
 
             await Promise.all(promises);
@@ -408,6 +455,37 @@ export class GroupService extends BaseService {
 
             // 2. Get stage groups from Redis
             const groupIds = await redis.smembers(`stage:${stageId}:groups`);
+
+            if (groupIds.length === 0) {
+                const dbGroups = await this.db.group.findMany({
+                    where: { stageId },
+                    orderBy: { name: 'asc' }
+                });
+
+                for (const group of dbGroups) {
+                    await redis.hsetObject(`group:${group.id}`, {
+                        ...group,
+                        stageId: group.stageId ?? undefined,
+                        createdAt: group.createdAt.toISOString(),
+                        updatedAt: group.updatedAt.toISOString(),
+                        dbStatus: 'SYNCED'
+                    });
+                    await redis.sadd(`stage:${stageId}:groups`, group.id);
+                }
+
+                return dbGroups.map(group => ({
+                    id: group.id,
+                    name: group.name,
+                    maxTeams: group.maxTeams,
+                    qualificationSpots: group.qualificationSpots,
+                    tournamentId: group.tournamentId,
+                    stageId: group.stageId ?? undefined,
+                    createdAt: group.createdAt.toISOString(),
+                    updatedAt: group.updatedAt.toISOString(),
+                    dbStatus: 'SYNCED' as const
+                }));
+            }
+
             const groups: GroupCache[] = [];
 
             for (const groupId of groupIds) {

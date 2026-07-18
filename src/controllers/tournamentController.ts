@@ -6,14 +6,32 @@ import { ResponseHelper } from '../utils/responseHelper';
 
 export class TournamentController {
     static createTournament = asyncHandler(async (req:Request, res:Response) => {
-        const {name, game, status} = req.body;
+        const {
+            name,
+            game,
+            status,
+            tournamentType,
+            maxTeams,
+            entryFee,
+            prizePool,
+            totalStages,
+            tournamentFormat,
+            maxTeamsPerGroup
+        } = req.body;
 
         const userId = req.user!.id;
 
-        const tournament = await tournamentService.createTournament(userId,{
+        const tournament = await tournamentService.createTournament(userId, {
             name,
             game,
-            status
+            status,
+            tournamentType,
+            maxTeams,
+            entryFee,
+            prizePool,
+            totalStages,
+            tournamentFormat,
+            maxTeamsPerGroup
         });
 
         return res.status(201).json(ResponseHelper.success('Tournament created successfully', tournament));

@@ -307,20 +307,98 @@ info:
     | Auth | `/auth` | OTP login, registration, token management, sessions |
     | Quick PT | `/quick-pt` | AI-powered quick point table generation (primary feature) |
     | Tournaments | `/tournaments` | Create and manage BGMI tournaments |
+    | Tournament Stages | `/tournament-stages` | Multi-stage tournament structure |
     | Matches | `/matches` | Match scheduling and management |
     | Match Results | `/match-results` | Submit and query match results |
     | Teams | `/teams` | Team enrollment and management |
     | Team Registration | `/team-registrations` | Register teams to tournaments |
-    | Groups | `/groups` | Tournament group/pool management |
+    | Groups | `/groups` | Tournament group/pool management (stage-linked) |
+    | Slot Management | `/slot-management` | Group slot assignment (1–25) |
+    | Team Advancement | `/team-advancement` | Qualify, progress, and advance stages |
     | Scoring Rules | `/scoring-rules` | Tournament kill/placement scoring configuration |
+    | Collaborators | `/collaborators` | Tournament staff / co-host invites, roles, permissions |
     | Leaderboards | `/leaderboards` | Rankings and standings |
-    | Uploads | `/uploads` | File and media upload handling |
+    | Uploads | `/uploads` | Tournament match screenshot **storage only** (not Quick PT — see below) |
+    | Players | `/players` | Player roster management |
+
+    ### Screenshot uploads — Tournament vs Quick PT
+
+    Two separate upload systems share the same multer middleware but **do not share data**:
+
+    - **Quick PT (production):** `POST /quick-pt/matches/{id}/screenshots?type=ATTENDANCE|RESULT`
+      → OCR, slot detection, result extraction, standings graphics. Use this for the Quick PT app.
+
+    - **Tournament (core flow):** `POST /uploads/matches/{id}/screenshots/upload?type=ATTENDANCE_IMAGE|RESULT_IMAGE`
+      → Stores files on R2 under `tournaments/` and links to the tournament `Match` record only.
+      **No AI/OCR.** Results must be entered via `/match-results` (manual entry → verify → publish).
+
+    **Important:** `{id}` is a different entity in each system. Never pass a Quick Match ID to `/uploads/...`
+    or a tournament Match UUID to `/quick-pt/...` — validation will fail or behave unexpectedly.
+
+    Both paths share a per-user upload lock; concurrent uploads across both systems return 429.
+
+    ---
+
+    ## Tournament Manager — Integration Guide
+
+    ### Stage ↔ Group linking
+
+    | When | Endpoint | Where is stageId? |
+    |---|---|---|
+    | Initial setup (one group) | `POST /groups/tournaments/{tournamentId}/groups/create` | Optional in **request body** |
+    | Next stage (bulk) | `POST /team-advancement/stage/{stageId}/groups` | **URL path** |
+    | List groups on a stage | `GET /team-advancement/stage/{stageId}/groups` | URL path |
+
+    Group create response always includes `data.stageId` — that confirms the link.
+
+    **`PUT /groups/update/{id}`** — exists; use for name / maxTeams / qualificationSpots. No `stageId`.
+
+    **`totalStages` / `tournamentFormat`** — set on `POST /tournaments/create` only. `PUT /tournaments/update/{id}` accepts name, game, status only.
+
+    ### Setup flow
+
+    ```
+    1. POST /tournaments/create          (totalStages, tournamentFormat optional)
+    2. POST /tournament-stages/.../stages
+    3. POST /groups/.../groups/create  (stageId in body, or omit)
+    4. teams → slots → matches → results → leaderboard
+    ```
+
+    Full schemas: `docs/paths/tournaments.yaml`
 
 servers:
   - url: https://scrymzengineservice.site/api/v1
     description: Production
   - url: http://localhost:3000/api/v1
     description: Local development
+
+tags:
+  - name: Tournaments
+    description: Create and manage BGMI tournaments
+  - name: Tournament Stages
+    description: Multi-stage tournament structure
+  - name: Groups
+    description: Tournament group/pool management (stage-linked)
+  - name: Team Advancement
+    description: Qualify teams, progress stages, bulk-create stage groups
+  - name: Team Registrations
+    description: Register teams to tournaments and groups
+  - name: Slot Management
+    description: Group slot assignment (1–25)
+  - name: Matches
+    description: Match scheduling and management
+  - name: Match Results
+    description: Submit, verify, publish, and calculate match results
+  - name: Leaderboards
+    description: Rankings and standings
+  - name: Tournament Uploads
+    description: Tournament match screenshot storage (not Quick PT)
+  - name: Tournament Collaborators
+    description: Staff / co-host invites, roles, permissions
+  - name: Players
+    description: Player roster management
+  - name: Scoring Rules
+    description: Tournament kill/placement scoring configuration
 
 # ══════════════════════════════════════════════════════════════════════════════
 # COMPONENTS — defined once, reused across all path files via $ref

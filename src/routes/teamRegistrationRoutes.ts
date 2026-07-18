@@ -1353,4 +1353,9 @@ teamRegistrationRouter.put('/update/:id',
     TeamRegistrationController.updateTeamRegistration                       // PUT /team-registrations/update/:id
 );
 
+teamRegistrationRouter.delete('/delete/:id',
+    validateRequest(teamRegistrationParamsSchema, 'params'),
+    TeamRegistrationController.deleteTeamRegistration
+);
+
 export default teamRegistrationRouter;

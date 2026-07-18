@@ -1,0 +1,582 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# TOURNAMENT COLLABORATORS — docs/paths/collaborators.yaml
+#
+# Staff / co-host management for core tournaments (not Quick PT).
+# Base path: /collaborators
+# Base URL: /api/v1  (see servers in docs/swagger.yaml)
+# Auth: JWT Bearer on every endpoint.
+#
+# Integration flow (tournament setup):
+#   1. POST /collaborators/tournaments/{tournamentId}/collaborators  → invite by userId + role
+#   2. Invitee: POST /collaborators/collaborators/{collaboratorId}/accept
+#   3. GET  /collaborators/tournaments/{tournamentId}/permissions     → gate UI by role
+#   4. PUT  /collaborators/collaborators/{collaboratorId}/role        → change role (owner)
+#   5. DELETE /collaborators/collaborators/{collaboratorId}           → remove staff
+# ══════════════════════════════════════════════════════════════════════════════
+
+components:
+
+  schemas:
+
+    CollaboratorRole:
+      type: string
+      enum: [ADMIN, MODERATOR, RESULT_VERIFIER, VIEWER]
+      example: MODERATOR
+      description: |
+        Invitable roles. Tournament **owner** is implicit (creator) and is not stored as a collaborator row.
+
+    CollaboratorStatus:
+      type: string
+      enum: [PENDING, ACTIVE, SUSPENDED]
+      example: PENDING
+
+    CollaboratorUserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Platform user ID (Prisma CUID, starts with `c`, no dashes)
+          example: "clx7k2mnp0000qz8f3a4b5c6d"
+        username:
+          type: string
+          example: "mod_user_01"
+        phoneNumber:
+          type: string
+          example: "+919876543210"
+
+    CollaboratorTournamentSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "BGMI Pro League S1"
+        ownerId:
+          type: string
+          description: Tournament creator user ID (Prisma CUID)
+          example: "clx7k2mnp0000qz8f3a4b5c6d"
+
+    CollaboratorObject:
+      type: object
+      description: Collaborator record (Redis-first, async DB sync to `tournament_collaborators`)
+      required: [id, tournamentId, userId, role, status, invitedBy, invitedAt, dbStatus]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "723e4567-e89b-12d3-a456-426614174007"
+        tournamentId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          description: Invited user's ID — must already exist in the system (Prisma CUID, starts with `c`, no dashes)
+          example: "clx7k2mnp0000qz8f3a4b5c6d"
+        role:
+          $ref: '#/components/schemas/CollaboratorRole'
+        status:
+          $ref: '#/components/schemas/CollaboratorStatus'
+        invitedBy:
+          type: string
+          description: Inviter user ID (Prisma CUID)
+          example: "clx7k2mnp0000qz8f3a4b5c6e"
+        invitedAt:
+          type: string
+          format: date-time
+        acceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+        user:
+          $ref: '#/components/schemas/CollaboratorUserSummary'
+        tournament:
+          $ref: '#/components/schemas/CollaboratorTournamentSummary'
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED, ERROR]
+          example: PENDING_SYNC
+
+    CreateCollaboratorRequest:
+      type: object
+      required: [userId, role]
+      properties:
+        userId:
+          type: string
+          description: Existing platform user to invite (Prisma CUID, starts with `c`, no dashes)
+          example: "clx7k2mnp0000qz8f3a4b5c6d"
+        role:
+          $ref: '#/components/schemas/CollaboratorRole'
+
+    UpdateCollaboratorRequest:
+      type: object
+      minProperties: 1
+      properties:
+        role:
+          $ref: '#/components/schemas/CollaboratorRole'
+        status:
+          $ref: '#/components/schemas/CollaboratorStatus'
+
+    ChangeCollaboratorRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/CollaboratorRole'
+
+    BulkInviteCollaboratorsRequest:
+      type: object
+      required: [collaborators]
+      properties:
+        collaborators:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [userId, role]
+            properties:
+              userId:
+                type: string
+                description: Prisma CUID user ID
+                example: "clx7k2mnp0000qz8f3a4b5c6d"
+              role:
+                $ref: '#/components/schemas/CollaboratorRole'
+
+    CollaboratorListData:
+      type: object
+      properties:
+        collaborators:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollaboratorObject'
+        count:
+          type: integer
+          example: 2
+
+    BulkInviteResultData:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/CollaboratorObject'
+              - type: 'null'
+        successCount:
+          type: integer
+          example: 2
+        totalCount:
+          type: integer
+          example: 2
+
+    TournamentPermissions:
+      type: object
+      description: |
+        Effective permissions for the authenticated user on a tournament.
+        Owners receive full permissions; collaborators receive permissions derived from their role.
+      properties:
+        canViewTournament:
+          type: boolean
+        canEditTournament:
+          type: boolean
+        canDeleteTournament:
+          type: boolean
+        canManageStages:
+          type: boolean
+        canManageGroups:
+          type: boolean
+        canManageSlots:
+          type: boolean
+        canManageMatches:
+          type: boolean
+        canProcessResults:
+          type: boolean
+        canVerifyResults:
+          type: boolean
+        canEditResults:
+          type: boolean
+        canPublishResults:
+          type: boolean
+        canViewResults:
+          type: boolean
+        canManageCollaborators:
+          type: boolean
+        canInviteUsers:
+          type: boolean
+        canRemoveUsers:
+          type: boolean
+        canChangeUserRoles:
+          type: boolean
+        canViewAnalytics:
+          type: boolean
+        canExportData:
+          type: boolean
+        canManageSettings:
+          type: boolean
+
+    CollaboratorSuccessEnvelope:
+      type: object
+      required: [success, message, data, meta]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        data:
+          type: object
+        meta:
+          $ref: '#/components/schemas/MetaObject'
+
+    UserCollaborationsStubData:
+      type: object
+      description: |
+        **Stub only.** Currently always an empty object with no guaranteed keys.
+        Do not depend on any field here — full collaboration listing is not implemented.
+      additionalProperties: false
+      maxProperties: 0
+      example: {}
+
+  parameters:
+
+    CollaboratorIdPath:
+      name: collaboratorId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: "723e4567-e89b-12d3-a456-426614174007"
+
+paths:
+
+  /collaborators/tournaments/{tournamentId}/collaborators:
+    get:
+      tags: [Tournament Collaborators]
+      summary: List tournament collaborators
+      description: |
+        Returns all staff/co-hosts invited to the tournament.
+        Returns `404` when no collaborator records exist (owner-only tournament).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Collaborators retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Tournament collaborators retrieved successfully"
+                      data:
+                        $ref: '#/components/schemas/CollaboratorListData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    post:
+      tags: [Tournament Collaborators]
+      summary: Invite collaborator
+      description: |
+        Invites an existing user to help run the tournament. Creates a row with `status: PENDING`.
+        The invitee must call `POST /collaborators/collaborators/{collaboratorId}/accept`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCollaboratorRequest'
+            example:
+              userId: "clx7k2mnp0000qz8f3a4b5c6d"
+              role: "MODERATOR"
+      responses:
+        '201':
+          description: Collaborator invited
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "Collaborator invited successfully"
+                      data:
+                        $ref: '#/components/schemas/CollaboratorObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /collaborators/tournaments/{tournamentId}/collaborators/bulk:
+    post:
+      tags: [Tournament Collaborators]
+      summary: Bulk invite collaborators
+      description: Invites multiple users in one request. Partial success is possible (`successCount` < `totalCount`).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkInviteCollaboratorsRequest'
+            example:
+              collaborators:
+                - userId: "clx7k2mnp0000qz8f3a4b5c6d"
+                  role: "MODERATOR"
+                - userId: "clx7k2mnp0000qz8f3a4b5c6e"
+                  role: "RESULT_VERIFIER"
+      responses:
+        '201':
+          description: Bulk invite completed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BulkInviteResultData'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /collaborators/tournaments/{tournamentId}/permissions:
+    get:
+      tags: [Tournament Collaborators]
+      summary: Get current user's permissions on tournament
+      description: |
+        Use this to show/hide organiser UI (edit groups, publish results, manage staff, etc.).
+        Tournament owners always receive full permissions.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TournamentIdPath'
+      responses:
+        '200':
+          description: Permissions retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "User permissions retrieved successfully"
+                      data:
+                        $ref: '#/components/schemas/TournamentPermissions'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /collaborators/collaborators/{collaboratorId}:
+    get:
+      tags: [Tournament Collaborators]
+      summary: Get collaborator by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CollaboratorIdPath'
+      responses:
+        '200':
+          description: Collaborator retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CollaboratorObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    put:
+      tags: [Tournament Collaborators]
+      summary: Update collaborator
+      description: Update role and/or status (e.g. suspend access).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CollaboratorIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCollaboratorRequest'
+            example:
+              status: "SUSPENDED"
+      responses:
+        '200':
+          description: Collaborator updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CollaboratorObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    delete:
+      tags: [Tournament Collaborators]
+      summary: Remove collaborator
+      description: Removes the user from the tournament staff list.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CollaboratorIdPath'
+      responses:
+        '200':
+          description: Collaborator removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /collaborators/collaborators/{collaboratorId}/accept:
+    post:
+      tags: [Tournament Collaborators]
+      summary: Accept collaboration invitation
+      description: Sets collaborator `status` to `ACTIVE` and records `acceptedAt`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CollaboratorIdPath'
+      responses:
+        '200':
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CollaboratorObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /collaborators/collaborators/{collaboratorId}/decline:
+    post:
+      tags: [Tournament Collaborators]
+      summary: Decline collaboration invitation
+      description: Deletes the pending invitation record.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CollaboratorIdPath'
+      responses:
+        '200':
+          description: Invitation declined
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /collaborators/collaborators/{collaboratorId}/role:
+    put:
+      tags: [Tournament Collaborators]
+      summary: Change collaborator role
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CollaboratorIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeCollaboratorRoleRequest'
+            example:
+              role: "RESULT_VERIFIER"
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CollaboratorObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /collaborators/user/collaborations:
+    get:
+      tags: [Tournament Collaborators]
+      summary: List current user's collaborations (stub)
+      description: |
+        **Not implemented.** Placeholder endpoint only — returns HTTP 200 with an empty
+        `data` object. There is no collaboration list, tournament array, or stable payload
+        shape yet.
+
+        **Do not use in production UI.** Gate organiser access with
+        `GET /collaborators/tournaments/{tournamentId}/permissions` per tournament instead.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Stub response (empty data)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CollaboratorSuccessEnvelope'
+                  - type: object
+                    properties:
+                      message:
+                        example: "User collaborations endpoint ready"
+                      data:
+                        $ref: '#/components/schemas/UserCollaborationsStubData'
+              example:
+                success: true
+                message: "User collaborations endpoint ready"
+                data: {}
+                meta:
+                  timestamp: "2024-01-15T10:30:00.000Z"
+                  version: "1.0"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'

@@ -505,6 +505,44 @@ export class TeamRegistrationService extends BaseService {
             return null;
         }
     }
+
+    // Delete team registration with hybrid sync
+    async deleteTeamRegistration(registrationId: string, userId: string) {
+        try {
+            const registration = await this.getTeamRegistrationById(registrationId, userId);
+            if (!registration) {
+                throw new Error('Team registration not found or access denied');
+            }
+
+            await redis.delete(`teamRegistration:${registrationId}`);
+            await redis.srem(`tournament:${registration.tournamentId}:teamRegistrations`, registrationId);
+
+            if (registration.groupId) {
+                await redis.srem(`group:${registration.groupId}:teamRegistrations`, registrationId);
+            }
+
+            await QueueService.queueDatabaseSync({
+                type: 'TEAM_REGISTRATION_DELETE',
+                entityId: registrationId,
+                data: { id: registrationId },
+                userId,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
+
+            await redis.delete(`tournament:${registration.tournamentId}:teamRegistrations:list`);
+            if (registration.groupId) {
+                await redis.delete(`group:${registration.groupId}:teamRegistrations:list`);
+            }
+
+            this.logger.info(`Team registration ${registrationId} deleted`);
+            return { success: true, message: 'Team registration deleted successfully' };
+
+        } catch (error) {
+            this.handleError(error, 'Delete team registration');
+            return null;
+        }
+    }
 }
 
 export const teamRegistrationService = new TeamRegistrationService();

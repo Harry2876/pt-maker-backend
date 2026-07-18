@@ -153,7 +153,14 @@ export class TournamentStageService extends BaseService {
             await redis.hsetObject(`stage:${stageId}`, updated);
 
             // 5. Queue database sync
-            await QueueService.syncImmediately('TOURNAMENT_STAGE', stageId, updated, updatedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'TOURNAMENT_STAGE_UPDATE',
+                entityId: stageId,
+                data: updateData,
+                userId: updatedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Tournament stage ${stageId} updated`);
             return updated;
@@ -236,11 +243,30 @@ export class TournamentStageService extends BaseService {
                 };
 
                 await redis.hsetObject(`stage:${nextStage.id}`, activatedNextStage);
-                await QueueService.syncImmediately('TOURNAMENT_STAGE', nextStage.id, activatedNextStage, advancedBy);
+                await QueueService.queueDatabaseSync({
+                    type: 'TOURNAMENT_STAGE_UPDATE',
+                    entityId: nextStage.id,
+                    data: {
+                        isActive: true
+                    },
+                    userId: advancedBy,
+                    priority: 'HIGH',
+                    timestamp: new Date().toISOString()
+                });
             }
 
             // 5. Queue current stage sync
-            await QueueService.syncImmediately('TOURNAMENT_STAGE', stageId, completedStage, advancedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'TOURNAMENT_STAGE_UPDATE',
+                entityId: stageId,
+                data: {
+                    isActive: false,
+                    isCompleted: true
+                },
+                userId: advancedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Stage ${stageId} advanced. Next stage: ${nextStage?.id || 'none'}`);
 

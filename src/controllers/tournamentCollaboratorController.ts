@@ -44,11 +44,14 @@ export class TournamentCollaboratorController {
     // Get collaborator by ID
     static getCollaboratorById = asyncHandler(async (req: Request, res: Response) => {
         const { collaboratorId } = req.params;
-        const userId = req.user!.id;
 
-        // Get collaborator from service (we'll need to add this method to service)
-        // For now, return success message
-        return res.status(200).json(ResponseHelper.success('Get collaborator by ID endpoint ready', { collaboratorId }));
+        const collaborator = await tournamentCollaboratorService.getCollaboratorById(collaboratorId);
+
+        if (!collaborator) {
+            return res.status(404).json(ResponseHelper.notFound('Collaborator not found'));
+        }
+
+        return res.status(200).json(ResponseHelper.success('Collaborator retrieved successfully', collaborator));
     });
 
     // Update collaborator
@@ -123,11 +126,8 @@ export class TournamentCollaboratorController {
 
     // Get user's collaborations (tournaments they collaborate on)
     static getUserCollaborations = asyncHandler(async (req: Request, res: Response) => {
-        const userId = req.user!.id;
-
-        // This would need to be implemented in the service
-        // For now, return placeholder
-        return res.status(200).json(ResponseHelper.success('User collaborations endpoint ready', { userId }));
+        // Stub — not implemented; data is intentionally empty (see API docs)
+        return res.status(200).json(ResponseHelper.success('User collaborations endpoint ready', {}));
     });
 
     // Change collaborator role

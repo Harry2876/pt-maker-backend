@@ -28,7 +28,23 @@ export const createTournamentSchema = z.object({
         .positive('Prize pool must be positive')
         .optional(),
     
-    status: z.enum(['UPCOMING', 'ONGOING', 'COMPLETED'] as const).optional()
+    status: z.enum(['UPCOMING', 'ONGOING', 'COMPLETED'] as const).optional(),
+
+    totalStages: z.number()
+        .int('Total stages must be an integer')
+        .positive('Total stages must be positive')
+        .min(1, 'Total stages must be at least 1')
+        .max(10, 'Total stages cannot exceed 10')
+        .optional(),
+
+    tournamentFormat: z.enum(['ELIMINATION', 'ROUND_ROBIN', 'MIXED'] as const).optional(),
+
+    maxTeamsPerGroup: z.number()
+        .int('Max teams per group must be an integer')
+        .positive('Max teams per group must be positive')
+        .min(1, 'Max teams per group must be at least 1')
+        .max(100, 'Max teams per group cannot exceed 100')
+        .optional()
 });
 
 export const updateTournamentSchema = z.object({

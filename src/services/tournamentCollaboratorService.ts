@@ -124,6 +124,56 @@ export class TournamentCollaboratorService extends BaseService {
         }
     }
 
+    // Get collaborator by ID
+    async getCollaboratorById(collaboratorId: string) {
+        try {
+            const collaborator = await redis.hgetObject<TournamentCollaboratorCache>(`collaborator:${collaboratorId}`);
+            if (collaborator) {
+                return collaborator;
+            }
+
+            const dbCollaborator = await this.db.tournamentCollaborator.findUnique({
+                where: { id: collaboratorId },
+                include: {
+                    user: { select: { id: true, username: true, phoneNumber: true } },
+                    tournament: { select: { id: true, name: true, userId: true } }
+                }
+            });
+
+            if (!dbCollaborator) {
+                return null;
+            }
+
+            const cached: TournamentCollaboratorCache = {
+                id: dbCollaborator.id,
+                tournamentId: dbCollaborator.tournamentId,
+                userId: dbCollaborator.userId,
+                role: dbCollaborator.role,
+                status: dbCollaborator.status,
+                invitedBy: dbCollaborator.invitedBy,
+                invitedAt: dbCollaborator.invitedAt.toISOString(),
+                acceptedAt: dbCollaborator.acceptedAt?.toISOString(),
+                user: {
+                    id: dbCollaborator.user.id,
+                    username: dbCollaborator.user.username,
+                    phoneNumber: dbCollaborator.user.phoneNumber
+                },
+                tournament: {
+                    id: dbCollaborator.tournament.id,
+                    name: dbCollaborator.tournament.name,
+                    ownerId: dbCollaborator.tournament.userId
+                },
+                dbStatus: 'SYNCED'
+            };
+
+            await redis.hsetObject(`collaborator:${collaboratorId}`, cached);
+            return cached;
+        } catch (error) {
+            this.handleError(error, 'Get collaborator by ID');
+            return null;
+        }
+    }
+
     // Update collaborator
     async updateCollaborator(collaboratorId: string, data: UpdateCollaboratorData, updatedBy: string) {
         try {
@@ -146,7 +196,18 @@ export class TournamentCollaboratorService extends BaseService {
             await redis.hsetObject(`collaborator:${collaboratorId}`, updated);
 
             // Queue database sync
-            await QueueService.syncImmediately('COLLABORATOR', collaboratorId, updated, updatedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'COLLABORATOR_UPDATE',
+                entityId: collaboratorId,
+                data: {
+                    role: updated.role,
+                    status: updated.status,
+                    acceptedAt: updated.acceptedAt
+                },
+                userId: updatedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Collaborator ${collaboratorId} updated`);
             return updated;
@@ -172,7 +233,14 @@ export class TournamentCollaboratorService extends BaseService {
             await redis.srem(`user:${collaborator.userId}:collaborations`, collaboratorId);
 
             // Queue database deletion
-            await QueueService.syncImmediately('DELETE_COLLABORATOR', collaboratorId, { id: collaboratorId }, deletedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'DELETE_COLLABORATOR',
+                entityId: collaboratorId,
+                data: { id: collaboratorId },
+                userId: deletedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Collaborator ${collaboratorId} deleted`);
             return true;

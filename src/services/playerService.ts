@@ -262,7 +262,24 @@ export class PlayerService extends BaseService {
             }
 
             // Queue database sync
-            await QueueService.syncImmediately('PLAYER', playerId, updated, updatedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'PLAYER_UPDATE',
+                entityId: playerId,
+                data: {
+                    name: updated.name,
+                    gameUuid: updated.gameUuid,
+                    email: updated.email,
+                    phoneNumber: updated.phoneNumber,
+                    totalMatches: updated.totalMatches,
+                    totalKills: updated.totalKills,
+                    totalPoints: updated.totalPoints,
+                    averageKills: updated.averageKills,
+                    bestPosition: updated.bestPosition
+                },
+                userId: updatedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Player ${playerId} updated`);
             return updated;
@@ -411,7 +428,14 @@ export class PlayerService extends BaseService {
             }
 
             // Queue database deletion
-            await QueueService.syncImmediately('DELETE_PLAYER', playerId, { id: playerId }, deletedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'PLAYER_DELETE',
+                entityId: playerId,
+                data: { id: playerId },
+                userId: deletedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Player ${playerId} deleted`);
             return true;

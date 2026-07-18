@@ -7,13 +7,14 @@ export class GroupController {
     // Create group in tournament
     static createGroup = asyncHandler(async (req: Request, res: Response) => {
         const { tournamentId } = req.params;
-        const { name, maxTeams, qualificationSpots } = req.body;
+        const { name, maxTeams, qualificationSpots, stageId } = req.body;
         const userId = req.user!.id;
 
         const group = await groupService.createGroup(tournamentId, userId, {
             name,
             maxTeams,
-            qualificationSpots
+            qualificationSpots,
+            stageId
         });
 
         if (!group) {

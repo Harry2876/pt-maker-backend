@@ -14,7 +14,6 @@ import {
     SlotType,
     TeamPriority
 } from '../types/slotAssignment';
-import { ca } from 'zod/v4/locales';
 import { TeamRegistrationCache } from '@/types/teamRegistration';
 
 export class SlotManagementService extends BaseService {
@@ -37,13 +36,19 @@ export class SlotManagementService extends BaseService {
             // 3. Generate slot assignment ID
             const slotAssignmentId = randomUUID();
 
+            let teamName = '';
+            if (data.teamRegistrationId) {
+                const team = await redis.hgetObject<TeamRegistrationCache>(`teamRegistration:${data.teamRegistrationId}`);
+                teamName = team?.teamName ?? '';
+            }
+
             // 4. Create slot assignment object
             const slotAssignment: SlotAssignmentCache = {
                 id: slotAssignmentId,
                 slotNumber: data.slotNumber,
                 groupId: data.groupId,
                 teamRegistrationId: data.teamRegistrationId,
-                teamName: '', // Will be populated from DB sync
+                teamName,
                 isActive: true,
                 slotType: data.slotType || SlotType.TEAM_SLOT,
                 assignedAt: new Date().toISOString(),
@@ -149,7 +154,9 @@ export class SlotManagementService extends BaseService {
             // Update slot assignment
             const updated: SlotAssignmentCache = {
                 ...existing,
-                teamRegistrationId: data.teamRegistrationId !== undefined ? data.teamRegistrationId : existing.teamRegistrationId,
+                teamRegistrationId: data.teamRegistrationId !== undefined
+                    ? (data.teamRegistrationId ?? undefined)
+                    : existing.teamRegistrationId,
                 isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
                 assignedAt: new Date().toISOString(),
                 assignedBy: updatedBy,
@@ -184,7 +191,7 @@ export class SlotManagementService extends BaseService {
     async clearSlot(groupId: string, slotNumber: number, clearedBy: string) {
         try {
             return await this.updateSlot(groupId, slotNumber, {
-                teamRegistrationId: undefined,
+                teamRegistrationId: null,
                 isActive: true
             }, clearedBy);
         } catch (error) {

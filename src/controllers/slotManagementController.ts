@@ -7,13 +7,14 @@ export class SlotManagementController {
     // Assign team to slot
     static assignSlot = asyncHandler(async (req: Request, res: Response) => {
         const { groupId } = req.params;
-        const { slotNumber, teamRegistrationId } = req.body;
+        const { slotNumber, teamRegistrationId, slotType } = req.body;
         const userId = req.user!.id;
 
         const slotAssignment = await slotManagementService.assignSlot({
             groupId,
             slotNumber,
-            teamRegistrationId
+            teamRegistrationId,
+            slotType
         }, userId);
 
         if (!slotAssignment) {
@@ -71,7 +72,7 @@ export class SlotManagementController {
             return res.status(404).json(ResponseHelper.notFound('Slot not found or clear failed'));
         }
 
-        return res.json(ResponseHelper.success('Slot cleared successfully'));
+        return res.json(ResponseHelper.success('Slot cleared successfully', {}));
     });
 
     // Get available slots for a group

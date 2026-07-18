@@ -1,40 +1,4 @@
-import swaggerJSDoc from "swagger-jsdoc";
-import { env } from './env';
-import { openApiSchemas } from '../docs/openapi-schemas';
+import { loadSpec } from './docsloader';
 
-const options = {
-  definition: {
-    openapi: '3.0.0',
-    info: {
-      title: 'BGMI Tournament API',
-      version: '1.0.0',
-      description: 'API for managing BGMI tournaments, matches, groups, and team registrations',
-    },
-    servers: [
-      {
-        url: process.env.NODE_ENV === 'production'
-          ? `https://${process.env.PRODUCTION_DOMAIN || 'yourdomain.com'}`
-          : `http://localhost:${env.PORT}`,
-        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
-      }
-    ],
-    components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-        },
-      },
-      schemas: openApiSchemas,
-    },
-    security: [
-      {
-        bearerAuth: [],
-      },
-    ],
-  },
-  apis: ['./src/routes/*.ts'], // This will auto-scan your routes
-};
-
-export const specs = swaggerJSDoc(options);
+/** Merged OpenAPI spec from docs/swagger.yaml + docs/paths/*.yaml */
+export const specs = loadSpec();

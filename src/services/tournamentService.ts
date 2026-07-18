@@ -29,7 +29,10 @@ export class TournamentService extends BaseService {
         maxTeams?: number,
         entryFee?: number,
         prizePool?: number,
-        status?: TournamentStatus;
+        status?: TournamentStatus,
+        totalStages?: number,
+        tournamentFormat?: 'ELIMINATION' | 'ROUND_ROBIN' | 'MIXED',
+        maxTeamsPerGroup?: number
     }) {
         try {
             //generate tournament id
@@ -45,6 +48,11 @@ export class TournamentService extends BaseService {
                 entryFee: data.entryFee,
                 prizePool: data.prizePool,
                 status: data.status || 'UPCOMING',
+                totalStages: data.totalStages ?? 1,
+                currentStage: 1,
+                tournamentFormat: data.tournamentFormat || 'ELIMINATION',
+                maxTeamsPerGroup: data.maxTeamsPerGroup ?? 25,
+                allowCollaborators: false,
                 userId,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),

@@ -3,6 +3,13 @@ import { authenticateUser } from '../middleware/auth';
 import { validateRequest } from '../middleware/commonMiddleware';
 import { SlotManagementController } from '../controllers/slotManagementController';
 import { groupParamsSchema } from '../validations/groupValidation';
+import {
+    assignSlotSchema,
+    updateSlotAssignmentSchema,
+    slotNumberParamsSchema,
+    autoAssignSlotsSchema,
+    swapSlotsSchema
+} from '../validations/slotManagementValidation';
 
 
 /**
@@ -157,6 +164,7 @@ slotManagementRouter.use(authenticateUser);
  */
 slotManagementRouter.post('/groups/:groupId/slots/assign', 
     validateRequest(groupParamsSchema, 'params'),
+    validateRequest(assignSlotSchema),
     SlotManagementController.assignSlot
 );
 
@@ -478,12 +486,13 @@ slotManagementRouter.get('/groups/:groupId/slots',
  *         $ref: '#/components/schemas/ServerErrorResponse'
  */
 slotManagementRouter.put('/groups/:groupId/slots/:slotNumber', 
-    validateRequest(groupParamsSchema, 'params'),
+    validateRequest(slotNumberParamsSchema, 'params'),
+    validateRequest(updateSlotAssignmentSchema),
     SlotManagementController.updateSlotAssignment
 );
 
 slotManagementRouter.delete('/groups/:groupId/slots/:slotNumber', 
-    validateRequest(groupParamsSchema, 'params'),
+    validateRequest(slotNumberParamsSchema, 'params'),
     SlotManagementController.removeSlotAssignment
 );
 
@@ -769,8 +778,9 @@ slotManagementRouter.get('/groups/:groupId/slots/availability',
  *       500:
  *         $ref: '#/components/schemas/ServerErrorResponse'
  */
-slotManagementRouter.post('/groups/:groupId/slots/auto-assign', 
+slotManagementRouter.post('/groups/:groupId/slots/auto-assign',
     validateRequest(groupParamsSchema, 'params'),
+    validateRequest(autoAssignSlotsSchema),
     SlotManagementController.autoAssignSlots
 );
 
@@ -932,8 +942,9 @@ slotManagementRouter.post('/groups/:groupId/slots/auto-assign',
  *       500:
  *         $ref: '#/components/schemas/ServerErrorResponse'
  */
-slotManagementRouter.post('/groups/:groupId/slots/swap', 
+slotManagementRouter.post('/groups/:groupId/slots/swap',
     validateRequest(groupParamsSchema, 'params'),
+    validateRequest(swapSlotsSchema),
     SlotManagementController.swapSlots
 );
 

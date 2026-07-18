@@ -27,7 +27,7 @@ export interface CreateSlotAssignmentData {
 }
 
 export interface UpdateSlotAssignmentData {
-    teamRegistrationId?: string; // null to make slot empty
+    teamRegistrationId?: string | null; // null clears the slot
     isActive?: boolean;
 }
 

@@ -235,6 +235,10 @@ export class MatchService extends BaseService {
             await redis.delete(`match:${matchId}`);
             await redis.srem(`tournament:${match.tournamentId}:matches`, matchId);
 
+            if (match.groupId) {
+                await redis.srem(`group:${match.groupId}:matches`, matchId);
+            }
+
             // 3. Queue database deletion
             await QueueService.queueDatabaseSync({
                 type: 'MATCH_DELETE',

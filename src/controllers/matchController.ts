@@ -7,12 +7,13 @@ export class MatchController {
     // Create match in tournament
     static createMatch = asyncHandler(async (req: Request, res: Response) => {
         const { tournamentId } = req.params;
-        const { matchNumber, matchDate } = req.body;
+        const { matchNumber, matchDate, groupId } = req.body;
         const userId = req.user!.id;
 
         const match = await matchService.createMatch(tournamentId, userId, {
             matchNumber,
-            matchDate: matchDate ? new Date(matchDate) : undefined
+            matchDate: matchDate ? new Date(matchDate) : undefined,
+            groupId
         });
 
         return res.status(201).json(ResponseHelper.success('Match created successfully', match));

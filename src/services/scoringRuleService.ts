@@ -173,7 +173,14 @@ export class ScoringRuleService extends BaseService {
             await redis.hsetObject(`scoringRule:${ruleId}`, updated);
 
             // Queue database sync
-            await QueueService.syncImmediately('SCORING_RULE', ruleId, updated, updatedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'SCORING_RULE_UPDATE',
+                entityId: ruleId,
+                data,
+                userId: updatedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Scoring rule ${ruleId} updated`);
             return updated;
@@ -197,7 +204,14 @@ export class ScoringRuleService extends BaseService {
             await redis.srem(`tournament:${scoringRule.tournamentId}:scoringRules`, ruleId);
 
             // Queue database deletion
-            await QueueService.syncImmediately('DELETE_SCORING_RULE', ruleId, { id: ruleId }, deletedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'DELETE_SCORING_RULE',
+                entityId: ruleId,
+                data: { id: ruleId },
+                userId: deletedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             this.logger.info(`Scoring rule ${ruleId} deleted`);
             return true;

@@ -1,0 +1,472 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# PLAYERS — docs/paths/players.yaml
+#
+# Player roster CRUD and search (platform-wide, not tournament-scoped).
+# Base path: /players
+# Base URL: /api/v1  (see servers in docs/swagger.yaml)
+# Auth: JWT Bearer on every endpoint.
+# ══════════════════════════════════════════════════════════════════════════════
+
+components:
+
+  schemas:
+
+    PlayerObject:
+      type: object
+      required: [id, name, totalMatches, totalKills, totalPoints, averageKills, createdAt, updatedAt, dbStatus]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "LNeverGivUpL"
+        gameUuid:
+          type: string
+          description: BGMI in-game character UUID
+          example: "5923456789012345678"
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+          example: "+919876543210"
+        totalMatches:
+          type: integer
+          example: 42
+        totalKills:
+          type: integer
+          example: 128
+        totalPoints:
+          type: integer
+          example: 560
+        averageKills:
+          type: number
+          example: 3.05
+        bestPosition:
+          type: integer
+          example: 1
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED, ERROR]
+
+    CreatePlayerRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        gameUuid:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+          minLength: 5
+          maxLength: 20
+
+    UpdatePlayerRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        gameUuid:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+          minLength: 5
+          maxLength: 20
+        totalMatches:
+          type: integer
+          minimum: 0
+        totalKills:
+          type: integer
+          minimum: 0
+        totalPoints:
+          type: integer
+          minimum: 0
+        bestPosition:
+          type: integer
+          minimum: 1
+
+    PlayerSearchRequest:
+      type: object
+      description: Advanced search filters (all optional)
+      properties:
+        name:
+          type: string
+        gameUuid:
+          type: string
+        email:
+          type: string
+        phoneNumber:
+          type: string
+        minMatches:
+          type: integer
+        maxMatches:
+          type: integer
+        minKills:
+          type: integer
+        maxKills:
+          type: integer
+        minPoints:
+          type: integer
+        maxPoints:
+          type: integer
+        tournamentId:
+          type: string
+          format: uuid
+
+    PlayerStatObject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        playerId:
+          type: string
+          format: uuid
+        tournamentId:
+          type: string
+          format: uuid
+        teamName:
+          type: string
+        matches:
+          type: integer
+        totalKills:
+          type: integer
+        totalPoints:
+          type: integer
+        averageKills:
+          type: number
+        bestPosition:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        dbStatus:
+          type: string
+          enum: [PENDING_SYNC, SYNCED, ERROR]
+
+    PlayerListData:
+      type: array
+      items:
+        $ref: '#/components/schemas/PlayerObject'
+
+    PlayerSearchData:
+      type: object
+      properties:
+        players:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlayerObject'
+        count:
+          type: integer
+
+    TopPlayersData:
+      type: object
+      properties:
+        players:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlayerObject'
+        count:
+          type: integer
+
+  parameters:
+
+    PlayerIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Player UUID
+
+    TournamentIdQuery:
+      name: tournamentId
+      in: query
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Tournament UUID for per-tournament stats
+
+paths:
+
+  /players:
+    get:
+      tags: [Players]
+      summary: List players
+      description: |
+        Returns players matching optional query filters (`search`, `gameUuid`, `minMatches`, `maxMatches`).
+        Pagination query params (`page`, `limit`) are accepted but the current implementation returns
+        a flat array in `data` (not a paginated envelope).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Filter by player name
+        - name: gameUuid
+          in: query
+          schema:
+            type: string
+        - name: minMatches
+          in: query
+          schema:
+            type: integer
+        - name: maxMatches
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Players retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlayerListData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /players/top:
+    get:
+      tags: [Players]
+      summary: Top performing players
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Top players retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TopPlayersData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /players/search:
+    post:
+      tags: [Players]
+      summary: Search players
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlayerSearchRequest'
+      responses:
+        '200':
+          description: Search completed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlayerSearchData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /players/create:
+    post:
+      tags: [Players]
+      summary: Create player
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlayerRequest'
+            example:
+              name: "LNeverGivUpL"
+              gameUuid: "5923456789012345678"
+      responses:
+        '201':
+          description: Player created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlayerObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /players/get/{id}:
+    get:
+      tags: [Players]
+      summary: Get player by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PlayerIdPath'
+      responses:
+        '200':
+          description: Player retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlayerObject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /players/get/{id}/stats:
+    get:
+      tags: [Players]
+      summary: Player stats for a tournament
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PlayerIdPath'
+        - $ref: '#/components/parameters/TournamentIdQuery'
+      responses:
+        '200':
+          description: Stats retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlayerStatObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /players/update/{id}:
+    put:
+      tags: [Players]
+      summary: Update player
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PlayerIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlayerRequest'
+      responses:
+        '200':
+          description: Player updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TournamentSuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlayerObject'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /players/delete/{id}:
+    delete:
+      tags: [Players]
+      summary: Delete player
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PlayerIdPath'
+      responses:
+        '200':
+          description: Player deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TournamentSuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'

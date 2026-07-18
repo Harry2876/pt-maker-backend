@@ -87,6 +87,20 @@ export class TeamRegistrationController {
         return res.json(ResponseHelper.success('Team registration updated successfully', registration));
     });
 
+    // Delete team registration
+    static deleteTeamRegistration = asyncHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const userId = req.user!.id;
+
+        const result = await teamRegistrationService.deleteTeamRegistration(id, userId);
+
+        if (!result || !result.success) {
+            return res.status(404).json(ResponseHelper.notFound(result?.message || 'Team registration not found'));
+        }
+
+        return res.json(ResponseHelper.success(result.message || 'Team registration deleted successfully'));
+    });
+
         // Get tournament teams with pagination
     static getTournamentTeamRegistrationsPaginated = asyncHandler(async (req: Request, res: Response) => {
         const { tournamentId } = req.params;

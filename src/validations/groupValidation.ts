@@ -18,6 +18,10 @@ export const createGroupSchema = z.object({
         .positive('Qualification spots must be positive')
         .min(1, 'Qualification spots must be at least 1')
         .max(50, 'Qualification spots cannot exceed 50')
+        .optional(),
+
+    stageId: z.string()
+        .uuid('Invalid stage ID format')
         .optional()
 });
 
@@ -46,7 +50,7 @@ export const updateGroupSchema = z.object({
 });
 
 export const groupParamsSchema = z.object({
-    groupId: z.string()
+    id: z.string()
         .uuid('Invalid group ID format')
 });
 

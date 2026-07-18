@@ -18,7 +18,9 @@ import {
 import { TournamentCache, TournamentStageCache } from '../types/tournament';
 import { GroupCache } from '../types/group';
 import { TeamRegistrationCache } from '../types/teamRegistration';
+import { MatchResultCache } from '../types/matchResult';
 import { randomUUID } from 'crypto';
+import { waitForAllDbSync } from '../utils/dbSyncHelper';
 
 export class TeamQualificationService extends BaseService {
     private CACHE_TTL = 300; // 5 minutes
@@ -44,6 +46,13 @@ export class TeamQualificationService extends BaseService {
             if (stageGroups.length === 0) {
                 throw new Error('No groups found for this stage');
             }
+
+            await this.ensureStageResultsSynced(stageGroups);
+
+            await leaderboardService.refreshLeaderboard(stage.tournamentId, {
+                forceRefresh: true,
+                includeGroups: stageGroups.map(group => group.id)
+            });
 
             // 4. Process qualification for each group
             const groupResults: GroupQualificationResult[] = [];
@@ -497,9 +506,52 @@ export class TeamQualificationService extends BaseService {
     }
 
     // Helper methods
+    private async ensureStageResultsSynced(groups: GroupCache[]): Promise<void> {
+        const pendingResultKeys: string[] = [];
+
+        for (const group of groups) {
+            const matchIds = await redis.smembers(`group:${group.id}:matches`);
+
+            for (const matchId of matchIds) {
+                const resultIds = await redis.smembers(`match:${matchId}:results`);
+
+                for (const resultId of resultIds) {
+                    const result = await redis.hgetObject<MatchResultCache>(`matchResult:${resultId}`);
+                    if (result?.finalStatus === 'PUBLISHED' && result.dbStatus !== 'SYNCED') {
+                        pendingResultKeys.push(`matchResult:${resultId}`);
+                    }
+                }
+            }
+        }
+
+        if (pendingResultKeys.length > 0) {
+            await waitForAllDbSync(pendingResultKeys);
+        }
+    }
+
     private async getStageGroups(stageId: string): Promise<GroupCache[]> {
         try {
             const groupIds = await redis.smembers(`stage:${stageId}:groups`);
+
+            if (groupIds.length === 0) {
+                const dbGroups = await this.db.group.findMany({
+                    where: { stageId },
+                    orderBy: { name: 'asc' }
+                });
+
+                return dbGroups.map(group => ({
+                    id: group.id,
+                    name: group.name,
+                    maxTeams: group.maxTeams,
+                    qualificationSpots: group.qualificationSpots,
+                    tournamentId: group.tournamentId,
+                    stageId: group.stageId ?? undefined,
+                    createdAt: group.createdAt.toISOString(),
+                    updatedAt: group.updatedAt.toISOString(),
+                    dbStatus: 'SYNCED'
+                }));
+            }
+
             const groups: GroupCache[] = [];
 
             for (const groupId of groupIds) {

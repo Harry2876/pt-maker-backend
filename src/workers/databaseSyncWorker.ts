@@ -5,7 +5,6 @@ import { DatabaseSyncJob, BatchSyncJob } from "../types/queue";
 import logger from "../utils/logger";
 import redis from "../config/redis";
 import { db } from "../config/database";
-import { MatchController } from "@/controllers/matchController";
 
 export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
     constructor() {
@@ -29,6 +28,8 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncMatchCreate(data);
                 case 'MATCH_UPDATE':
                     return await this.syncMatchUpdate(entityId, data);
+                case 'MATCH_DELETE':
+                    return await this.syncMatchDelete(entityId);
                 case 'GROUP_CREATE':
                     return await this.syncGroupCreate(data);
                 case 'GROUP_UPDATE':
@@ -39,6 +40,20 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     return await this.syncTeamRegistrationCreate(data);
                 case 'TEAM_REGISTRATION_UPDATE':
                     return await this.syncTeamRegistrationUpdate(entityId, data);
+                case 'TEAM_REGISTRATION_DELETE':
+                    return await this.syncTeamRegistrationDelete(entityId);
+                case 'COLLABORATOR_CREATE':
+                    return await this.syncCollaboratorCreate(data);
+                case 'COLLABORATOR_UPDATE':
+                    return await this.syncCollaboratorUpdate(entityId, data);
+                case 'DELETE_COLLABORATOR':
+                    return await this.syncCollaboratorDelete(entityId);
+                case 'PLAYER_CREATE':
+                    return await this.syncPlayerCreate(data);
+                case 'PLAYER_UPDATE':
+                    return await this.syncPlayerUpdate(entityId, data);
+                case 'PLAYER_DELETE':
+                    return await this.syncPlayerDelete(entityId);
                 case 'TOURNAMENT_STAGE_CREATE':
                     return await this.syncTournamentStageCreate(data);
                 case 'TOURNAMENT_STAGE_UPDATE':
@@ -96,6 +111,15 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     game: tournamentData.game,
                     status: tournamentData.status,
                     userId: tournamentData.userId,
+                    tournamentType: tournamentData.tournamentType || 'TOURNAMENT',
+                    maxTeams: tournamentData.maxTeams,
+                    entryFee: tournamentData.entryFee,
+                    prizePool: tournamentData.prizePool,
+                    totalStages: tournamentData.totalStages ?? 1,
+                    currentStage: tournamentData.currentStage ?? 1,
+                    tournamentFormat: tournamentData.tournamentFormat || 'ELIMINATION',
+                    maxTeamsPerGroup: tournamentData.maxTeamsPerGroup ?? 25,
+                    allowCollaborators: tournamentData.allowCollaborators ?? false,
                     createdAt: new Date(tournamentData.createdAt),
                     updatedAt: new Date(tournamentData.updatedAt || tournamentData.createdAt)
                 }
@@ -161,6 +185,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     matchNumber: matchData.matchNumber,
                     status: matchData.status,
                     tournamentId: matchData.tournamentId,
+                    groupId: matchData.groupId,
                     matchDate: new Date(matchData.matchDate),
                     createdAt: new Date(matchData.createdAt),
                     updatedAt: new Date(matchData.updatedAt || matchData.createdAt)
@@ -199,6 +224,23 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                 logger.error(`Error updating match ${matchId}:`, error);
             }
             throw error;
+        }
+    }
+
+    private async syncMatchDelete(matchId: string): Promise<void> {
+        try {
+            await db.match.delete({
+                where: { id: matchId }
+            });
+
+            logger.debug(`Match ${matchId} deleted successfully from database`);
+        } catch (error) {
+            if ((error as any).code === 'P2025') {
+                logger.warn(`Match ${matchId} not found in database for deletion`);
+            } else {
+                logger.error(`Error deleting match ${matchId}:`, error);
+                throw error;
+            }
         }
     }
 
@@ -266,6 +308,7 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
                     maxTeams: groupData.maxTeams,
                     qualificationSpots: groupData.qualificationSpots,
                     tournamentId: groupData.tournamentId,
+                    stageId: groupData.stageId,
                     createdAt: new Date(groupData.createdAt),
                     updatedAt: new Date(groupData.updatedAt || groupData.createdAt)
                 }
@@ -348,12 +391,17 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
     private async syncTeamRegistrationUpdate(registrationId: string, updateData: any): Promise<void> {
         try {
+            const updatePayload: Record<string, unknown> = { updatedAt: new Date() };
+            if (updateData.teamName !== undefined) updatePayload.teamName = updateData.teamName;
+            if (updateData.contactInfo !== undefined) updatePayload.contactInfo = updateData.contactInfo;
+            if (updateData.registrationStatus !== undefined) updatePayload.registrationStatus = updateData.registrationStatus;
+            if (updateData.finalPosition !== undefined) updatePayload.finalPosition = updateData.finalPosition;
+            if (updateData.totalPoints !== undefined) updatePayload.totalPoints = updateData.totalPoints;
+            if (updateData.groupId !== undefined) updatePayload.groupId = updateData.groupId;
+
             await db.teamRegistration.update({
                 where: { id: registrationId },
-                data: {
-                    ...updateData,
-                    updatedAt: new Date()
-                }
+                data: updatePayload
             });
 
             await redis.hset(`teamRegistration:${registrationId}`, 'dbStatus', 'SYNCED');
@@ -361,6 +409,23 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
         } catch (error) {
             logger.error(`Error updating team registration ${registrationId}:`, error);
             throw error;
+        }
+    }
+
+    private async syncTeamRegistrationDelete(registrationId: string): Promise<void> {
+        try {
+            await db.teamRegistration.delete({
+                where: { id: registrationId }
+            });
+
+            logger.debug(`Team registration ${registrationId} deleted successfully from database`);
+        } catch (error) {
+            if ((error as any).code === 'P2025') {
+                logger.warn(`Team registration ${registrationId} not found in database for deletion`);
+            } else {
+                logger.error(`Error deleting team registration ${registrationId}:`, error);
+                throw error;
+            }
         }
     }
 
@@ -668,18 +733,18 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
 
     private async syncTournamentStageUpdate(entityId: string, data: any): Promise<void> {
         try {
+            const updatePayload: Record<string, unknown> = { updatedAt: new Date() };
+            if (data.name !== undefined) updatePayload.name = data.name;
+            if (data.stageNumber !== undefined) updatePayload.stageNumber = data.stageNumber;
+            if (data.totalGroups !== undefined) updatePayload.totalGroups = data.totalGroups;
+            if (data.qualificationSpots !== undefined) updatePayload.qualificationSpots = data.qualificationSpots;
+            if (data.stageFormat !== undefined) updatePayload.stageFormat = data.stageFormat;
+            if (data.isActive !== undefined) updatePayload.isActive = data.isActive;
+            if (data.isCompleted !== undefined) updatePayload.isCompleted = data.isCompleted;
+
             await db.tournamentStage.update({
                 where: { id: entityId },
-                data: {
-                    name: data.name,
-                    stageNumber: data.stageNumber,
-                    totalGroups: data.totalGroups,
-                    qualificationSpots: data.qualificationSpots,
-                    stageFormat: data.stageFormat,
-                    isActive: data.isActive,
-                    isCompleted: data.isCompleted,
-                    updatedAt: new Date()
-                }
+                data: updatePayload
             });
 
             await redis.hset(`stage:${entityId}`, 'dbStatus', 'SYNCED');
@@ -704,6 +769,150 @@ export class DatabaseSyncWorker extends BaseWorker<DatabaseSyncJob> {
         } catch (error) {
             logger.error(`Error deleting tournament stage ${entityId}:`, error);
             throw error;
+        }
+    }
+
+    private async syncCollaboratorCreate(data: any): Promise<void> {
+        try {
+            await db.tournamentCollaborator.create({
+                data: {
+                    id: data.id,
+                    tournamentId: data.tournamentId,
+                    userId: data.userId,
+                    role: data.role,
+                    status: data.status,
+                    invitedBy: data.invitedBy,
+                    invitedAt: new Date(data.invitedAt),
+                    acceptedAt: data.acceptedAt ? new Date(data.acceptedAt) : null,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            });
+
+            await redis.hset(`collaborator:${data.id}`, 'dbStatus', 'SYNCED');
+            logger.debug(`Collaborator ${data.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.warn(`Collaborator ${data.id} already exists in database`);
+                await redis.hset(`collaborator:${data.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating collaborator ${data.id}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncCollaboratorUpdate(collaboratorId: string, data: any): Promise<void> {
+        try {
+            const updatePayload: Record<string, unknown> = { updatedAt: new Date() };
+            if (data.role !== undefined) updatePayload.role = data.role;
+            if (data.status !== undefined) updatePayload.status = data.status;
+            if (data.acceptedAt !== undefined) {
+                updatePayload.acceptedAt = data.acceptedAt ? new Date(data.acceptedAt) : null;
+            }
+
+            await db.tournamentCollaborator.update({
+                where: { id: collaboratorId },
+                data: updatePayload
+            });
+
+            await redis.hset(`collaborator:${collaboratorId}`, 'dbStatus', 'SYNCED');
+            logger.debug(`Collaborator ${collaboratorId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating collaborator ${collaboratorId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncCollaboratorDelete(collaboratorId: string): Promise<void> {
+        try {
+            await db.tournamentCollaborator.delete({
+                where: { id: collaboratorId }
+            });
+
+            logger.debug(`Collaborator ${collaboratorId} deleted successfully from database`);
+        } catch (error) {
+            if ((error as any).code === 'P2025') {
+                logger.warn(`Collaborator ${collaboratorId} not found in database for deletion`);
+            } else {
+                logger.error(`Error deleting collaborator ${collaboratorId}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncPlayerCreate(data: any): Promise<void> {
+        try {
+            await db.player.create({
+                data: {
+                    id: data.id,
+                    name: data.name,
+                    gameUuid: data.gameUuid,
+                    email: data.email,
+                    phoneNumber: data.phoneNumber,
+                    totalMatches: data.totalMatches ?? 0,
+                    totalKills: data.totalKills ?? 0,
+                    totalPoints: data.totalPoints ?? 0,
+                    averageKills: data.averageKills ?? 0,
+                    bestPosition: data.bestPosition,
+                    createdAt: new Date(data.createdAt),
+                    updatedAt: new Date(data.updatedAt || data.createdAt)
+                }
+            });
+
+            await redis.hset(`player:${data.id}`, 'dbStatus', 'SYNCED');
+            logger.debug(`Player ${data.id} created and synced to database successfully`);
+        } catch (error) {
+            if ((error as any).code === 'P2002') {
+                logger.warn(`Player ${data.id} already exists in database`);
+                await redis.hset(`player:${data.id}`, 'dbStatus', 'SYNCED');
+            } else {
+                logger.error(`Error creating player ${data.id}:`, error);
+                throw error;
+            }
+        }
+    }
+
+    private async syncPlayerUpdate(playerId: string, data: any): Promise<void> {
+        try {
+            const updatePayload: Record<string, unknown> = { updatedAt: new Date() };
+            if (data.name !== undefined) updatePayload.name = data.name;
+            if (data.gameUuid !== undefined) updatePayload.gameUuid = data.gameUuid;
+            if (data.email !== undefined) updatePayload.email = data.email;
+            if (data.phoneNumber !== undefined) updatePayload.phoneNumber = data.phoneNumber;
+            if (data.totalMatches !== undefined) updatePayload.totalMatches = data.totalMatches;
+            if (data.totalKills !== undefined) updatePayload.totalKills = data.totalKills;
+            if (data.totalPoints !== undefined) updatePayload.totalPoints = data.totalPoints;
+            if (data.averageKills !== undefined) updatePayload.averageKills = data.averageKills;
+            if (data.bestPosition !== undefined) updatePayload.bestPosition = data.bestPosition;
+
+            await db.player.update({
+                where: { id: playerId },
+                data: updatePayload
+            });
+
+            await redis.hset(`player:${playerId}`, 'dbStatus', 'SYNCED');
+            logger.debug(`Player ${playerId} updated successfully in database`);
+        } catch (error) {
+            logger.error(`Error updating player ${playerId}:`, error);
+            throw error;
+        }
+    }
+
+    private async syncPlayerDelete(playerId: string): Promise<void> {
+        try {
+            await db.player.delete({
+                where: { id: playerId }
+            });
+
+            logger.debug(`Player ${playerId} deleted successfully from database`);
+        } catch (error) {
+            if ((error as any).code === 'P2025') {
+                logger.warn(`Player ${playerId} not found in database for deletion`);
+            } else {
+                logger.error(`Error deleting player ${playerId}:`, error);
+                throw error;
+            }
         }
     }
 

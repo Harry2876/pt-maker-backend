@@ -2,7 +2,10 @@ import { BaseService } from './baseService';
 import redis from '../config/redis';
 import { QueueService } from './queueService';
 import { scoringRuleService } from './scoringRuleService';
+import { leaderboardService } from './leaderboardService';
+import { teamRegistrationService } from './teamRegistrationService';
 import { randomUUID } from 'crypto';
+import { waitForDbSync, waitForAllDbSync } from '../utils/dbSyncHelper';
 import {
     MatchResultCache,
     CreateMatchResultData,
@@ -25,6 +28,64 @@ import { TeamRegistrationCache } from '../types/teamRegistration';
 export class MatchResultService extends BaseService {
     private CACHE_TTL = 600; // 10 minutes for match results
 
+    /** Map API input (`teamId`, `placement`) to internal TeamMatchResult shape */
+    private async normalizeTeamResultsInput(
+        rawResults: Array<Record<string, unknown>>
+    ): Promise<TeamMatchResult[]> {
+        const normalized: TeamMatchResult[] = [];
+
+        for (let i = 0; i < rawResults.length; i++) {
+            const raw = rawResults[i];
+            const teamRegistrationId = String(raw.teamRegistrationId ?? raw.teamId ?? '');
+            const position = Number(raw.position ?? raw.placement ?? 0);
+            const kills = Number(raw.kills ?? 0);
+
+            let teamName = typeof raw.teamName === 'string' ? raw.teamName : '';
+            if (!teamName && teamRegistrationId) {
+                const reg = await redis.hgetObject<TeamRegistrationCache>(
+                    `teamRegistration:${teamRegistrationId}`
+                );
+                teamName = reg?.teamName ?? '';
+            }
+
+            normalized.push({
+                teamRegistrationId,
+                teamName: teamName || 'Unknown Team',
+                slotNumber: Number(raw.slotNumber ?? i + 1),
+                position,
+                kills,
+                damage: raw.damage !== undefined ? Number(raw.damage) : undefined,
+                survivalTime: raw.survivalTime !== undefined ? Number(raw.survivalTime) : undefined,
+                totalScore: Number(raw.totalScore ?? 0),
+                scoreBreakdown: Array.isArray(raw.scoreBreakdown) ? raw.scoreBreakdown as TeamMatchResult['scoreBreakdown'] : [],
+                aiDetected: Boolean(raw.aiDetected ?? false),
+                manuallyEdited: Boolean(raw.manuallyEdited ?? true)
+            });
+        }
+
+        return normalized;
+    }
+
+    private queueMatchResultUpdate(resultId: string, updated: MatchResultCache, userId: string) {
+        return QueueService.queueDatabaseSync({
+            type: 'MATCH_RESULT_UPDATE',
+            entityId: resultId,
+            data: {
+                matchId: updated.matchId,
+                teamResults: updated.teamResults,
+                verifiedBy: updated.verifiedBy,
+                verifiedAt: updated.verifiedAt,
+                finalStatus: updated.finalStatus,
+                publishedAt: updated.publishedAt,
+                notes: updated.notes,
+                manualVerificationStatus: updated.manualVerificationStatus
+            },
+            userId,
+            priority: 'HIGH',
+            timestamp: new Date().toISOString()
+        });
+    }
+
     // Create match result with hybrid sync
     async createMatchResult(data: CreateMatchResultData, createdBy: string) {
         try {
@@ -46,11 +107,14 @@ export class MatchResultService extends BaseService {
             // 4. Process team results if provided
             let processedTeamResults: TeamMatchResult[] = [];
             if (data.teamResults && data.teamResults.length > 0) {
+                const normalized = await this.normalizeTeamResultsInput(
+                    data.teamResults as unknown as Array<Record<string, unknown>>
+                );
                 // Calculate scores using scoring rules
-                processedTeamResults = await this.calculateTeamScores(match.tournamentId, data.teamResults);
-                
+                processedTeamResults = await this.calculateTeamScores(match.tournamentId, normalized);
+
                 // Validate results
-                const validation = await this.validateMatchResult(data);
+                const validation = await this.validateMatchResult({ ...data, teamResults: processedTeamResults });
                 if (!validation.isValid) {
                     throw new Error(`Invalid match result: ${validation.errors.map(e => e.message).join(', ')}`);
                 }
@@ -221,16 +285,16 @@ export class MatchResultService extends BaseService {
             // Process team results if provided
             let updatedTeamResults = existing.teamResults;
             if (data.teamResults && data.teamResults.length > 0) {
-                updatedTeamResults = await this.calculateTeamScores(existing.tournamentId, data.teamResults);
-            }
+                updatedTeamResults = await this.calculateTeamScores(
+                    existing.tournamentId,
+                    data.teamResults as unknown as Array<Record<string, unknown>>
+                );
 
-            // Validate if team results changed
-            if (data.teamResults) {
                 const validation = await this.validateMatchResult({
                     matchId: existing.matchId,
-                    teamResults: data.teamResults
+                    teamResults: updatedTeamResults
                 });
-                
+
                 if (!validation.isValid) {
                     throw new Error(`Invalid match result update: ${validation.errors.map(e => e.message).join(', ')}`);
                 }
@@ -254,7 +318,7 @@ export class MatchResultService extends BaseService {
             await redis.hsetObject(`matchResult:${resultId}`, updated);
 
             // Queue database sync
-            await QueueService.syncImmediately('MATCH_RESULT', resultId, updated, updatedBy);
+            await this.queueMatchResultUpdate(resultId, updated, updatedBy);
 
             // Invalidate cache
             await redis.delete(`match:${existing.matchId}:results:list`);
@@ -269,11 +333,19 @@ export class MatchResultService extends BaseService {
     }
 
     // Calculate team scores using scoring rules
-    async calculateTeamScores(tournamentId: string, teamResults: TeamMatchResult[]): Promise<TeamMatchResult[]> {
+    async calculateTeamScores(
+        tournamentId: string,
+        teamResults: TeamMatchResult[] | Array<Record<string, unknown>>
+    ): Promise<TeamMatchResult[]> {
         try {
+            const normalized = Array.isArray(teamResults) && teamResults.length > 0
+                && teamResults[0] && ('teamId' in teamResults[0] || 'placement' in teamResults[0])
+                ? await this.normalizeTeamResultsInput(teamResults as Array<Record<string, unknown>>)
+                : teamResults as TeamMatchResult[];
+
             const processedResults: TeamMatchResult[] = [];
 
-            for (const teamResult of teamResults) {
+            for (const teamResult of normalized) {
                 // Use ScoringRuleService to calculate scores
                 const scoreResult = await scoringRuleService.calculateScore(tournamentId, {
                     kills: teamResult.kills,
@@ -297,11 +369,15 @@ export class MatchResultService extends BaseService {
 
         } catch (error) {
             this.logger.error('Error calculating team scores:', error);
-            // Return original results with basic scoring if calculation fails
-            return teamResults.map(result => ({
+            const fallbackInput = Array.isArray(teamResults) && teamResults.length > 0
+                && teamResults[0] && ('teamId' in teamResults[0] || 'placement' in teamResults[0])
+                ? await this.normalizeTeamResultsInput(teamResults as Array<Record<string, unknown>>)
+                : teamResults as TeamMatchResult[];
+
+            return fallbackInput.map(result => ({
                 ...result,
                 totalScore: result.totalScore || (result.kills + Math.max(0, 26 - result.position) * 2),
-                scoreBreakdown: result.scoreBreakdown || [
+                scoreBreakdown: result.scoreBreakdown?.length ? result.scoreBreakdown : [
                     {
                         ruleName: 'Default Scoring',
                         ruleType: 'FALLBACK',
@@ -362,7 +438,7 @@ export class MatchResultService extends BaseService {
 
             // Store updated result
             await redis.hsetObject(`matchResult:${resultId}`, updated);
-            await QueueService.syncImmediately('MATCH_RESULT', resultId, updated, verifiedBy);
+            await this.queueMatchResultUpdate(resultId, updated, verifiedBy);
 
             // Invalidate cache
             await redis.delete(`match:${result.matchId}:results:list`);
@@ -411,14 +487,32 @@ export class MatchResultService extends BaseService {
 
             // Store updated result
             await redis.hsetObject(`matchResult:${resultId}`, updated);
-            await QueueService.syncImmediately('MATCH_RESULT', resultId, updated, publishedBy);
+            await this.queueMatchResultUpdate(resultId, updated, publishedBy);
+            await waitForDbSync(`matchResult:${resultId}`);
 
-            // TODO: Update leaderboard when LeaderboardService is implemented
             let leaderboardUpdated = false;
-            if (publishData.publishToLeaderboard) {
-                // Placeholder for leaderboard update
-                this.logger.info(`Leaderboard update queued for match result ${resultId}`);
-                leaderboardUpdated = true;
+            if (publishData.publishToLeaderboard !== false) {
+                const refreshResult = await leaderboardService.refreshLeaderboard(result.tournamentId, {
+                    forceRefresh: true,
+                    includeGroups: result.groupId ? [result.groupId] : undefined
+                });
+                leaderboardUpdated = refreshResult.success;
+
+                if (leaderboardUpdated && result.groupId) {
+                    const groupLb = await leaderboardService.generateGroupLeaderboard(result.groupId);
+                    if (groupLb) {
+                        const registrationKeys: string[] = [];
+                        for (const entry of groupLb.entries) {
+                            await teamRegistrationService.updateTeamRegistration(
+                                entry.teamRegistrationId,
+                                publishedBy,
+                                { totalPoints: entry.totalPoints }
+                            );
+                            registrationKeys.push(`teamRegistration:${entry.teamRegistrationId}`);
+                        }
+                        await waitForAllDbSync(registrationKeys);
+                    }
+                }
             }
 
             // TODO: Send notifications when NotificationService is implemented
@@ -552,7 +646,14 @@ export class MatchResultService extends BaseService {
             await redis.srem(`tournament:${result.tournamentId}:results`, resultId);
 
             // Queue database deletion
-            await QueueService.syncImmediately('DELETE_MATCH_RESULT', resultId, { id: resultId }, deletedBy);
+            await QueueService.queueDatabaseSync({
+                type: 'DELETE_MATCH_RESULT',
+                entityId: resultId,
+                data: { id: resultId },
+                userId: deletedBy,
+                priority: 'HIGH',
+                timestamp: new Date().toISOString()
+            });
 
             // Invalidate caches
             await redis.delete(`match:${result.matchId}:results:list`);

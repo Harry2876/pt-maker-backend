@@ -22,36 +22,27 @@ uploadRouter.use(authenticateUser);
  * /api/v1/uploads/matches/{id}/screenshots/upload:
  *   post:
  *     tags: [Uploads]
- *     summary: Upload match screenshots for AI processing
+ *     summary: Upload tournament match screenshots (storage only — not Quick PT)
  *     description: |
- *       Upload multiple screenshot files for a specific match. Screenshots are processed by AI to extract match results and team information.
- *       
- *       **IMPORTANT:** Add `?type=ATTENDANCE_IMAGE` or `?type=RESULT_IMAGE` to the URL as a query parameter.
- *       
- *       **Request Format:**
- *       - URL: `/api/v1/uploads/matches/{id}/screenshots/upload?type=ATTENDANCE_IMAGE`
- *       - Body: multipart/form-data with screenshots field
- *       
- *       **File Requirements:**
- *       - Supported formats: JPEG, PNG, WebP
- *       - Maximum file size: 10MB per file
- *       - Maximum files: 10 screenshots per match
- *       - Files are uploaded to Cloudflare R2 storage
- *       
- *       **Screenshot Types:**
- *       - `ATTENDANCE_IMAGE`: Player attendance/participation list
- *       - `RESULT_IMAGE`: Match results/kill feed/leaderboard
- *       
- *       **AI Processing:**
- *       - Screenshots are automatically processed by AI
- *       - Extracts team names, scores, and match results
- *       - Updates match status to PROCESSED when complete
- *       - Results stored in match.processedData field
- *       
- *       **Security:**
- *       - User must be the tournament/match owner
- *       - Files are virus-scanned and validated
- *       - Automatic cleanup of malformed uploads
+ *       Store screenshot files for a **tournament** match (reference / manual verification).
+ *       This endpoint does **not** run AI/OCR and does **not** update match results.
+ *
+ *       **Quick PT (production) uses a different route:**
+ *       `POST /api/v1/quick-pt/matches/{id}/screenshots?type=ATTENDANCE|RESULT`
+ *
+ *       | Tournament | Quick PT |
+ *       |---|---|
+ *       | `/uploads/matches/{id}/screenshots/upload` | `/quick-pt/matches/{id}/screenshots` |
+ *       | Tournament Match UUID | Quick Match ID |
+ *       | R2: `tournaments/...` | R2: `quick-pt/...` |
+ *       | Storage only | Full AI pipeline |
+ *
+ *       **Query param (required):** `?type=ATTENDANCE_IMAGE` or `?type=RESULT_IMAGE`
+ *
+ *       **After upload:** Enter results via `/match-results` (create → verify → publish).
+ *       Publish auto-refreshes the leaderboard.
+ *
+ *       **Note:** Per-user upload lock is shared with Quick PT — avoid simultaneous uploads on both paths.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -96,7 +87,7 @@ uploadRouter.use(authenticateUser);
  *               explode: true
  *     responses:
  *       201:
- *         description: Screenshots uploaded successfully and queued for AI processing
+ *         description: Screenshots stored successfully (no AI processing on this path)
  *         content:
  *           application/json:
  *             schema:
@@ -400,29 +391,12 @@ uploadRouter.use(authenticateUser);
  *                       type: string
  *                       example: "1.0"
  */
-// uploadRouter.post('/matches/:id/screenshots/upload',
-//     validateRequest(matchParamsSchema, 'params'),
-//     ...screenshotUpload, // This spreads the middleware array
-//     UploadController.uploadScreenshots
-// );
-
-// Temporary endpoint to inform users about the maintenance
-uploadRouter.post('/matches/:id/screenshots/upload', (req, res) => {
-    res.status(503).json({
-        success: false,
-        message: 'Tournament screenshot upload temporarily disabled for maintenance.',
-        error: {
-            code: 'FEATURE_DISABLED',
-            details: 'Please use Quick PT system for screenshot uploads or contact support.',
-            maintenance: true,
-            alternativeEndpoint: '/api/v1/quick-pt/matches/{id}/screenshots'
-        },
-        meta: {
-            timestamp: new Date().toISOString(),
-            version: "1.0"
-        }
-    });
-});
+// Tournament screenshot upload — storage only; Quick PT uses POST /quick-pt/matches/:id/screenshots
+uploadRouter.post('/matches/:id/screenshots/upload',
+    validateRequest(matchParamsSchema, 'params'),
+    ...screenshotUpload,
+    UploadController.uploadScreenshots
+);
 
 /**
  * @swagger

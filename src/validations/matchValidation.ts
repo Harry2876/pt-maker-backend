@@ -31,8 +31,12 @@ export const updateMatchSchema = z.object({
         .or(z.date().optional()),
     
     status: z.enum(['PENDING_PROCESSING', 'PROCESSED', 'ERROR'] as const).optional(),
+
+    processedData: z.any().optional(),
     
-    processedData: z.any().optional()
+    groupId: z.string()
+        .uuid('Invalid group ID format')
+        .optional()
 }).refine(data => Object.keys(data).length > 0, {
     message: 'At least one field must be provided for update'
 });
