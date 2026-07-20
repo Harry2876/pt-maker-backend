@@ -38,6 +38,8 @@ import swaggerUi from 'swagger-ui-express';
 import { specs } from './config/swagger';
 import { swaggerBasicAuth } from './middleware/swaggerAuth';
 import devRouter from './routes/devRoutes';
+import adminRouter from './routes/adminRoutes';
+import adminPanelRouter from './routes/adminPanelRoutes';
 
 import { loadSpec } from './config/docsloader';
 import { env } from './config/env';
@@ -256,6 +258,13 @@ if (env.ENABLE_DEV_ROUTES) {
     app.use('/api/v1/dev', devRouter);
 }
 
+// Admin dashboard — only when ENABLE_ADMIN_ROUTES=true in .env
+if (env.ENABLE_ADMIN_ROUTES) {
+    app.use('/api/v1/admin', adminRouter);
+    app.use('/admin-dashboard', adminPanelRouter);
+    logger.info('🔒 Admin dashboard UI available at /admin-dashboard');
+}
+
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/tournaments', tournamentRouter);
 app.use('/api/v1/matches', matchRouter);
@@ -274,8 +283,6 @@ app.use('/api/v1/quick-pt/logo-presets', teamLogoPresetRouter);
 app.use('/api/v1/quick-pt/template-presets', templatePresetRouter);
 app.use('/api/v1/whatsapp', whatsappRouter);
 app.use('/api/v1/webhooks', revenueCatWebhookRouter);
-
-// app.use('/api/v1/admin', adminRouter);
 
 // Sentry error handler — must be before globalErrorHandler
 Sentry.setupExpressErrorHandler(app);

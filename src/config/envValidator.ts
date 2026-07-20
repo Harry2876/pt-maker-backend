@@ -52,6 +52,12 @@ const envSchema = z.object({
   DEV_SECRET: z.string().min(16, 'DEV_SECRET must be at least 16 characters').optional(),
   DOCS_TEST_TOKEN: z.string().optional(),
   ENABLE_DEV_ROUTES: z.string().optional(),
+  // Admin dashboard (optional)
+  ENABLE_ADMIN_ROUTES: z.string().optional(),
+  ADMIN_DASHBOARD_SECRET: z
+    .string()
+    .min(16, 'ADMIN_DASHBOARD_SECRET must be at least 16 characters')
+    .optional(),
   // Sentry
   SENTRY_DSN: z.string().url('Invalid SENTRY_DSN').optional(),
 
@@ -81,6 +87,10 @@ export function validateEnvironment() {
       }
       if (validatedEnv.REVENUECAT_SKIP_WEBHOOK_AUTH) {
         logger.error('REVENUECAT_SKIP_WEBHOOK_AUTH must not be true in production');
+        process.exit(1);
+      }
+      if (validatedEnv.ENABLE_ADMIN_ROUTES === 'true' && !validatedEnv.ADMIN_DASHBOARD_SECRET) {
+        logger.error('ADMIN_DASHBOARD_SECRET is required when ENABLE_ADMIN_ROUTES=true in production');
         process.exit(1);
       }
     }

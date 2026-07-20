@@ -30,6 +30,9 @@ export const env = {
   DEV_SECRET: process.env.DEV_SECRET,
   DOCS_TEST_TOKEN: process.env.DOCS_TEST_TOKEN,
   ENABLE_DEV_ROUTES: process.env.ENABLE_DEV_ROUTES === 'true',
+  // Admin dashboard (locked web panel)
+  ENABLE_ADMIN_ROUTES: process.env.ENABLE_ADMIN_ROUTES === 'true',
+  ADMIN_DASHBOARD_SECRET: process.env.ADMIN_DASHBOARD_SECRET,
   // Sentry
   SENTRY_DSN: process.env.SENTRY_DSN,
 

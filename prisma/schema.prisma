@@ -46,6 +46,7 @@ model User {
   revenueCatLastSyncedAt  DateTime?
   revenueCatWebhookEvents RevenueCatWebhookEvent[]
   templatePresets       TemplatePreset[]
+  aiScanEvents          AiScanEvent[]
 
   @@map("users")
 }
@@ -411,6 +412,29 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
+model AiScanEvent {
+  id               String      @id @default(cuid())
+  userId           String
+  quickMatchId     String
+  scanType         OcrScanType
+  imageCount       Int         @default(0)
+  imagesProcessed  Int         @default(0)
+  success          Boolean     @default(true)
+  processingTimeMs Int?
+  errorMessage     String?
+  createdAt        DateTime    @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quickMatch QuickMatch @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([quickMatchId, createdAt(sort: Desc)])
+  @@index([scanType, createdAt(sort: Desc)])
+  @@index([success, createdAt])
+  @@map("ai_scan_events")
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -559,6 +583,7 @@ model QuickMatch {
     seriesMatches   QuickSeriesMatch[]
   QuickMatchCrop  QuickMatchCrop[]
   mediaAssets     QuickMediaAsset[]
+  aiScanEvents    AiScanEvent[]
 
   // Indexes (rest stays same)
   @@index([userId, createdAt(sort: Desc)])
@@ -752,6 +777,11 @@ model QuickMediaAsset {
 }
 
 
+
+enum OcrScanType {
+  ATTENDANCE
+  RESULT
+}
 
 enum QuickSeriesStatus {
   CREATED

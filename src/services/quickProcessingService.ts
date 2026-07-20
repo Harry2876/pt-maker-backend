@@ -21,6 +21,8 @@ import {
     ocrReconciliationService,
     ReconciliationWarning,
 } from './ocrReconciliationService';
+import { aiScanEventService } from './aiScanEventService';
+import { OcrScanType } from '@prisma/client';
 
 // Response interfaces
 export interface AttendanceProcessingResult {
@@ -69,6 +71,19 @@ export interface CompleteProcessingResult {
 }
 
 export class QuickProcessingService extends BaseService {
+    private async recordOcrScanEvent(params: {
+        userId: string;
+        quickMatchId: string;
+        scanType: OcrScanType;
+        imageCount: number;
+        imagesProcessed?: number;
+        success: boolean;
+        processingTimeMs?: number;
+        errorMessage?: string;
+    }): Promise<void> {
+        await aiScanEventService.logScanEvent(params);
+    }
+
     /**
      * Process attendance screenshots - extracts team slots from screenshots
      * STEP 1: Attendance Processing
@@ -107,17 +122,54 @@ export class QuickProcessingService extends BaseService {
             });
 
             const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
-            const response = await pythonAIService.processScoreboardBatch(imageRefs);
+            const imageCount = screenshots.length;
+            const ocrStartedAt = Date.now();
+            let response;
+
+            try {
+                response = await pythonAIService.processScoreboardBatch(imageRefs);
+            } catch (ocrError) {
+                await this.recordOcrScanEvent({
+                    userId,
+                    quickMatchId,
+                    scanType: 'ATTENDANCE',
+                    imageCount,
+                    success: false,
+                    processingTimeMs: Date.now() - ocrStartedAt,
+                    errorMessage: ocrError instanceof Error ? ocrError.message : 'OCR failed',
+                });
+                throw ocrError;
+            }
 
             if (response.status !== 'success') {
+                await this.recordOcrScanEvent({
+                    userId,
+                    quickMatchId,
+                    scanType: 'ATTENDANCE',
+                    imageCount,
+                    imagesProcessed: response.metadata?.images_processed ?? 0,
+                    success: false,
+                    processingTimeMs: Date.now() - ocrStartedAt,
+                    errorMessage: `Python AI returned status: ${response.status}`,
+                });
                 throw new Error(`Python AI returned status: ${response.status}`);
             }
 
             if (response.data.layout !== 'expanded_layout') {
-                throw new Error(
+                const layoutError =
                     `Expected attendance (expanded_layout) but received ${response.data.layout}. ` +
-                    'Please make sure only attendance screenshots are uploaded for this step.'
-                );
+                    'Please make sure only attendance screenshots are uploaded for this step.';
+                await this.recordOcrScanEvent({
+                    userId,
+                    quickMatchId,
+                    scanType: 'ATTENDANCE',
+                    imageCount,
+                    imagesProcessed: response.metadata?.images_processed ?? 0,
+                    success: false,
+                    processingTimeMs: Date.now() - ocrStartedAt,
+                    errorMessage: layoutError,
+                });
+                throw new Error(layoutError);
             }
 
             const rawTeams = response.data.teams as AttendanceTeam[];
@@ -179,6 +231,17 @@ export class QuickProcessingService extends BaseService {
             });
 
             const processingTimeMs = Date.now() - startTime;
+
+            await this.recordOcrScanEvent({
+                userId,
+                quickMatchId,
+                scanType: 'ATTENDANCE',
+                imageCount,
+                imagesProcessed: response.metadata.images_processed,
+                success: true,
+                processingTimeMs,
+            });
+
             const slots = await quickSlotService.listQuickMatchSlots(quickMatchId, userId);
 
             this.logger.info(`Attendance processing complete for ${quickMatchId}`, {
@@ -280,17 +343,54 @@ export class QuickProcessingService extends BaseService {
             });
 
             const imageRefs = screenshots.map(s => resolvePythonImageRef(s.storageUrl, s.fileName));
-            const response = await pythonAIService.processScoreboardBatch(imageRefs);
+            const imageCount = screenshots.length;
+            const ocrStartedAt = Date.now();
+            let response;
+
+            try {
+                response = await pythonAIService.processScoreboardBatch(imageRefs);
+            } catch (ocrError) {
+                await this.recordOcrScanEvent({
+                    userId,
+                    quickMatchId,
+                    scanType: 'RESULT',
+                    imageCount,
+                    success: false,
+                    processingTimeMs: Date.now() - ocrStartedAt,
+                    errorMessage: ocrError instanceof Error ? ocrError.message : 'OCR failed',
+                });
+                throw ocrError;
+            }
 
             if (response.status !== 'success') {
+                await this.recordOcrScanEvent({
+                    userId,
+                    quickMatchId,
+                    scanType: 'RESULT',
+                    imageCount,
+                    imagesProcessed: response.metadata?.images_processed ?? 0,
+                    success: false,
+                    processingTimeMs: Date.now() - ocrStartedAt,
+                    errorMessage: `Python AI returned status: ${response.status}`,
+                });
                 throw new Error(`Python AI returned status: ${response.status}`);
             }
 
             if (response.data.layout !== 'compact_layout') {
-                throw new Error(
+                const layoutError =
                     `Expected results (compact_layout) but received ${response.data.layout}. ` +
-                    'Please make sure only result screenshots are uploaded for this step.'
-                );
+                    'Please make sure only result screenshots are uploaded for this step.';
+                await this.recordOcrScanEvent({
+                    userId,
+                    quickMatchId,
+                    scanType: 'RESULT',
+                    imageCount,
+                    imagesProcessed: response.metadata?.images_processed ?? 0,
+                    success: false,
+                    processingTimeMs: Date.now() - ocrStartedAt,
+                    errorMessage: layoutError,
+                });
+                throw new Error(layoutError);
             }
 
             const rawTeams = response.data.teams as ResultTeam[];
@@ -439,6 +539,17 @@ export class QuickProcessingService extends BaseService {
             await quickSeriesService.onMatchCompleted(quickMatchId, userId);
 
             const processingTimeMs = Date.now() - startTime;
+
+            await this.recordOcrScanEvent({
+                userId,
+                quickMatchId,
+                scanType: 'RESULT',
+                imageCount,
+                imagesProcessed: response.metadata.images_processed,
+                success: true,
+                processingTimeMs,
+            });
+
             const results = await quickResultService.getMatchResults(quickMatchId, userId);
 
             this.logger.info(`Result processing complete for ${quickMatchId}`, {

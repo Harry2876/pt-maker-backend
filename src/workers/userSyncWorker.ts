@@ -4,7 +4,6 @@ import { Queues } from "../config/queues";
 import logger from "../utils/logger";
 import { redis } from "../config/redis";
 import { db } from "../config/database";
-import { ca } from "zod/v4/locales";
 import { CachedUser } from "../types/auth";
 import bcrypt from 'bcrypt';
 import { authService } from "../services/authService";
@@ -22,9 +21,12 @@ export class UserSyncWorker extends BaseWorker<any> {
             // Users must sync before sessions (sessions reference user IDs)
             const usersSynced = await this.syncPendingUsersToDb();
             const sessionsSynced = await this.syncPendingSessionsToDb();
+            const sessionUpdatesSynced = await this.syncPendingSessionUpdatesToDb();
 
-            if (usersSynced > 0 || sessionsSynced > 0) {
-                logger.info(`✅ Sync complete — users: ${usersSynced}, sessions: ${sessionsSynced}`);
+            if (usersSynced > 0 || sessionsSynced > 0 || sessionUpdatesSynced > 0) {
+                logger.info(
+                    `✅ Sync complete — users: ${usersSynced}, sessions: ${sessionsSynced}, session updates: ${sessionUpdatesSynced}`
+                );
             }
         } catch (error) {
             logger.error(`❌ Failed to process user sync job:`, error);
@@ -204,7 +206,17 @@ export class UserSyncWorker extends BaseWorker<any> {
             });
 
             if (existingSession) {
-                logger.info(`Session ${sessionId} already exists in database, cleaning up cache`);
+                await db.session.update({
+                    where: { id: sessionId },
+                    data: {
+                        lastUsedAt: new Date(cachedSession.lastUsedAt),
+                        isActive: cachedSession.isActive ?? true,
+                        deviceInfo: cachedSession.deviceInfo ?? existingSession.deviceInfo,
+                        ipAddress: cachedSession.ipAddress ?? existingSession.ipAddress,
+                        updatedAt: new Date(),
+                    },
+                });
+                logger.info(`Session ${sessionId} lastUsedAt refreshed in database`);
                 await this.cleanupSessionCache(sessionId);
                 return;
             }
@@ -276,6 +288,57 @@ export class UserSyncWorker extends BaseWorker<any> {
             await this.cleanupSessionCache(sessionId);
         } catch (error) {
             logger.error(`Failed syncing session ${sessionId}:`, error);
+        }
+    }
+
+    private async syncPendingSessionUpdatesToDb(): Promise<number> {
+        try {
+            const pattern = 'pending_session_updates_for_dbWrite:*';
+            const keys = await redis.keys(pattern);
+            if (keys.length === 0) return 0;
+
+            let synced = 0;
+            for (const key of keys) {
+                const sessionId = key.replace('pending_session_updates_for_dbWrite:', '');
+                const sessionCacheKey = `session:${sessionId}`;
+                const cachedSession = await redis.getObject<any>(sessionCacheKey);
+
+                if (!cachedSession) {
+                    await redis.delete(key);
+                    continue;
+                }
+
+                const existingSession = await db.session.findFirst({
+                    where: { id: sessionId },
+                });
+
+                if (!existingSession) {
+                    await redis.setObject(
+                        `pending_sessions_list_for_dbWrite:${sessionId}`,
+                        { sessionId, addedAt: Date.now() },
+                        7200
+                    );
+                    await redis.delete(key);
+                    continue;
+                }
+
+                await db.session.update({
+                    where: { id: sessionId },
+                    data: {
+                        lastUsedAt: new Date(cachedSession.lastUsedAt),
+                        isActive: cachedSession.isActive ?? true,
+                        updatedAt: new Date(),
+                    },
+                });
+
+                await redis.delete(key);
+                synced++;
+            }
+
+            return synced;
+        } catch (error) {
+            logger.error('Error syncing pending session updates to database', error);
+            throw error;
         }
     }
 
