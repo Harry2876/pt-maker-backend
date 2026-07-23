@@ -26,3 +26,25 @@ export const fontCustomizationSchema = z.object({
 }).optional().nullable();
 
 export const advancedConfigSchema = z.record(z.string(), z.any()).optional().nullable();
+
+/** Logo size/position overrides — forwarded as org_logo_overrides / sponsor_logo_overrides to Python */
+export const logoOverridesSchema = z.object({
+    size: z.number().nullable().optional(),
+    offsetX: z.number().nullable().optional(),
+    offsetY: z.number().nullable().optional(),
+}).optional().nullable();
+
+/** Footer social icon/text layout — forwarded as social_overrides to Python */
+export const socialOverridesSchema = z.object({
+    iconSize: z.number().nullable().optional(),
+    textSize: z.number().nullable().optional(),
+    textColor: z.string().nullable().optional(),
+    offsetX: z.number().nullable().optional(),
+    offsetY: z.number().nullable().optional(),
+}).optional().nullable();
+
+/** Per-element font size/color/weight patches — forwarded as element_overrides to Python */
+export const elementOverridesSchema = z.record(
+    z.string(),
+    z.record(z.string(), z.any()),
+).optional().nullable();

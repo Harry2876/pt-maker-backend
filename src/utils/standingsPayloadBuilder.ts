@@ -5,7 +5,9 @@ import {
     clientOverridesForPython,
     DEFAULT_PYTHON_IMAGE_OPTIONS,
     fontCustomizationForPython,
+    logoOverridesForPython,
     showBrandingForPython,
+    socialOverridesForPython,
 } from './pythonGraphicsDefaults';
 
 /**
@@ -21,6 +23,8 @@ export function buildPythonStandingsPayload(request: StandingsRequest): Record<s
         event_name: request.event_name,
         organiser_name: request.organiser_name,
         sponsor_name: request.sponsor_name,
+        week_info: request.week_info,
+        day_info: request.day_info,
         table_font_size: request.table_font_size,
         table_header_font_size: request.table_header_font_size,
         table_header_label_mode: request.table_header_label_mode,
@@ -36,6 +40,9 @@ export function buildPythonStandingsPayload(request: StandingsRequest): Record<s
             request.element_overrides as Record<string, unknown> | null | undefined,
         ),
         column_overrides: request.column_overrides,
+        org_logo_overrides: request.org_logo_overrides,
+        sponsor_logo_overrides: request.sponsor_logo_overrides,
+        social_overrides: request.social_overrides,
         font_customization: fontCustomizationForPython(
             request.font_customization as Record<string, unknown> | null | undefined,
         ),
@@ -65,6 +72,8 @@ export function buildStandingsRequest(
         ...(options.eventName && { event_name: options.eventName }),
         ...(options.organiserName && { organiser_name: options.organiserName }),
         ...(options.sponsorName && { sponsor_name: options.sponsorName }),
+        ...(options.weekInfo && { week_info: options.weekInfo }),
+        ...(options.dayInfo && { day_info: options.dayInfo }),
         ...(options.tableFontSize != null && { table_font_size: options.tableFontSize }),
         ...(options.tableHeaderFontSize != null && { table_header_font_size: options.tableHeaderFontSize }),
         ...(options.tableHeaderLabelMode != null && { table_header_label_mode: options.tableHeaderLabelMode }),
@@ -78,6 +87,15 @@ export function buildStandingsRequest(
         ...(options.chickenIconGap != null && { chicken_icon_gap: options.chickenIconGap }),
         ...(options.elementOverrides && { element_overrides: options.elementOverrides }),
         ...(options.columnOverrides && { column_overrides: options.columnOverrides }),
+        ...(logoOverridesForPython(options.orgLogoOverrides) != null && {
+            org_logo_overrides: logoOverridesForPython(options.orgLogoOverrides),
+        }),
+        ...(logoOverridesForPython(options.sponsorLogoOverrides) != null && {
+            sponsor_logo_overrides: logoOverridesForPython(options.sponsorLogoOverrides),
+        }),
+        ...(socialOverridesForPython(options.socialOverrides) != null && {
+            social_overrides: socialOverridesForPython(options.socialOverrides),
+        }),
         ...(options.fontCustomization && { font_customization: options.fontCustomization }),
         ...(options.advancedConfig && { advanced_config: options.advancedConfig }),
         ...(options.showBranding != null && { show_branding: options.showBranding }),

@@ -9,7 +9,9 @@ import {
     clientOverridesForPython,
     DEFAULT_PYTHON_IMAGE_OPTIONS,
     fontCustomizationForPython,
+    logoOverridesForPython,
     showBrandingForPython,
+    socialOverridesForPython,
 } from './pythonGraphicsDefaults';
 
 const DEFAULT_TOP10_OPTIONS = DEFAULT_PYTHON_IMAGE_OPTIONS;
@@ -26,8 +28,15 @@ export function buildTop10Request(
         template_config_url: configUrl,
         rank_data: rankData,
         ...(options.headerOverrides != null && { header_overrides: options.headerOverrides }),
+        ...(options.elementOverrides != null && { element_overrides: options.elementOverrides }),
         ...(options.footerOverrides != null && { footer_overrides: options.footerOverrides }),
         ...(options.cardOverrides != null && { card_overrides: options.cardOverrides }),
+        ...(logoOverridesForPython(options.orgLogoOverrides) != null && {
+            org_logo_overrides: logoOverridesForPython(options.orgLogoOverrides),
+        }),
+        ...(socialOverridesForPython(options.socialOverrides) != null && {
+            social_overrides: socialOverridesForPython(options.socialOverrides),
+        }),
         ...(options.fontCustomization != null && { font_customization: options.fontCustomization }),
         ...(options.showBranding != null && { show_branding: options.showBranding }),
         ...(options.advancedConfig != null && { advanced_config: options.advancedConfig }),
@@ -52,12 +61,17 @@ export function buildPythonTop10Payload(request: Top10Request): Record<string, u
         header_overrides: clientOverridesForPython(
             request.header_overrides as Record<string, unknown> | null | undefined,
         ),
+        element_overrides: clientOverridesForPython(
+            request.element_overrides as Record<string, unknown> | null | undefined,
+        ),
         footer_overrides: clientOverridesForPython(
             request.footer_overrides as Record<string, unknown> | null | undefined,
         ),
         card_overrides: clientOverridesForPython(
             request.card_overrides as Record<string, unknown> | null | undefined,
         ),
+        org_logo_overrides: request.org_logo_overrides,
+        social_overrides: request.social_overrides,
         font_customization: fontCustomizationForPython(
             request.font_customization as Record<string, unknown> | null | undefined,
         ),

@@ -382,8 +382,11 @@ paths:
         | Bigger text | `teamNameFontSize: 28` |
         | Darker team names | `teamNameColor: "#000000"` |
         | More logo gap | `teamLogoGap: 18` |
+        | Logo position/size | `orgLogoOverrides`, `sponsorLogoOverrides` |
+        | Social footer layout | `socialOverrides` |
+        | Week/day label styling | `elementOverrides.week_info`, `elementOverrides.day_info` |
 
-        Use snake_case keys inside `headerOverrides`, `gridOverrides`, and `fontCustomization`
+        Use snake_case keys inside `headerOverrides`, `gridOverrides`, `elementOverrides`, and `fontCustomization`
         (same keys Python expects). Top-level styling fields use camelCase in the Node API body.
       security:
         - bearerAuth: []
@@ -401,6 +404,12 @@ paths:
               headerOverrides:
                 extra_text_info: "BGMI SCRIMS"
                 information: "Group A — Day 1"
+                slot_list_title: "SLOT LIST"
+                week_info: "Week 1"
+                day_info: "Day 1"
+              elementOverrides:
+                week_info: { size: 44, color: "#E8A020" }
+                day_info: { size: 44, color: "#E8A020" }
               slotNumberFontSize: 26
               teamNameFontSize: 24
               slotNumberColor: "#1A1A1A"
@@ -416,6 +425,14 @@ paths:
                 slot_number:
                   font_size: 26
                   color: "#1A1A1A"
+              orgLogoOverrides: { size: 110, offsetX: 0, offsetY: 0 }
+              sponsorLogoOverrides: { size: 90, offsetX: 0, offsetY: 0 }
+              socialOverrides:
+                iconSize: 28
+                textSize: 22
+                textColor: "#1A1A1A"
+                offsetX: 0
+                offsetY: 0
               fontCustomization:
                 header_font: { font_file: "built_titling_bd.ttf" }
                 slot_number_font: { font_file: "agency_bold.ttf", color: "#1A1A1A" }
@@ -594,8 +611,11 @@ paths:
         | Group | Body fields | Python fields |
         |-------|-------------|---------------|
         | Header text/logos | `headerOverrides` | `header_overrides` |
+        | Element styling | `elementOverrides` | `element_overrides` |
         | Footer text | `footerOverrides` | `footer_overrides` |
         | Card layout | `cardOverrides` | `card_overrides` |
+        | Org logo layout | `orgLogoOverrides` | `org_logo_overrides` |
+        | Social footer layout | `socialOverrides` | `social_overrides` |
         | Fonts | `fontCustomization` | `font_customization` |
 
         Use **snake_case** keys inside override objects (same as Python curl).
@@ -627,6 +647,18 @@ paths:
                 event_name_enabled: true
                 title: "TOP 10 TEAMS"
                 title_enabled: true
+                week_info: "Week 1"
+                day_info: "Day 1"
+              elementOverrides:
+                week_info: { size: 44, color: "#E8A020" }
+                day_info: { size: 44, color: "#E8A020" }
+              orgLogoOverrides: { size: 110, offsetX: 0, offsetY: 0 }
+              socialOverrides:
+                iconSize: 28
+                textSize: 22
+                textColor: "#444444"
+                offsetX: 0
+                offsetY: 0
               footerOverrides:
                 social_enabled: true
                 instagram_handle: "@scrymz"
@@ -810,12 +842,7 @@ components:
             Global card overrides plus per-slot under `slots["1"]`, `slots["8"]`, etc.
           additionalProperties: true
         fontCustomization:
-          type: object
-          nullable: true
-          description: |
-            Per-role font overrides. Use snake_case keys inside (same as Python).
-            Supports `override_all_fonts: false` to keep per-role fonts.
-          additionalProperties: true
+          $ref: "#/components/schemas/FontCustomization"
         advancedConfig:
           type: object
           nullable: true
@@ -886,11 +913,17 @@ components:
           nullable: true
           description: Header text toggles and content. Use snake_case keys.
           additionalProperties: true
+        elementOverrides:
+          $ref: "#/components/schemas/ElementOverridesConfig"
         footerOverrides:
           type: object
           nullable: true
           description: Footer social handles and toggles. Use snake_case keys.
           additionalProperties: true
+        orgLogoOverrides:
+          $ref: "#/components/schemas/LogoOverridesConfig"
+        socialOverrides:
+          $ref: "#/components/schemas/SocialOverridesConfig"
         cardOverrides:
           type: object
           nullable: true
@@ -901,28 +934,7 @@ components:
             Per-rank keys: `rotation_deg`, plus nested `logo`, `team_name`, `total_points` offsets.
           additionalProperties: true
         fontCustomization:
-          type: object
-          nullable: true
-          description: Per-role font overrides. Supports `override_all_fonts`.
-          properties:
-            override_all_fonts:
-              type: boolean
-              example: false
-            header_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            team_name_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            rank_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            footer_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            branding_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            global_size_multiplier:
-              type: number
-              minimum: 0.1
-              maximum: 10
-              example: 1.0
+          $ref: "#/components/schemas/FontCustomization"
         advancedConfig:
           type: object
           nullable: true
@@ -931,6 +943,88 @@ components:
         showBranding:
           type: boolean
           example: true
+
+    PythonSlotListGenerateRequest:
+      type: object
+      description: |
+        Exact JSON body Node.js sends to Python `POST /api/v1/slot-list/generate`.
+        Node resolves template URLs and maps camelCase client fields to snake_case.
+      required: [template_url, template_config_url, slot_data]
+      properties:
+        template_url:
+          type: string
+          format: uri
+        template_config_url:
+          type: string
+          format: uri
+        slot_data:
+          type: array
+          items:
+            type: object
+            required: [slot_number, team_name]
+            properties:
+              slot_number: { type: integer }
+              team_name: { type: string }
+              team_logo_url: { type: string, nullable: true }
+        header_overrides:
+          type: object
+          additionalProperties: true
+        element_overrides:
+          $ref: "#/components/schemas/ElementOverridesConfig"
+        org_logo_overrides:
+          $ref: "#/components/schemas/PythonLogoOverrides"
+        sponsor_logo_overrides:
+          $ref: "#/components/schemas/PythonLogoOverrides"
+        social_overrides:
+          $ref: "#/components/schemas/PythonSocialOverrides"
+        font_customization:
+          $ref: "#/components/schemas/FontCustomization"
+        options:
+          $ref: "#/components/schemas/GraphicsOptions"
+
+    PythonTop10GenerateRequest:
+      type: object
+      description: |
+        Exact JSON body Node.js sends to Python `POST /api/v1/top-10-rankings/generate`.
+      required: [template_url, template_config_url, rank_data]
+      properties:
+        template_url:
+          type: string
+          format: uri
+        template_config_url:
+          type: string
+          format: uri
+        rank_data:
+          type: array
+          items:
+            type: object
+            required: [rank, team_name, total_points]
+            properties:
+              rank: { type: integer }
+              team_name: { type: string }
+              total_points: { type: number }
+              team_logo_url: { type: string, nullable: true }
+        header_overrides:
+          type: object
+          additionalProperties: true
+        element_overrides:
+          $ref: "#/components/schemas/ElementOverridesConfig"
+        footer_overrides:
+          type: object
+          additionalProperties: true
+        org_logo_overrides:
+          $ref: "#/components/schemas/PythonLogoOverrides"
+        social_overrides:
+          $ref: "#/components/schemas/PythonSocialOverrides"
+        card_overrides:
+          type: object
+          additionalProperties: true
+        show_branding:
+          type: boolean
+        font_customization:
+          $ref: "#/components/schemas/FontCustomization"
+        options:
+          $ref: "#/components/schemas/GraphicsOptions"
 
     Top10GraphicResponse:
       type: object
@@ -992,6 +1086,8 @@ components:
           example:
             extra_text_info: "BGMI SCRIMS"
             information: "Group A — Day 1"
+        elementOverrides:
+          $ref: "#/components/schemas/ElementOverridesConfig"
         slotNumberFontSize:
           type: number
           nullable: true
@@ -1029,26 +1125,17 @@ components:
             - `team_name` — `{ offset_y, font_size, color }` for all team names
             - `slot_number` — `{ font_size, color }` for all slot numbers
           additionalProperties: true
+        orgLogoOverrides:
+          $ref: "#/components/schemas/LogoOverridesConfig"
+        sponsorLogoOverrides:
+          $ref: "#/components/schemas/LogoOverridesConfig"
+        socialOverrides:
+          $ref: "#/components/schemas/SocialOverridesConfig"
         fontCustomization:
-          type: object
-          nullable: true
-          description: Per-role font overrides. Font IDs from GET /quick-pt/fonts.
-          properties:
-            header_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            slot_number_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            team_name_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            footer_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            branding_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            global_size_multiplier:
-              type: number
-              minimum: 0.1
-              maximum: 10
-              example: 1.0
+          $ref: "#/components/schemas/FontCustomization"
+        showBranding:
+          type: boolean
+          example: true
 
     SlotListGraphicResponse:
       type: object

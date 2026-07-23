@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { fontCustomizationSchema } from './graphicsSharedSchemas';
+import {
+    elementOverridesSchema,
+    fontCustomizationSchema,
+    logoOverridesSchema,
+    socialOverridesSchema,
+} from './graphicsSharedSchemas';
 
 // Player result schema (nested)
 const playerResultSchema = z.object({
@@ -190,10 +195,21 @@ export const exportPointsTableSchema = z.object({
         .min(1, 'Sponsor name cannot be empty')
         .max(200, 'Sponsor name must be at most 200 characters')
         .optional(),
+    weekInfo: z.string()
+        .min(1, 'Week info cannot be empty')
+        .max(200, 'Week info must be at most 200 characters')
+        .optional(),
+    dayInfo: z.string()
+        .min(1, 'Day info cannot be empty')
+        .max(200, 'Day info must be at most 200 characters')
+        .optional(),
 
     // Override objects
-    elementOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
+    elementOverrides: elementOverridesSchema,
     columnOverrides: z.record(z.string(), z.record(z.string(), z.any())).nullable().optional(),
+    orgLogoOverrides: logoOverridesSchema,
+    sponsorLogoOverrides: logoOverridesSchema,
+    socialOverrides: socialOverridesSchema,
     fontCustomization: fontCustomizationSchema,
     advancedConfig: z.record(z.string(), z.any()).nullable().optional(),
     showBranding: z.boolean().optional(),

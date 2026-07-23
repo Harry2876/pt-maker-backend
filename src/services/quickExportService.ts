@@ -32,35 +32,13 @@ import {
     ManualTieBreaking
 } from '../types/tieBreaking';
 
-export interface ExportPointsTableRequest {
+export interface ExportPointsTableRequest extends StandingsExportOptions {
     quickMatchId: string;
     userId: string;
     /** Template name stored in R2 under templates/{formatType}/ (e.g. "tmplate_1") */
     template?: string;
     /** Format type — auto-derived from template category if omitted */
     formatType?: string;
-    /** Custom output filename for the generated PNG */
-    outputFilename?: string;
-    // ---- Standings API pass-through fields ----
-    tableFontSize?: number | null;
-    tableHeaderFontSize?: number | null;
-    tableHeaderLabelMode?: string | null;
-    tableHeaderColumnPadding?: number | null;
-    rowHeightAdjust?: number | null;
-    teamLogoSize?: number | null;
-    teamLogoSizeAdjust?: number | null;
-    teamLogoGap?: number | null;
-    teamShiftRight?: number | null;
-    chickenDinnerIconSize?: number | null;
-    chickenIconGap?: number | null;
-    eventName?: string | null;
-    organiserName?: string | null;
-    sponsorName?: string | null;
-    elementOverrides?: Record<string, Record<string, any>> | null;
-    columnOverrides?: Record<string, Record<string, any>> | null;
-    fontCustomization?: Record<string, any> | null;
-    advancedConfig?: Record<string, any> | null;
-    showBranding?: boolean;
 }
 
 export interface ExportSeriesLeaderboardRequest extends StandingsExportOptions {
@@ -674,6 +652,8 @@ export class QuickExportService extends BaseService {
             eventName: options.eventName,
             organiserName: options.organiserName,
             sponsorName: options.sponsorName,
+            weekInfo: options.weekInfo,
+            dayInfo: options.dayInfo,
             tableFontSize: options.tableFontSize,
             tableHeaderFontSize: options.tableHeaderFontSize,
             tableHeaderLabelMode: options.tableHeaderLabelMode,
@@ -687,6 +667,9 @@ export class QuickExportService extends BaseService {
             chickenIconGap: options.chickenIconGap,
             elementOverrides: options.elementOverrides,
             columnOverrides: options.columnOverrides,
+            orgLogoOverrides: options.orgLogoOverrides,
+            sponsorLogoOverrides: options.sponsorLogoOverrides,
+            socialOverrides: options.socialOverrides,
             fontCustomization: options.fontCustomization,
             advancedConfig: options.advancedConfig,
             showBranding: options.showBranding,

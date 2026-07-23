@@ -198,20 +198,40 @@ info:
     {
       "template": "tmplate_2",          ← template name from step above
       "formatType": "16_teams",          ← category key
+      "eventName": "BGMI SCRIMS",
+      "weekInfo": "Week 1",              ← optional top-level header text
+      "dayInfo": "Day 1",
       "tableFontSize": 75,
       "tableHeaderLabelMode": "abbr",
-      "elementOverrides": {
+      "elementOverrides": {              ← patch size/color on named elements
         "event_name":     { "size": 85, "color": "#FFFFFF" },
-        "sponsor_name":   { "size": 55, "color": "#FFD700" }
+        "week_info":      { "size": 48, "color": "#E8A020" },
+        "live_indicator": { "size": 36, "color": "#FF4444" }
       },
       "columnOverrides": {
         "total":          { "color": "#FFD700", "weight": "bold" },
         "kills":          { "color": "#FF6B6B" }
+      },
+      "orgLogoOverrides":    { "size": 120, "offsetX": 0, "offsetY": 0 },
+      "sponsorLogoOverrides": { "size": 100, "offsetX": 0, "offsetY": 0 },
+      "socialOverrides": {
+        "iconSize": 32, "textSize": 24, "textColor": "#CCCCCC"
+      },
+      "fontCustomization": {
+        "header_font": { "font_file": "built_titling_bd.ttf", "color": "#FFFFFF" },
+        "branding_font": { "font_file": "agency_bold.ttf", "color": "#888888" }
       }
     }
-    → { signedImageUrl: "https://...r2.dev/standings/...png?X-Amz-..." }
+    → { previewImageUrl: "/api/v1/quick-pt/files/{fileId}?exp=&sig=..." }
     ```
-    The `signedImageUrl` is valid for **30 minutes**. Re-call `/export` to get a fresh URL.
+    Load images via `previewImageUrl` / `data.images[].previewUrl` (signed, ~30 min TTL).
+
+    #### Step 8b — Other graphics (slot-list, roster, top-10)
+    Same auth and template flow. Endpoints under `/quick-pt/matches/{id}/graphics/*`.
+    Optional override blocks (all camelCase at Node API, snake_case inside nested objects):
+    - `elementOverrides`, `orgLogoOverrides`, `sponsorLogoOverrides`, `socialOverrides` (standings, slot-list, top-10)
+    - Roster uses `headerStyle` / `footerStyle` for logo and social layout instead of the blocks above.
+    See **Quick-PT Graphics** tag in this docs UI for full schemas.
 
     ---
 
@@ -513,6 +533,98 @@ components:
           type: string
           enum: [left, center, right]
           example: "center"
+
+    LogoOverridesConfig:
+      type: object
+      nullable: true
+      description: |
+        Logo size and position overrides (Node API camelCase).
+        Forwarded to Python as `org_logo_overrides` or `sponsor_logo_overrides`.
+      properties:
+        size:
+          type: number
+          nullable: true
+          description: Square logo size in px
+          example: 120
+        offsetX:
+          type: number
+          nullable: true
+          description: Horizontal offset in px (+ right, − left)
+          example: 0
+        offsetY:
+          type: number
+          nullable: true
+          description: Vertical offset in px (+ down, − up)
+          example: 0
+
+    SocialOverridesConfig:
+      type: object
+      nullable: true
+      description: |
+        Footer social icon/text layout (Node API camelCase).
+        Forwarded to Python as `social_overrides`.
+      properties:
+        iconSize:
+          type: number
+          nullable: true
+          example: 32
+        textSize:
+          type: number
+          nullable: true
+          example: 24
+        textColor:
+          type: string
+          nullable: true
+          example: "#CCCCCC"
+        offsetX:
+          type: number
+          nullable: true
+          example: 0
+        offsetY:
+          type: number
+          nullable: true
+          example: 0
+
+    ElementOverridesConfig:
+      type: object
+      nullable: true
+      description: |
+        Per-element font size/color/weight patches (Node API).
+        Keys are snake_case element names; forwarded as `element_overrides` to Python.
+        Common keys: `event_name`, `organiser_name`, `sponsor_name`, `week_info`, `day_info`, `live_indicator`.
+      additionalProperties:
+        type: object
+        additionalProperties: true
+      example:
+        week_info: { size: 48, color: "#E8A020" }
+        day_info: { size: 48, color: "#E8A020" }
+        live_indicator: { size: 36, color: "#FF4444" }
+
+    PythonLogoOverrides:
+      type: object
+      description: Logo override block in Python generate payloads (snake_case)
+      properties:
+        size:
+          type: number
+        offset_x:
+          type: number
+        offset_y:
+          type: number
+
+    PythonSocialOverrides:
+      type: object
+      description: Social footer override block in Python generate payloads (snake_case)
+      properties:
+        icon_size:
+          type: number
+        text_size:
+          type: number
+        text_color:
+          type: string
+        offset_x:
+          type: number
+        offset_y:
+          type: number
 
     GraphicsOptions:
       type: object

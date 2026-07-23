@@ -1,4 +1,11 @@
 import logger from './logger';
+import {
+    LogoOverridesConfig,
+    PythonLogoOverrides,
+    PythonSocialOverrides,
+    SocialOverridesConfig,
+} from '../types/pythonAI';
+import { omitEmptyFields } from './r2UrlUtils';
 
 /** Default options for Python POST /api/v1/standings|team-list|top-10-rankings/generate */
 export const DEFAULT_PYTHON_IMAGE_OPTIONS = {
@@ -47,8 +54,41 @@ export function fontCustomizationForPython(
         return undefined;
     }
 
-    const { branding_font: _brandingFont, ...rest } = fontCustomization;
-    return Object.keys(rest).length > 0 ? rest : undefined;
+    return Object.keys(fontCustomization).length > 0 ? fontCustomization : undefined;
+}
+
+export function logoOverridesForPython(
+    overrides: LogoOverridesConfig | null | undefined,
+): PythonLogoOverrides | undefined {
+    if (overrides == null) {
+        return undefined;
+    }
+
+    const mapped = omitEmptyFields({
+        size: overrides.size,
+        offset_x: overrides.offsetX,
+        offset_y: overrides.offsetY,
+    });
+
+    return Object.keys(mapped).length > 0 ? mapped as PythonLogoOverrides : undefined;
+}
+
+export function socialOverridesForPython(
+    overrides: SocialOverridesConfig | null | undefined,
+): PythonSocialOverrides | undefined {
+    if (overrides == null) {
+        return undefined;
+    }
+
+    const mapped = omitEmptyFields({
+        icon_size: overrides.iconSize,
+        text_size: overrides.textSize,
+        text_color: overrides.textColor,
+        offset_x: overrides.offsetX,
+        offset_y: overrides.offsetY,
+    });
+
+    return Object.keys(mapped).length > 0 ? mapped as PythonSocialOverrides : undefined;
 }
 
 export function clientOverridesForPython(

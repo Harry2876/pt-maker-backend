@@ -98,6 +98,50 @@ export function getCropItemsFromResponse(response: CropUploadResponse): PythonCr
         .map(url => ({ r2_url: url }));
 }
 
+// ===== SHARED GRAPHICS OVERRIDES =====
+
+/** Client/API camelCase logo override block */
+export interface LogoOverridesConfig {
+    size?: number | null;
+    offsetX?: number | null;
+    offsetY?: number | null;
+}
+
+/** Python snake_case logo override block */
+export interface PythonLogoOverrides {
+    size?: number;
+    offset_x?: number;
+    offset_y?: number;
+}
+
+/** Client/API camelCase social footer override block */
+export interface SocialOverridesConfig {
+    iconSize?: number | null;
+    textSize?: number | null;
+    textColor?: string | null;
+    offsetX?: number | null;
+    offsetY?: number | null;
+}
+
+/** Python snake_case social override block */
+export interface PythonSocialOverrides {
+    icon_size?: number;
+    text_size?: number;
+    text_color?: string;
+    offset_x?: number;
+    offset_y?: number;
+}
+
+/** Optional logo/social/element override fields shared across multiple Python generate APIs */
+export interface GraphicsOverrideOptions {
+    weekInfo?: string | null;
+    dayInfo?: string | null;
+    elementOverrides?: Record<string, Record<string, any>> | null;
+    orgLogoOverrides?: LogoOverridesConfig | null;
+    sponsorLogoOverrides?: LogoOverridesConfig | null;
+    socialOverrides?: SocialOverridesConfig | null;
+}
+
 // ===== STANDINGS =====
 
 export interface StandingsTeamData {
@@ -123,6 +167,8 @@ export interface StandingsRequest {
     event_name?: string | null;
     organiser_name?: string | null;
     sponsor_name?: string | null;
+    week_info?: string | null;
+    day_info?: string | null;
     table_font_size?: number | null;
     table_header_font_size?: number | null;
     table_header_label_mode?: string | null;
@@ -136,6 +182,9 @@ export interface StandingsRequest {
     chicken_icon_gap?: number | null;
     element_overrides?: Record<string, Record<string, any>> | null;
     column_overrides?: Record<string, Record<string, any>> | null;
+    org_logo_overrides?: PythonLogoOverrides | null;
+    sponsor_logo_overrides?: PythonLogoOverrides | null;
+    social_overrides?: PythonSocialOverrides | null;
     font_customization?: FontCustomization | null;
     advanced_config?: Record<string, any> | null;
     show_branding?: boolean;
@@ -144,7 +193,7 @@ export interface StandingsRequest {
 }
 
 /** Styling and header fields shared by match and series standings export */
-export interface StandingsExportOptions {
+export interface StandingsExportOptions extends GraphicsOverrideOptions {
     eventName?: string | null;
     organiserName?: string | null;
     sponsorName?: string | null;
@@ -159,7 +208,6 @@ export interface StandingsExportOptions {
     teamShiftRight?: number | null;
     chickenDinnerIconSize?: number | null;
     chickenIconGap?: number | null;
-    elementOverrides?: Record<string, Record<string, any>> | null;
     columnOverrides?: Record<string, Record<string, any>> | null;
     fontCustomization?: FontCustomization | null;
     advancedConfig?: Record<string, any> | null;
@@ -238,6 +286,7 @@ export interface SlotListRequest {
     template_config_url: string;
     slot_data: SlotListSlotData[];
     header_overrides?: Record<string, any> | null;
+    element_overrides?: Record<string, Record<string, any>> | null;
     slot_number_font_size?: number | null;
     team_name_font_size?: number | null;
     slot_number_color?: string | null;
@@ -245,6 +294,9 @@ export interface SlotListRequest {
     team_logo_gap?: number | null;
     team_logo_size?: number | null;
     grid_overrides?: Record<string, any> | null;
+    org_logo_overrides?: PythonLogoOverrides | null;
+    sponsor_logo_overrides?: PythonLogoOverrides | null;
+    social_overrides?: PythonSocialOverrides | null;
     font_customization?: FontCustomization | null;
     show_branding?: boolean;
     output_filename?: string;
@@ -262,7 +314,7 @@ export interface PythonImageOptions {
 }
 
 /** CamelCase options from Android/controller → mapped in payload builder */
-export interface SlotListExportOptions {
+export interface SlotListExportOptions extends GraphicsOverrideOptions {
     headerOverrides?: Record<string, any> | null;
     slotNumberFontSize?: number | null;
     teamNameFontSize?: number | null;
@@ -350,8 +402,11 @@ export interface Top10Request {
     template_config_url: string;
     rank_data: Top10RankData[];
     header_overrides?: Record<string, any> | null;
+    element_overrides?: Record<string, Record<string, any>> | null;
     footer_overrides?: Record<string, any> | null;
     card_overrides?: Record<string, any> | null;
+    org_logo_overrides?: PythonLogoOverrides | null;
+    social_overrides?: PythonSocialOverrides | null;
     font_customization?: FontCustomization | null;
     show_branding?: boolean;
     advanced_config?: Record<string, any> | null;
@@ -360,7 +415,7 @@ export interface Top10Request {
 }
 
 /** CamelCase options from Android/controller */
-export interface Top10ExportOptions {
+export interface Top10ExportOptions extends GraphicsOverrideOptions {
     headerOverrides?: Record<string, any> | null;
     footerOverrides?: Record<string, any> | null;
     cardOverrides?: Record<string, any> | null;

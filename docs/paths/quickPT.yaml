@@ -1453,10 +1453,12 @@ paths:
         > **Field name note:** The body field is `template`, not `templateName`.
 
         ### Appearance customization
-        All fields after `formatType` are optional. Use top-level `eventName`, `organiserName`, and
-        `sponsorName` to set header overlay text. Use `elementOverrides` to change font size/colour of
-        those labels and `columnOverrides` to tweak individual column colours or weights.
-        Use `advancedConfig` for pixel-level position overrides (see request schema).
+        All fields after `formatType` are optional. Use top-level `eventName`, `organiserName`, `sponsorName`,
+        `weekInfo`, and `dayInfo` for header overlay text. Use `elementOverrides` to patch size/color on named
+        elements (`week_info`, `day_info`, `live_indicator`, etc.). Use `columnOverrides` for table column styling.
+        Use `orgLogoOverrides`, `sponsorLogoOverrides`, and `socialOverrides` for logo/social layout (camelCase —
+        Node maps to Python snake_case). Use `advancedConfig` for legacy pixel-level overrides when no
+        `template_config_url` is used (normally ignored when template config is resolved from R2).
 
         ### Prerequisites
         - Match must have at least one result (`POST /process`, or manual entry via `POST /results/manual` / `POST /results/bulk`).
@@ -1476,6 +1478,8 @@ paths:
               eventName: "OVERALL STANDINGS"
               organiserName: "Scrymz Esports"
               sponsorName: "Sponsored by XYZ"
+              weekInfo: "Week 1"
+              dayInfo: "Day 1"
               tableFontSize: 75
               tableHeaderFontSize: 65
               tableHeaderLabelMode: "compact"
@@ -1491,6 +1495,17 @@ paths:
                 event_name: { size: 85, color: "#FFFFFF" }
                 sponsor_name: { size: 55, color: "#FFD700" }
                 organiser_name: { size: 65, color: "#FFFFFF" }
+                week_info: { size: 48, color: "#E8A020" }
+                day_info: { size: 48, color: "#E8A020" }
+                live_indicator: { size: 36, color: "#FF4444" }
+              orgLogoOverrides: { size: 120, offsetX: 0, offsetY: 0 }
+              sponsorLogoOverrides: { size: 100, offsetX: 0, offsetY: 0 }
+              socialOverrides:
+                iconSize: 32
+                textSize: 24
+                textColor: "#CCCCCC"
+                offsetX: 0
+                offsetY: 0
               columnOverrides:
                 rank: { color: "#E0E0E0" }
                 team_name: { color: "#FFB74D", weight: "bold" }
@@ -1506,16 +1521,12 @@ paths:
                 table_data_font: { font_file: "coolvetica_rg.ttf" }
                 team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#FFB74D" }
                 footer_font: { font_file: "coolvetica_rg.ttf" }
+                branding_font: { font_file: "agency_bold.ttf", color: "#888888" }
                 global_size_multiplier: 1.0
               advancedConfig:
                 header:
                   event_name: { text: "FINALS DAY 2", enabled: true }
               showBranding: true
-              options:
-                uploadToR2: true
-                compressImage: false
-                imageQuality: 95
-                renderScale: null
       responses:
         "200":
           description: Standings image generated and uploaded to R2
@@ -1662,6 +1673,8 @@ paths:
               eventName: "OVERALL STANDINGS"
               organiserName: "Scrymz Esports"
               sponsorName: "Sponsored by XYZ"
+              weekInfo: "Week 1"
+              dayInfo: "Day 1"
               tableFontSize: 75
               tableHeaderFontSize: 65
               tableHeaderLabelMode: "compact"
@@ -1677,6 +1690,17 @@ paths:
                 event_name: { size: 85, color: "#FFFFFF" }
                 sponsor_name: { size: 55, color: "#FFD700" }
                 organiser_name: { size: 65, color: "#FFFFFF" }
+                week_info: { size: 48, color: "#E8A020" }
+                day_info: { size: 48, color: "#E8A020" }
+                live_indicator: { size: 36, color: "#FF4444" }
+              orgLogoOverrides: { size: 120, offsetX: 0, offsetY: 0 }
+              sponsorLogoOverrides: { size: 100, offsetX: 0, offsetY: 0 }
+              socialOverrides:
+                iconSize: 32
+                textSize: 24
+                textColor: "#CCCCCC"
+                offsetX: 0
+                offsetY: 0
               columnOverrides:
                 rank: { color: "#E0E0E0" }
                 team_name: { color: "#FFB74D", weight: "bold" }
@@ -1692,16 +1716,12 @@ paths:
                 table_data_font: { font_file: "coolvetica_rg.ttf" }
                 team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#FFB74D" }
                 footer_font: { font_file: "coolvetica_rg.ttf" }
+                branding_font: { font_file: "agency_bold.ttf", color: "#888888" }
                 global_size_multiplier: 1.0
               advancedConfig:
                 header:
                   event_name: { text: "FINALS DAY 2", enabled: true }
               showBranding: true
-              options:
-                uploadToR2: true
-                compressImage: false
-                imageQuality: 95
-                renderScale: null
       responses:
         "200":
           description: Points table regenerated
@@ -2574,6 +2594,8 @@ paths:
               eventName: "OVERALL STANDINGS"
               organiserName: "Scrymz Esports"
               sponsorName: "Sponsored by XYZ"
+              weekInfo: "Week 1"
+              dayInfo: "Day 1"
               tableFontSize: 75
               tableHeaderFontSize: 65
               tableHeaderLabelMode: "compact"
@@ -2589,6 +2611,17 @@ paths:
                 event_name: { size: 85, color: "#FFFFFF" }
                 sponsor_name: { size: 55, color: "#FFD700" }
                 organiser_name: { size: 65, color: "#FFFFFF" }
+                week_info: { size: 48, color: "#E8A020" }
+                day_info: { size: 48, color: "#E8A020" }
+                live_indicator: { size: 36, color: "#FF4444" }
+              orgLogoOverrides: { size: 120, offsetX: 0, offsetY: 0 }
+              sponsorLogoOverrides: { size: 100, offsetX: 0, offsetY: 0 }
+              socialOverrides:
+                iconSize: 32
+                textSize: 24
+                textColor: "#CCCCCC"
+                offsetX: 0
+                offsetY: 0
               columnOverrides:
                 rank: { color: "#E0E0E0" }
                 team_name: { color: "#FFB74D", weight: "bold" }
@@ -2604,16 +2637,12 @@ paths:
                 table_data_font: { font_file: "coolvetica_rg.ttf" }
                 team_name_font: { font_file: "roboto_condensed_black.ttf", color: "#FFB74D" }
                 footer_font: { font_file: "coolvetica_rg.ttf" }
+                branding_font: { font_file: "agency_bold.ttf", color: "#888888" }
                 global_size_multiplier: 1.0
               advancedConfig:
                 header:
                   event_name: { text: "SERIES FINALS", enabled: true }
               showBranding: true
-              options:
-                uploadToR2: true
-                compressImage: false
-                imageQuality: 95
-                renderScale: null
       responses:
         "200":
           description: Series standings image generated
@@ -2854,6 +2883,8 @@ paths:
 
         **For graphics** (`POST /graphics/slot-list`, `/graphics/roster`, `/graphics/top-10`):
         pass `name` as `template` and category key as `formatType` — same as standings.
+        Optional layout overrides: `elementOverrides`, `orgLogoOverrides`, `sponsorLogoOverrides`, `socialOverrides`
+        (standings, slot-list, top-10). Roster uses `headerStyle` / `footerStyle` instead.
         The app only needs to remember the template the user picked; Node resolves URLs and config pairing.
 
         Signed preview URLs expire in 30 minutes. Results are Redis-cached for 1 hour — preview URLs are refreshed on read.
@@ -3078,28 +3109,18 @@ components:
           type: string
           description: Sponsor line in the header overlay
           example: "Powered by Intel"
+        weekInfo:
+          type: string
+          description: Week label rendered in the standings header (top-level override)
+          example: "Week 1"
+        dayInfo:
+          type: string
+          description: Day label rendered in the standings header (top-level override)
+          example: "Day 1"
 
         # ── Override objects ──────────────────────────────────────
         elementOverrides:
-          type: object
-          nullable: true
-          description: |
-            Patch font size/color on named header/footer elements.
-            **Valid keys:** `event_name`, `organiser_name`, `sponsor_name`, `week_info`, `day_info`, `live_indicator`
-            Each value supports: `size` (px), `color` (hex), `weight` (`bold`/`normal`), `text`, `enabled` (false = hide)
-          additionalProperties:
-            type: object
-            additionalProperties: true
-          example:
-            event_name:
-              size: 85
-              color: "#FFFFFF"
-            sponsor_name:
-              size: 55
-              color: "#FFD700"
-            organiser_name:
-              size: 65
-              color: "#FFFFFF"
+          $ref: "#/components/schemas/ElementOverridesConfig"
         columnOverrides:
           type: object
           nullable: true
@@ -3121,54 +3142,14 @@ components:
             total:
               color: "#FFD700"
               weight: "bold"
+        orgLogoOverrides:
+          $ref: "#/components/schemas/LogoOverridesConfig"
+        sponsorLogoOverrides:
+          $ref: "#/components/schemas/LogoOverridesConfig"
+        socialOverrides:
+          $ref: "#/components/schemas/SocialOverridesConfig"
         fontCustomization:
-          type: object
-          nullable: true
-          description: |
-            Override fonts per role. Use font filename or ID from `GET /quick-pt/fonts`.
-            Each role supports: `font_file`, `family`, `weight`, `size`, `color`, `alignment`.
-          properties:
-            header_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            sponsor_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            organiser_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            table_header_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            table_data_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            team_name_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            footer_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            branding_font:
-              $ref: "#/components/schemas/FontRoleConfig"
-            global_size_multiplier:
-              type: number
-              minimum: 0.1
-              maximum: 10
-              description: Multiply all rendered font sizes by this factor
-              example: 1.0
-          example:
-            header_font:
-              font_file: "built_titling_bd.ttf"
-            sponsor_font:
-              font_file: "agency.ttf"
-              color: "#FFD700"
-            organiser_font:
-              font_file: "california.otf"
-              color: "#FFFFFF"
-            table_header_font:
-              font_file: "akira_expanded.otf"
-            table_data_font:
-              font_file: "coolvetica_rg.ttf"
-            team_name_font:
-              font_file: "roboto_condensed_black.ttf"
-              color: "#FFB74D"
-            footer_font:
-              font_file: "coolvetica_rg.ttf"
-            global_size_multiplier: 1.0
+          $ref: "#/components/schemas/FontCustomization"
         advancedConfig:
           type: object
           nullable: true
@@ -3219,6 +3200,12 @@ components:
         sponsor_name:
           type: string
           example: "Powered by Intel"
+        week_info:
+          type: string
+          example: "Week 1"
+        day_info:
+          type: string
+          example: "Day 1"
         table_font_size:
           type: number
           example: 55
@@ -3262,13 +3249,7 @@ components:
           description: Gap after team name before win icon (0–40)
           example: 8
         element_overrides:
-          type: object
-          additionalProperties:
-            type: object
-            additionalProperties: true
-          example:
-            event_name: { size: 85, color: "#FFFFFF" }
-            sponsor_name: { size: 55, color: "#FFD700" }
+          $ref: "#/components/schemas/ElementOverridesConfig"
         column_overrides:
           type: object
           additionalProperties:
@@ -3277,6 +3258,12 @@ components:
           example:
             team_name: { color: "#FFB74D", weight: "bold" }
             total: { color: "#FFD700", weight: "bold" }
+        org_logo_overrides:
+          $ref: "#/components/schemas/PythonLogoOverrides"
+        sponsor_logo_overrides:
+          $ref: "#/components/schemas/PythonLogoOverrides"
+        social_overrides:
+          $ref: "#/components/schemas/PythonSocialOverrides"
         font_customization:
           type: object
           description: Override fonts per role using bundled font filenames

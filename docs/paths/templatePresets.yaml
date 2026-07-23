@@ -70,7 +70,8 @@ paths:
         | `TOP_10` | `POST /quick-pt/matches/{matchId}/graphics/top-10` |
 
         Full field lists: see `TemplatePresetFormValuesByGraphicType` in components below.
-        OpenAPI request schemas: `ExportPointsTableRequest`, `SlotListGraphicRequest`, etc. in **Quick-PT Graphics**.
+        OpenAPI request schemas: `ExportRequest`, `SlotListGraphicRequest`, `RosterGraphicRequest`,
+        `Top10GraphicRequest` in **Quick-PT** / **Quick-PT Graphics** tags.
       security:
         - bearerAuth: []
       requestBody:
@@ -90,13 +91,21 @@ paths:
                   formValues:
                     eventName: "BGMI Scrims — Week 4"
                     organiserName: "Scrymz Esports"
+                    weekInfo: "Week 1"
+                    dayInfo: "Day 1"
                     tableFontSize: 14
                     teamLogoSize: 48
+                    orgLogoOverrides: { size: 120, offsetX: 0, offsetY: 0 }
+                    socialOverrides: { iconSize: 32, textSize: 24, textColor: "#CCCCCC" }
                     fontCustomization:
+                      override_all_fonts: false
                       table_header_font:
                         font_file: "akira_expanded.otf"
                         size: 18
                         color: "#FFFFFF"
+                      branding_font:
+                        font_file: "agency_bold.ttf"
+                        color: "#888888"
               slotListPreset:
                 summary: SLOT_LIST preset (valid)
                 value:
@@ -107,8 +116,13 @@ paths:
                   formValues:
                     headerOverrides:
                       extra_text_info: "BGMI SCRIMS"
+                      week_info: "Week 1"
+                    elementOverrides:
+                      week_info: { size: 44, color: "#E8A020" }
                     slotNumberFontSize: 26
                     teamLogoSize: 64
+                    orgLogoOverrides: { size: 110, offsetX: 0, offsetY: 0 }
+                    socialOverrides: { iconSize: 28, textSize: 22, textColor: "#1A1A1A" }
       responses:
         "201":
           description: Template preset created
@@ -367,11 +381,14 @@ components:
               description: |
                 Customization form fields only (camelCase), matching the generate/export request body
                 for this graphic type — **excluding** route params (`format`, `template`, `formatType`, `showBranding`).
+                See `TemplatePresetFormValuesByGraphicType` for allowed keys per graphic type.
               example:
-                title: "Match Standings"
-                primaryColor: "#1a1a2e"
+                weekInfo: "Week 1"
+                orgLogoOverrides: { size: 120, offsetX: 0, offsetY: 0 }
+                elementOverrides:
+                  week_info: { size: 48, color: "#E8A020" }
                 fontCustomization:
-                  font_file: "akira_expanded.otf"
+                  branding_font: { font_file: "agency_bold.ttf", color: "#888888" }
 
     CreateTemplatePresetRequest:
       type: object
@@ -437,24 +454,28 @@ components:
         Allowed keys inside `formValues` per `graphicType` (all optional unless noted).
         Nested override objects use **snake_case** keys (same as Python). Top-level keys are **camelCase**.
 
-        **STANDINGS / SERIES_STANDINGS** — same body as `ExportPointsTableRequest` minus
-        `format`, `template`, `formatType`, `showBranding`:
+        **STANDINGS / SERIES_STANDINGS** — same body as `ExportRequest` minus
+        `template`, `formatType`, `showBranding` (and `format` for presets):
         `outputFilename`, `tableFontSize`, `tableHeaderFontSize`, `tableHeaderLabelMode`,
         `tableHeaderColumnPadding`, `rowHeightAdjust`, `teamLogoSize`, `teamLogoSizeAdjust`,
         `teamLogoGap`, `teamShiftRight`, `chickenDinnerIconSize`, `chickenIconGap`,
-        `eventName`, `organiserName`, `sponsorName`, `elementOverrides`, `columnOverrides`,
-        `fontCustomization`, `advancedConfig`
+        `eventName`, `organiserName`, `sponsorName`, `weekInfo`, `dayInfo`,
+        `elementOverrides`, `columnOverrides`, `orgLogoOverrides`, `sponsorLogoOverrides`,
+        `socialOverrides`, `fontCustomization`, `advancedConfig`
 
         **SLOT_LIST** — same as `SlotListGraphicRequest` minus `template`, `formatType`, `showBranding`:
-        `outputFilename`, `headerOverrides`, `slotNumberFontSize`, `teamNameFontSize`,
-        `slotNumberColor`, `teamNameColor`, `teamLogoGap`, `teamLogoSize`, `gridOverrides`, `fontCustomization`
+        `outputFilename`, `headerOverrides`, `elementOverrides`, `slotNumberFontSize`, `teamNameFontSize`,
+        `slotNumberColor`, `teamNameColor`, `teamLogoGap`, `teamLogoSize`, `gridOverrides`,
+        `orgLogoOverrides`, `sponsorLogoOverrides`, `socialOverrides`, `fontCustomization`
 
         **ROSTER** — same as `RosterGraphicRequest` minus `template`, `formatType`, `showBranding`:
         `outputFilename`, `headerOverrides`, `headerStyle`, `footerOverrides`, `footerStyle`,
         `teamLogoSize`, `teamNameFontSize`, `teamNameColor`, `cardOverrides`, `fontCustomization`, `advancedConfig`
+        (logo/social layout uses `headerStyle` / `footerStyle` — not `orgLogoOverrides` / `socialOverrides`)
 
         **TOP_10** — same as `Top10GraphicRequest` minus `template`, `formatType`, `showBranding`:
-        `outputFilename`, `headerOverrides`, `footerOverrides`, `cardOverrides`, `fontCustomization`, `advancedConfig`
+        `outputFilename`, `headerOverrides`, `elementOverrides`, `footerOverrides`, `cardOverrides`,
+        `orgLogoOverrides`, `socialOverrides`, `fontCustomization`, `advancedConfig`
 
     TemplatePresetStandingsExample:
       type: object
@@ -462,14 +483,29 @@ components:
       example:
         eventName: "BGMI Scrims — Week 4"
         organiserName: "Scrymz Esports"
+        weekInfo: "Week 1"
+        dayInfo: "Day 1"
         tableFontSize: 14
         teamLogoSize: 48
+        elementOverrides:
+          week_info: { size: 48, color: "#E8A020" }
+          live_indicator: { size: 36, color: "#FF4444" }
+        orgLogoOverrides: { size: 120, offsetX: 0, offsetY: 0 }
+        sponsorLogoOverrides: { size: 100, offsetX: 0, offsetY: 0 }
+        socialOverrides:
+          iconSize: 32
+          textSize: 24
+          textColor: "#CCCCCC"
         fontCustomization:
+          override_all_fonts: false
           global_size_multiplier: 1.0
           table_header_font:
             font_file: "akira_expanded.otf"
             size: 18
             color: "#FFFFFF"
+          branding_font:
+            font_file: "agency_bold.ttf"
+            color: "#888888"
 
     TemplatePresetSlotListExample:
       type: object
@@ -478,13 +514,27 @@ components:
         headerOverrides:
           extra_text_info: "BGMI SCRIMS"
           information: "Group A — Day 1"
+          week_info: "Week 1"
+          day_info: "Day 1"
+        elementOverrides:
+          week_info: { size: 44, color: "#E8A020" }
         slotNumberFontSize: 26
         teamNameFontSize: 22
         teamLogoSize: 64
+        orgLogoOverrides: { size: 110, offsetX: 0, offsetY: 0 }
+        sponsorLogoOverrides: { size: 90, offsetX: 0, offsetY: 0 }
+        socialOverrides:
+          iconSize: 28
+          textSize: 22
+          textColor: "#1A1A1A"
         fontCustomization:
+          override_all_fonts: false
           header_font:
             font_file: "akira_expanded.otf"
             size: 32
+          branding_font:
+            font_file: "coolvetica_rg.ttf"
+            color: "#888888"
 
     TemplatePresetRosterExample:
       type: object
@@ -505,13 +555,29 @@ components:
       description: Example `formValues` for TOP_10
       example:
         headerOverrides:
-          title: "TOP 10 FRAGGERS"
+          title: "TOP 10 TEAMS"
+          week_info: "Week 1"
+          day_info: "Day 1"
+        elementOverrides:
+          week_info: { size: 44, color: "#E8A020" }
+        orgLogoOverrides: { size: 110, offsetX: 0, offsetY: 0 }
+        socialOverrides:
+          iconSize: 28
+          textSize: 22
+          textColor: "#444444"
         cardOverrides:
           team_logo_size: 56
           ranks:
             "1":
               rotation_deg: -2
         fontCustomization:
+          override_all_fonts: false
           team_name_font:
             font_file: "akira_expanded.otf"
             size: 20
+          rank_font:
+            font_file: "agency_bold.ttf"
+            color: "#FF6B00"
+          branding_font:
+            font_file: "agency_bold.ttf"
+            color: "#888888"

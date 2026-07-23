@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { advancedConfigSchema, fontCustomizationSchema } from './graphicsSharedSchemas';
+import {
+    advancedConfigSchema,
+    elementOverridesSchema,
+    fontCustomizationSchema,
+    logoOverridesSchema,
+    socialOverridesSchema,
+} from './graphicsSharedSchemas';
 
 /**
  * Body for POST /quick-pt/matches/:id/graphics/top-10
@@ -24,7 +30,10 @@ export const top10GraphicSchema = z.object({
         .optional(),
 
     headerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    elementOverrides: elementOverridesSchema,
     footerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    orgLogoOverrides: logoOverridesSchema,
+    socialOverrides: socialOverridesSchema,
 
     /** Global + per-rank card overrides — snake_case keys (rotation_deg, ranks["1"], etc.) */
     cardOverrides: z.record(z.string(), z.any()).optional().nullable(),

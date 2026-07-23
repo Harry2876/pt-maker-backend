@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { advancedConfigSchema, fontCustomizationSchema } from './graphicsSharedSchemas';
+import {
+    elementOverridesSchema,
+    fontCustomizationSchema,
+    logoOverridesSchema,
+    socialOverridesSchema,
+} from './graphicsSharedSchemas';
 
 /**
  * Body for POST /quick-pt/matches/:id/graphics/slot-list
@@ -24,6 +29,7 @@ export const slotListGraphicSchema = z.object({
         .optional(),
 
     headerOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    elementOverrides: elementOverridesSchema,
 
     slotNumberFontSize: z.number().nullable().optional(),
     teamNameFontSize: z.number().nullable().optional(),
@@ -33,6 +39,9 @@ export const slotListGraphicSchema = z.object({
     teamLogoSize: z.number().nullable().optional(),
 
     gridOverrides: z.record(z.string(), z.any()).optional().nullable(),
+    orgLogoOverrides: logoOverridesSchema,
+    sponsorLogoOverrides: logoOverridesSchema,
+    socialOverrides: socialOverridesSchema,
 
     fontCustomization: fontCustomizationSchema,
     showBranding: z.boolean().optional(),
