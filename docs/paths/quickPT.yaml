@@ -171,7 +171,13 @@ paths:
                     type: string
                     example: "Quick Match retrieved successfully"
                   data:
-                    $ref: "#/components/schemas/QuickMatchFull"
+                    allOf:
+                      - $ref: "#/components/schemas/QuickMatchFull"
+                      - type: object
+                        properties:
+                          seriesContext:
+                            $ref: "#/components/schemas/MatchSeriesContext"
+                            nullable: true
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "401":
@@ -2337,9 +2343,9 @@ paths:
       description: |
         Links an existing Quick Match to this series.
 
-        - Each match can only be added to one series
+        - Duplicate `(seriesId, quickMatchId)` links are rejected
         - The match order is assigned automatically (sequential, based on `currentMatchNumber`)
-        - **All matches must share the same slot/team list** (slot number + team name). Mismatches return `400 SLOT_LIST_MISMATCH`.
+        - Matches may have **different slot configurations** — series standings aggregate by team name
         - Each match keeps its **own scoring config**; series totals are the sum of per-match points.
         - Series leaderboard rebuilds automatically when a linked match gets results (including if the match was processed before being added)
       security:
@@ -2377,7 +2383,7 @@ paths:
                   meta:
                     $ref: "#/components/schemas/MetaObject"
         "400":
-          description: "Series full, match already in a series, or slot list mismatch"
+          description: "Series full or match already in this series"
           content:
             application/json:
               schema:
@@ -2417,6 +2423,90 @@ paths:
                       $ref: "#/components/schemas/SeriesMatchObject"
                   meta:
                     $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/next-match-preview:
+    get:
+      tags: [Quick-PT Series]
+      summary: Preview the next match in a series
+      description: |
+        Returns what the next match would look like — suggested name, slot count, and whether
+        slot copying is available. Powers "Start Match N" UI without creating anything.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      responses:
+        "200":
+          description: Next match preview retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Next match preview retrieved successfully"
+                  data:
+                    $ref: "#/components/schemas/NextMatchPreview"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /quick-pt/series/{id}/create-next-match:
+    post:
+      tags: [Quick-PT Series]
+      summary: Create the next match in a series
+      description: |
+        Creates a Quick Match, optionally copies slots and scoring from the previous match
+        (or a specified source match), and links it to the series in one call.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SeriesId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNextMatchRequest"
+      responses:
+        "201":
+          description: Next match created and linked to series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Next match created successfully"
+                  data:
+                    $ref: "#/components/schemas/CreateNextMatchResult"
+                  meta:
+                    $ref: "#/components/schemas/MetaObject"
+        "400":
+          description: "Series full or invalid source match"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           $ref: "#/components/responses/UnauthorizedError"
         "404":
@@ -2681,7 +2771,7 @@ paths:
       description: |
         Generates a **single-sheet** Excel workbook (`Series Report`) with three sections:
 
-        1. **Team & Slot Mapping** — from the first match in the series
+        1. **Team & Slot Mapping** — each match's slot list shown **side-by-side** (Slot + Team Name columns per match)
         2. **Series Details** — name, game, match counts, status (no internal IDs)
         3. **Results & Rankings** — aggregated standings for all teams with matches played,
            position/kill points, WWCD, and total points
@@ -4165,6 +4255,106 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    NextMatchPreview:
+      type: object
+      properties:
+        canCreateNextMatch:
+          type: boolean
+          example: true
+        nextMatchNumber:
+          type: integer
+          example: 2
+        suggestedMatchName:
+          type: string
+          example: "BGMI League - Match 2"
+        previousMatchId:
+          type: string
+          format: uuid
+          nullable: true
+        previousMatchSlotCount:
+          type: integer
+          example: 16
+        willCopySlotsFrom:
+          type: string
+          format: uuid
+          nullable: true
+        copySlotsAvailable:
+          type: boolean
+          example: true
+        reason:
+          type: string
+          nullable: true
+          example: null
+          description: "Set when canCreateNextMatch is false, e.g. SERIES_FULL"
+
+    CreateNextMatchRequest:
+      type: object
+      properties:
+        matchName:
+          type: string
+          maxLength: 100
+        map:
+          type: string
+          maxLength: 50
+        copySlots:
+          type: boolean
+          default: true
+        copyScoring:
+          type: boolean
+          default: true
+        sourceMatchId:
+          type: string
+          format: uuid
+          description: "Defaults to the most recent match in the series"
+
+    CreateNextMatchResult:
+      type: object
+      properties:
+        matchId:
+          type: string
+          format: uuid
+        matchNumber:
+          type: integer
+          example: 2
+        slotsCopied:
+          type: boolean
+          example: true
+        slotsCopiedFrom:
+          type: string
+          format: uuid
+          nullable: true
+        slotCount:
+          type: integer
+          example: 16
+
+    MatchSeriesContext:
+      type: object
+      nullable: true
+      properties:
+        seriesId:
+          type: string
+          format: uuid
+        seriesName:
+          type: string
+          example: "BGMI League Week 1"
+        matchNumber:
+          type: integer
+          example: 2
+        totalMatches:
+          type: integer
+          example: 5
+        previousMatchId:
+          type: string
+          format: uuid
+          nullable: true
+        nextMatchNumber:
+          type: integer
+          nullable: true
+          example: 3
+        canCreateNextMatch:
+          type: boolean
+          example: true
 
     SeriesMatchObject:
       type: object

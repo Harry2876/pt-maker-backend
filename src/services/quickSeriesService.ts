@@ -9,7 +9,11 @@ import {
     QuickSeriesStatus,
     SeriesTeamStanding,
     QuickSeriesMatchCache,
-    QuickSeriesLeaderboardCache
+    QuickSeriesLeaderboardCache,
+    NextMatchPreview,
+    CreateNextMatchInSeriesData,
+    CreateNextMatchInSeriesResult,
+    MatchSeriesContext,
 } from '../types/quickSeries';
 import { quickMatchService } from './quickMatchService';
 import { quickResultService } from './quickResultService';
@@ -17,7 +21,7 @@ import { QuickMatchResultCache } from '../types/quickResult';
 import { quickSlotService } from './quickSlotService';
 import { tieBreakingService } from './tieBreakingService';
 import { ServiceError } from '../utils/serviceError';
-import { buildSlotFingerprint, slotFingerprintsMatch, normalizeTeamName } from '../utils/seriesSlotUtils';
+import { normalizeTeamName } from '../utils/seriesSlotUtils';
 import { sortSeriesStandingsForLeaderboard } from '../utils/standingsSort';
 import {
     ConflictDetectionResult,
@@ -72,7 +76,7 @@ export class QuickSeriesService extends BaseService {
 
     /**
      * Add a match to the series.
-     * Validates duplicate membership and matching slot rosters across series matches.
+     * Validates duplicate membership only — matches may have different slot configurations.
      */
     async addMatchToSeries(seriesId: string, quickMatchId: string, userId: string): Promise<QuickSeriesMatchCache> {
         try {
@@ -155,6 +159,179 @@ export class QuickSeriesService extends BaseService {
             this.handleError(error, 'Add Match to Series');
             throw error;
         }
+    }
+
+    /**
+     * Preview what the next match in a series would look like.
+     * Powers "Start Match N" UI without creating anything.
+     */
+    async getNextMatchPreview(seriesId: string, userId: string): Promise<NextMatchPreview> {
+        const series = await this.getTournamentSeriesById(seriesId, userId);
+        if (!series) {
+            throw new ServiceError('Tournament series not found', 404, 'NOT_FOUND');
+        }
+
+        const nextMatchNumber = series.currentMatchNumber;
+        const suggestedMatchName = `${series.seriesName} - Match ${nextMatchNumber}`;
+
+        if ((series.currentMatchNumber - 1) >= series.totalMatches) {
+            return {
+                canCreateNextMatch: false,
+                nextMatchNumber,
+                suggestedMatchName,
+                previousMatchId: null,
+                previousMatchSlotCount: 0,
+                willCopySlotsFrom: null,
+                copySlotsAvailable: false,
+                reason: 'SERIES_FULL',
+            };
+        }
+
+        const seriesMatches = await this.getSeriesMatches(seriesId, userId);
+        const previousMatch = seriesMatches.length > 0
+            ? seriesMatches[seriesMatches.length - 1]
+            : null;
+
+        let previousMatchSlotCount = 0;
+        if (previousMatch) {
+            const slots = await quickSlotService.listQuickMatchSlots(previousMatch.quickMatchId, userId);
+            previousMatchSlotCount = slots.length;
+        }
+
+        return {
+            canCreateNextMatch: true,
+            nextMatchNumber,
+            suggestedMatchName,
+            previousMatchId: previousMatch?.quickMatchId ?? null,
+            previousMatchSlotCount,
+            willCopySlotsFrom: previousMatch?.quickMatchId ?? null,
+            copySlotsAvailable: previousMatchSlotCount > 0,
+            reason: null,
+        };
+    }
+
+    /**
+     * Create the next Quick Match in a series, optionally copying slots/scoring from a prior match.
+     */
+    async createNextMatchInSeries(
+        seriesId: string,
+        userId: string,
+        data: CreateNextMatchInSeriesData = {}
+    ): Promise<CreateNextMatchInSeriesResult> {
+        const series = await this.getTournamentSeriesById(seriesId, userId);
+        if (!series) {
+            throw new ServiceError('Tournament series not found', 404, 'NOT_FOUND');
+        }
+
+        if ((series.currentMatchNumber - 1) >= series.totalMatches) {
+            throw new ServiceError(
+                'Series already has the maximum number of matches',
+                400,
+                'SERIES_FULL'
+            );
+        }
+
+        const matchNumber = series.currentMatchNumber;
+        const copySlots = data.copySlots !== false;
+        const copyScoring = data.copyScoring !== false;
+        const sourceMatchId = await this.resolveSourceMatchId(seriesId, userId, data.sourceMatchId);
+
+        let sourceMatch = null;
+        if (sourceMatchId) {
+            sourceMatch = await quickMatchService.getQuickMatchById(sourceMatchId, userId);
+        }
+
+        const quickMatch = await quickMatchService.createQuickMatch(userId, {
+            matchName: data.matchName ?? `${series.seriesName} - Match ${matchNumber}`,
+            game: series.game,
+            map: data.map,
+            ...(copyScoring && sourceMatch
+                ? {
+                    positionPointsConfig: sourceMatch.positionPointsConfig,
+                    killPointsValue: sourceMatch.killPointsValue,
+                    scoringDescription: sourceMatch.scoringDescription,
+                }
+                : {}),
+        });
+
+        let slotsCopied = false;
+        let slotCount = 0;
+
+        if (copySlots && sourceMatchId) {
+            const copyResult = await quickSlotService.copySlotsFromMatch(
+                sourceMatchId,
+                quickMatch.id,
+                userId
+            );
+            slotsCopied = copyResult.slotsCopied > 0;
+            slotCount = copyResult.slotCount;
+        }
+
+        await this.addMatchToSeries(seriesId, quickMatch.id, userId);
+
+        return {
+            matchId: quickMatch.id,
+            matchNumber,
+            slotsCopied,
+            slotsCopiedFrom: slotsCopied ? sourceMatchId : null,
+            slotCount,
+        };
+    }
+
+    /**
+     * Series membership context for a Quick Match (breadcrumbs, next-match CTA).
+     */
+    async getMatchSeriesContext(quickMatchId: string, userId: string): Promise<MatchSeriesContext | null> {
+        try {
+            const allSeries = await this.getAllSeriesForMatch(quickMatchId, userId);
+            if (allSeries.length === 0) return null;
+
+            const series = allSeries[0];
+            const seriesMatches = await this.getSeriesMatches(series.id, userId);
+            const currentLink = seriesMatches.find((m) => m.quickMatchId === quickMatchId);
+            if (!currentLink) return null;
+
+            const previousMatch = seriesMatches.find(
+                (m) => m.matchOrder === currentLink.matchOrder - 1
+            );
+            const canCreateNextMatch = (series.currentMatchNumber - 1) < series.totalMatches;
+
+            return {
+                seriesId: series.id,
+                seriesName: series.seriesName,
+                matchNumber: currentLink.matchOrder,
+                totalMatches: series.totalMatches,
+                previousMatchId: previousMatch?.quickMatchId ?? null,
+                nextMatchNumber: canCreateNextMatch ? series.currentMatchNumber : null,
+                canCreateNextMatch,
+            };
+        } catch (error) {
+            this.handleError(error, 'Get Match Series Context');
+            return null;
+        }
+    }
+
+    private async resolveSourceMatchId(
+        seriesId: string,
+        userId: string,
+        sourceMatchId?: string
+    ): Promise<string | null> {
+        const seriesMatches = await this.getSeriesMatches(seriesId, userId);
+
+        if (sourceMatchId) {
+            const found = seriesMatches.find((m) => m.quickMatchId === sourceMatchId);
+            if (!found) {
+                throw new ServiceError(
+                    'Source match is not part of this series',
+                    400,
+                    'INVALID_SOURCE_MATCH'
+                );
+            }
+            return sourceMatchId;
+        }
+
+        if (seriesMatches.length === 0) return null;
+        return seriesMatches[seriesMatches.length - 1].quickMatchId;
     }
 
     /**

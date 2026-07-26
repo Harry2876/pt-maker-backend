@@ -17,6 +17,14 @@ export interface ExcelSlotRow {
     teamName: string;
 }
 
+/** Per-match slot list for series Excel export (displayed side-by-side). */
+export interface ExcelMatchSlotList {
+    matchOrder: number;
+    matchName: string;
+    quickMatchId: string;
+    slots: ExcelSlotRow[];
+}
+
 export interface ExcelStandingRow {
     rank: number;
     slotNumber: number;
@@ -66,6 +74,6 @@ export interface ExcelSeriesData {
         status: string;
         createdAt: string;
     };
-    slots: ExcelSlotRow[];
+    matchSlotLists: ExcelMatchSlotList[];
     standings: ExcelSeriesStandingRow[];
 }

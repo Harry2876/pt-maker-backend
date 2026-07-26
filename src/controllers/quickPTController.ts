@@ -53,8 +53,13 @@ export class QuickPTController {
             return res.status(404).json(ResponseHelper.notFound('Quick Match not found'));
         }
 
+        const seriesContext = await quickSeriesService.getMatchSeriesContext(id, userId);
+
         return res.json(
-            ResponseHelper.success('Quick Match retrieved successfully', quickMatch)
+            ResponseHelper.success('Quick Match retrieved successfully', {
+                ...quickMatch,
+                seriesContext,
+            })
         );
     });
 

@@ -252,12 +252,19 @@ info:
     upload screenshots, process, get results). Set `positionPointsConfig` / `killPointsValue`
     on each match as needed.
 
-    #### Step 3 — Link Matches to Series
+    #### Step 3 — Link Matches to Series (or create next match in one call)
     ```
     POST /quick-pt/series/{seriesId}/matches
     { "quickMatchId": "<matchId>" }
     ```
-    All matches must share the same slot/team roster. Leaderboard rebuilds when results change.
+    Matches may have different slot configurations — standings aggregate by team name.
+
+    **Shortcut for Match 2+:** preview then create in one call:
+    ```
+    GET  /quick-pt/series/{seriesId}/next-match-preview
+    POST /quick-pt/series/{seriesId}/create-next-match
+    { "copySlots": true, "copyScoring": true }
+    ```
 
     #### Step 4 — View Leaderboard
     ```

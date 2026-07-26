@@ -43,6 +43,36 @@ export class QuickSeriesController {
     });
 
     /**
+     * GET /api/v1/quick-pt/series/:id/next-match-preview
+     * Preview the next match that would be created in this series
+     */
+    static getNextMatchPreview = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+
+        const preview = await quickSeriesService.getNextMatchPreview(seriesId, userId);
+
+        return res.json(
+            ResponseHelper.success('Next match preview retrieved successfully', preview)
+        );
+    });
+
+    /**
+     * POST /api/v1/quick-pt/series/:id/create-next-match
+     * Create and link the next Quick Match in a series
+     */
+    static createNextMatchInSeries = asyncHandler(async (req: Request, res: Response) => {
+        const { id: seriesId } = req.params;
+        const userId = req.user!.id;
+
+        const result = await quickSeriesService.createNextMatchInSeries(seriesId, userId, req.body);
+
+        return res.status(201).json(
+            ResponseHelper.success('Next match created successfully', result)
+        );
+    });
+
+    /**
      * GET /api/v1/quick-pt/series/:id/leaderboard
      * Get series leaderboard
      */

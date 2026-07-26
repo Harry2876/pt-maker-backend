@@ -51,6 +51,13 @@ export interface BulkSlotUpload {
     slots: CreateQuickSlotData[];
 }
 
+export interface CopySlotsResult {
+    slotsCopied: number;
+    sourceMatchId: string;
+    targetMatchId: string;
+    slotCount: number;
+}
+
 // Slot text parser result
 export interface ParsedSlot {
     slotNumber: number;

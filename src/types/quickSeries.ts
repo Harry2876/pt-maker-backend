@@ -89,3 +89,40 @@ export interface QuickSeriesLeaderboardCache {
     updatedAt: string;
     dbStatus: 'PENDING_SYNC' | 'SYNCED' | 'ERROR';
 }
+
+export interface NextMatchPreview {
+    canCreateNextMatch: boolean;
+    nextMatchNumber: number;
+    suggestedMatchName: string;
+    previousMatchId: string | null;
+    previousMatchSlotCount: number;
+    willCopySlotsFrom: string | null;
+    copySlotsAvailable: boolean;
+    reason: string | null;
+}
+
+export interface CreateNextMatchInSeriesData {
+    matchName?: string;
+    map?: string;
+    copySlots?: boolean;
+    copyScoring?: boolean;
+    sourceMatchId?: string;
+}
+
+export interface CreateNextMatchInSeriesResult {
+    matchId: string;
+    matchNumber: number;
+    slotsCopied: boolean;
+    slotsCopiedFrom: string | null;
+    slotCount: number;
+}
+
+export interface MatchSeriesContext {
+    seriesId: string;
+    seriesName: string;
+    matchNumber: number;
+    totalMatches: number;
+    previousMatchId: string | null;
+    nextMatchNumber: number | null;
+    canCreateNextMatch: boolean;
+}

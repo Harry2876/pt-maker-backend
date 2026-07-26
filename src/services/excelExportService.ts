@@ -17,6 +17,7 @@ import {
     ExcelSeriesData,
     ExcelSeriesStandingRow,
     ExcelSlotRow,
+    ExcelMatchSlotList,
     ExcelStandingRow,
 } from '../types/excelExport';
 import { ServiceError } from '../utils/serviceError';
@@ -162,10 +163,7 @@ export class ExcelExportService extends BaseService {
 
         const standings = await this.formatSeriesStandings(leaderboard.leaderboardData, userId);
         const seriesMatches = await quickSeriesService.getSeriesMatches(seriesId, userId);
-        const firstMatch = [...seriesMatches].sort((a, b) => a.matchOrder - b.matchOrder)[0];
-        const slots = firstMatch
-            ? await this.buildSlotRows(firstMatch.quickMatchId, userId, [])
-            : this.slotsFromSeriesStandings(standings);
+        const matchSlotLists = await this.buildSeriesMatchSlotLists(seriesMatches, userId, standings);
 
         return {
             seriesInfo: {
@@ -177,9 +175,52 @@ export class ExcelExportService extends BaseService {
                 status: series.status,
                 createdAt: series.createdAt,
             },
-            slots: slots.length > 0 ? slots : this.slotsFromSeriesStandings(standings),
+            matchSlotLists,
             standings,
         };
+    }
+
+    private async buildSeriesMatchSlotLists(
+        seriesMatches: Array<{ matchOrder: number; quickMatchId: string }>,
+        userId: string,
+        standings: ExcelSeriesStandingRow[]
+    ): Promise<ExcelMatchSlotList[]> {
+        const sortedMatches = [...seriesMatches].sort((a, b) => a.matchOrder - b.matchOrder);
+
+        if (sortedMatches.length === 0) {
+            return [{
+                matchOrder: 1,
+                matchName: 'Series',
+                quickMatchId: '',
+                slots: this.slotsFromSeriesStandings(standings),
+            }];
+        }
+
+        const matchSlotLists = await Promise.all(
+            sortedMatches.map(async (seriesMatch) => {
+                const match = await quickMatchService.getQuickMatchById(seriesMatch.quickMatchId, userId);
+                const slots = await this.buildSlotRows(seriesMatch.quickMatchId, userId, []);
+
+                return {
+                    matchOrder: seriesMatch.matchOrder,
+                    matchName: match?.matchName ?? `Match ${seriesMatch.matchOrder}`,
+                    quickMatchId: seriesMatch.quickMatchId,
+                    slots,
+                };
+            })
+        );
+
+        const hasAnySlots = matchSlotLists.some((m) => m.slots.length > 0);
+        if (!hasAnySlots) {
+            return [{
+                matchOrder: 1,
+                matchName: 'Series',
+                quickMatchId: '',
+                slots: this.slotsFromSeriesStandings(standings),
+            }];
+        }
+
+        return matchSlotLists;
     }
 
     private slotsFromSeriesStandings(standings: ExcelSeriesStandingRow[]): ExcelSlotRow[] {
@@ -339,14 +380,15 @@ export class ExcelExportService extends BaseService {
     private async generateSeriesWorkbook(data: ExcelSeriesData): Promise<ExcelJS.Workbook> {
         const workbook = this.initWorkbook();
         const sheet = workbook.addWorksheet('Series Report');
-        const colSpan = 8;
+        const slotColCount = Math.max(1, data.matchSlotLists.length) * 2;
+        const colSpan = Math.max(8, slotColCount);
         this.setStandardColumns(sheet, colSpan);
 
         let row = 1;
         row = this.addMergedTitle(sheet, row, data.seriesInfo.name, colSpan);
         row += 1;
 
-        row = this.writeSlotMappingSection(sheet, row, data.slots, colSpan);
+        row = this.writeMultiMatchSlotMappingSection(sheet, row, data.matchSlotLists, colSpan);
         row += 1;
 
         row = this.addSectionHeading(sheet, row, 'Series Details', colSpan);
@@ -408,6 +450,68 @@ export class ExcelExportService extends BaseService {
             this.styleDataRow(dataRow, 2);
             row += 1;
         }
+        return row;
+    }
+
+    private writeMultiMatchSlotMappingSection(
+        sheet: ExcelJS.Worksheet,
+        row: number,
+        matchSlotLists: ExcelMatchSlotList[],
+        colSpan: number
+    ): number {
+        if (matchSlotLists.length === 0) {
+            return this.addSectionHeading(sheet, row, 'Team & Slot Mapping', colSpan) + 1;
+        }
+
+        if (matchSlotLists.length === 1) {
+            return this.writeSlotMappingSection(sheet, row, matchSlotLists[0].slots, colSpan);
+        }
+
+        row = this.addSectionHeading(sheet, row, 'Team & Slot Mapping', colSpan);
+
+        const colsPerMatch = 2;
+
+        for (let i = 0; i < matchSlotLists.length; i++) {
+            const colStart = 2 + i * colsPerMatch;
+            sheet.mergeCells(row, colStart, row, colStart + 1);
+            const cell = sheet.getCell(row, colStart);
+            cell.value = `${matchSlotLists[i].matchName} (Match ${matchSlotLists[i].matchOrder})`;
+            cell.font = { bold: true, color: { argb: 'FF1E3A5F' } };
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFF1F5F9' },
+            };
+            cell.alignment = { horizontal: 'center' };
+            cell.border = this.cellBorder();
+        }
+        row += 1;
+
+        const columnHeaders: string[] = [];
+        for (let i = 0; i < matchSlotLists.length; i++) {
+            columnHeaders.push('Slot', 'Team Name');
+        }
+        row = this.addTableHeader(sheet, row, columnHeaders);
+
+        const maxRows = Math.max(...matchSlotLists.map((m) => m.slots.length), 0);
+        for (let slotIndex = 0; slotIndex < maxRows; slotIndex++) {
+            const values: Array<string | number | undefined> = [undefined];
+
+            for (const matchList of matchSlotLists) {
+                const slot = matchList.slots[slotIndex];
+                if (slot) {
+                    values.push(slot.slotNumber, slot.teamName);
+                } else {
+                    values.push('', '');
+                }
+            }
+
+            const dataRow = sheet.getRow(row);
+            dataRow.values = values;
+            this.styleDataRow(dataRow, values.length - 1);
+            row += 1;
+        }
+
         return row;
     }
 

@@ -43,7 +43,8 @@ import {
     addMatchToSeriesSchema,
     quickSeriesParamsSchema,
     updateQuickSeriesSchema,
-    listQuickSeriesQuerySchema
+    listQuickSeriesQuerySchema,
+    createNextMatchInSeriesSchema,
 } from '../validations/quickSeriesValidation';
 
 import {
@@ -2110,6 +2111,82 @@ quickPTRouter.post('/series/:id/matches',
     validateRequest(quickSeriesParamsSchema, 'params'),
     validateRequest(addMatchToSeriesSchema, 'body'),
     QuickSeriesController.addMatchToSeries
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/next-match-preview:
+ *   get:
+ *     tags: [Quick-PT]
+ *     summary: Preview the next match in a series
+ *     description: Returns suggested name, slot count, and readiness for creating the next match
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Next match preview retrieved successfully
+ *       404:
+ *         description: Series not found
+ */
+quickPTRouter.get('/series/:id/next-match-preview',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    QuickSeriesController.getNextMatchPreview
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/series/{id}/create-next-match:
+ *   post:
+ *     tags: [Quick-PT]
+ *     summary: Create the next match in a series
+ *     description: Creates a Quick Match, optionally copies slots/scoring from the previous match, and links it to the series
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               matchName:
+ *                 type: string
+ *               map:
+ *                 type: string
+ *               copySlots:
+ *                 type: boolean
+ *                 default: true
+ *               copyScoring:
+ *                 type: boolean
+ *                 default: true
+ *               sourceMatchId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       201:
+ *         description: Next match created successfully
+ *       400:
+ *         description: Series full or invalid source match
+ *       404:
+ *         description: Series not found
+ */
+quickPTRouter.post('/series/:id/create-next-match',
+    validateRequest(quickSeriesParamsSchema, 'params'),
+    validateRequest(createNextMatchInSeriesSchema, 'body'),
+    QuickSeriesController.createNextMatchInSeries
 );
 
 /**

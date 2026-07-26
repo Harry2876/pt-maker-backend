@@ -51,6 +51,24 @@ export const updateQuickSeriesSchema = z.object({
     message: 'At least one field must be provided for update'
 });
 
+export const createNextMatchInSeriesSchema = z.object({
+    matchName: z.string()
+        .min(1, 'Match name must be at least 1 character')
+        .max(100, 'Match name must be at most 100 characters')
+        .optional(),
+
+    map: z.string()
+        .max(50, 'Map name must be at most 50 characters')
+        .optional(),
+
+    copySlots: z.boolean().optional().default(true),
+    copyScoring: z.boolean().optional().default(true),
+
+    sourceMatchId: z.string()
+        .uuid('Invalid source match ID format')
+        .optional(),
+});
+
 export const listQuickSeriesQuerySchema = z.object({
     status: z.enum(['CREATED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const)
         .optional(),

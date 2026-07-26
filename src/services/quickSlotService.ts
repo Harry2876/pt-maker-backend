@@ -9,7 +9,8 @@ import {
     UpdateQuickSlotData,
     BulkSlotUpload,
     SlotStatus,
-    ParsedSlot
+    ParsedSlot,
+    CopySlotsResult,
 } from '../types/quickSlot';
 import { quickPtSyncQueue } from '../config/queues';
 import { SlotTextParser, ParseResult } from '../utils/slotTextParser';
@@ -652,6 +653,116 @@ export class QuickSlotService extends BaseService {
         });
 
         this.logger.info(`Match logo removed from slot ${slotNumber} in match ${quickMatchId}`);
+    }
+
+    /**
+     * Copy slot assignments from one Quick Match to another.
+     * Copies team names, player names, and preset logo references — not match-specific logos.
+     */
+    async copySlotsFromMatch(
+        sourceMatchId: string,
+        targetMatchId: string,
+        userId: string
+    ): Promise<CopySlotsResult> {
+        try {
+            if (sourceMatchId === targetMatchId) {
+                throw new ServiceError(
+                    'Source and target match must be different',
+                    400,
+                    'SAME_MATCH'
+                );
+            }
+
+            const [sourceMatch, targetMatch] = await Promise.all([
+                quickMatchService.getQuickMatchById(sourceMatchId, userId),
+                quickMatchService.getQuickMatchById(targetMatchId, userId),
+            ]);
+
+            if (!sourceMatch) {
+                throw new ServiceError('Source quick match not found', 404, 'NOT_FOUND');
+            }
+            if (!targetMatch) {
+                throw new ServiceError('Target quick match not found', 404, 'NOT_FOUND');
+            }
+
+            const sourceSlots = await this.db.quickSlotAssignment.findMany({
+                where: { quickMatchId: sourceMatchId },
+                orderBy: { slotNumber: 'asc' },
+            });
+
+            if (sourceSlots.length === 0) {
+                return {
+                    slotsCopied: 0,
+                    sourceMatchId,
+                    targetMatchId,
+                    slotCount: 0,
+                };
+            }
+
+            const existingTargetCount = await this.db.quickSlotAssignment.count({
+                where: { quickMatchId: targetMatchId },
+            });
+            if (existingTargetCount > 0) {
+                throw new ServiceError(
+                    'Target match already has slots. Remove them before copying.',
+                    400,
+                    'TARGET_HAS_SLOTS'
+                );
+            }
+
+            let slotsCopied = 0;
+            for (const src of sourceSlots) {
+                const slotId = randomUUID();
+                const slot: QuickSlotCache = {
+                    id: slotId,
+                    quickMatchId: targetMatchId,
+                    slotNumber: src.slotNumber,
+                    teamName: src.teamName,
+                    playerNames: src.playerNames
+                        ? JSON.parse(JSON.stringify(src.playerNames))
+                        : undefined,
+                    status: 'PENDING',
+                    detectedInAttendance: false,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    dbStatus: 'SYNCED',
+                };
+
+                await this.db.quickSlotAssignment.create({
+                    data: {
+                        id: slotId,
+                        quickMatchId: targetMatchId,
+                        slotNumber: src.slotNumber,
+                        teamName: src.teamName,
+                        ...(src.playerNames && { playerNames: src.playerNames as any }),
+                        status: 'PENDING',
+                        detectedInAttendance: false,
+                        ...(src.logoPresetEntryId && { logoPresetEntryId: src.logoPresetEntryId }),
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    },
+                });
+
+                await redis.hsetObject(`quickSlot:${slotId}`, slot);
+                await redis.hsetObject(`quickMatch:${targetMatchId}:slot:${src.slotNumber}`, slot);
+                await redis.sadd(`quickMatch:${targetMatchId}:slots`, slotId);
+                slotsCopied += 1;
+            }
+
+            this.logger.info(
+                `Copied ${slotsCopied} slot(s) from match ${sourceMatchId} to ${targetMatchId}`
+            );
+
+            return {
+                slotsCopied,
+                sourceMatchId,
+                targetMatchId,
+                slotCount: slotsCopied,
+            };
+        } catch (error) {
+            this.handleError(error, 'Copy Slots From Match');
+            throw error;
+        }
     }
 
     /**
