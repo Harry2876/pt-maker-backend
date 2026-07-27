@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
     elementOverridesSchema,
     fontCustomizationSchema,
+    footerOverridesSchema,
     logoOverridesSchema,
     socialOverridesSchema,
 } from './graphicsSharedSchemas';
@@ -42,6 +43,7 @@ export const slotListGraphicSchema = z.object({
     orgLogoOverrides: logoOverridesSchema,
     sponsorLogoOverrides: logoOverridesSchema,
     socialOverrides: socialOverridesSchema,
+    footerOverrides: footerOverridesSchema,
 
     fontCustomization: fontCustomizationSchema,
     showBranding: z.boolean().optional(),

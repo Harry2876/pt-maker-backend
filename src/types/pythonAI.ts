@@ -140,6 +140,7 @@ export interface GraphicsOverrideOptions {
     orgLogoOverrides?: LogoOverridesConfig | null;
     sponsorLogoOverrides?: LogoOverridesConfig | null;
     socialOverrides?: SocialOverridesConfig | null;
+    footerOverrides?: Record<string, any> | null;
 }
 
 // ===== STANDINGS =====
@@ -187,6 +188,7 @@ export interface StandingsRequest {
     org_logo_overrides?: PythonLogoOverrides | null;
     sponsor_logo_overrides?: PythonLogoOverrides | null;
     social_overrides?: PythonSocialOverrides | null;
+    footer_overrides?: Record<string, any> | null;
     font_customization?: FontCustomization | null;
     advanced_config?: Record<string, any> | null;
     show_branding?: boolean;
@@ -301,20 +303,11 @@ export interface SlotListRequest {
     org_logo_overrides?: PythonLogoOverrides | null;
     sponsor_logo_overrides?: PythonLogoOverrides | null;
     social_overrides?: PythonSocialOverrides | null;
+    footer_overrides?: Record<string, any> | null;
     font_customization?: FontCustomization | null;
     show_branding?: boolean;
     output_filename?: string;
     options?: PythonImageOptions;
-}
-
-/** Shared Python generate options (standings, roster, top-10, slot-list) */
-export interface PythonImageOptions {
-    upload_to_r2?: boolean;
-    compress_image?: boolean;
-    image_quality?: number;
-    render_scale?: number | null;
-    cleanup_temp?: boolean;
-    local_debug_path?: string | null;
 }
 
 /** CamelCase options from Android/controller → mapped in payload builder */
@@ -330,6 +323,16 @@ export interface SlotListExportOptions extends GraphicsOverrideOptions {
     fontCustomization?: FontCustomization | null;
     showBranding?: boolean;
     outputFilename?: string;
+}
+
+/** Shared Python generate options (standings, roster, top-10, slot-list) */
+export interface PythonImageOptions {
+    upload_to_r2?: boolean;
+    compress_image?: boolean;
+    image_quality?: number;
+    render_scale?: number | null;
+    cleanup_temp?: boolean;
+    local_debug_path?: string | null;
 }
 
 /** Python response — same shape as StandingsResponse */

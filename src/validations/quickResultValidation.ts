@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
     elementOverridesSchema,
     fontCustomizationSchema,
+    footerOverridesSchema,
     logoOverridesSchema,
     socialOverridesSchema,
 } from './graphicsSharedSchemas';
@@ -210,6 +211,7 @@ export const exportPointsTableSchema = z.object({
     orgLogoOverrides: logoOverridesSchema,
     sponsorLogoOverrides: logoOverridesSchema,
     socialOverrides: socialOverridesSchema,
+    footerOverrides: footerOverridesSchema,
     fontCustomization: fontCustomizationSchema,
     advancedConfig: z.record(z.string(), z.any()).nullable().optional(),
     showBranding: z.boolean().optional(),

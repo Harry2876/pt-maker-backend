@@ -3249,6 +3249,22 @@ components:
           description: Sponsor logo size/position — image URL comes from `POST .../branding/sponsor-logo`
         socialOverrides:
           $ref: "#/components/schemas/SocialOverridesConfig"
+        footerOverrides:
+          type: object
+          nullable: true
+          description: |
+            Footer social handle text (snake_case keys). Forwarded to Python as `footer_overrides`.
+            Example keys: `social_enabled`, `instagram_handle`, `instagram_enabled`,
+            `discord_handle`, `discord_enabled`, `youtube_handle`, `youtube_enabled`
+          additionalProperties: true
+          example:
+            social_enabled: true
+            instagram_handle: "@scrymz"
+            instagram_enabled: true
+            discord_handle: "discord.gg/scrymz"
+            discord_enabled: true
+            youtube_handle: "@scrymz"
+            youtube_enabled: true
         fontCustomization:
           $ref: "#/components/schemas/FontCustomization"
         advancedConfig:
@@ -3379,6 +3395,10 @@ components:
           $ref: "#/components/schemas/PythonLogoOverrides"
         social_overrides:
           $ref: "#/components/schemas/PythonSocialOverrides"
+        footer_overrides:
+          type: object
+          additionalProperties: true
+          description: Footer social handles — snake_case keys (e.g. instagram_handle, discord_handle)
         font_customization:
           type: object
           description: Override fonts per role using bundled font filenames

@@ -45,6 +45,9 @@ export function buildPythonStandingsPayload(request: StandingsRequest): Record<s
         org_logo_overrides: request.org_logo_overrides,
         sponsor_logo_overrides: request.sponsor_logo_overrides,
         social_overrides: request.social_overrides,
+        footer_overrides: clientOverridesForPython(
+            request.footer_overrides as Record<string, unknown> | null | undefined,
+        ),
         font_customization: fontCustomizationForPython(
             request.font_customization as Record<string, unknown> | null | undefined,
         ),
@@ -100,6 +103,7 @@ export function buildStandingsRequest(
         ...(socialOverridesForPython(options.socialOverrides) != null && {
             social_overrides: socialOverridesForPython(options.socialOverrides),
         }),
+        ...(options.footerOverrides != null && { footer_overrides: options.footerOverrides }),
         ...(options.fontCustomization && { font_customization: options.fontCustomization }),
         ...(options.advancedConfig && { advanced_config: options.advancedConfig }),
         ...(options.showBranding != null && { show_branding: options.showBranding }),

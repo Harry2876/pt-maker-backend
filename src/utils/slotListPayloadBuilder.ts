@@ -47,6 +47,7 @@ export function buildSlotListRequest(
         ...(socialOverridesForPython(options.socialOverrides) != null && {
             social_overrides: socialOverridesForPython(options.socialOverrides),
         }),
+        ...(options.footerOverrides != null && { footer_overrides: options.footerOverrides }),
         ...(options.fontCustomization != null && { font_customization: options.fontCustomization }),
         ...(options.showBranding != null && { show_branding: options.showBranding }),
         ...(options.outputFilename && { output_filename: options.outputFilename }),
@@ -87,6 +88,9 @@ export function buildPythonSlotListPayload(request: SlotListRequest): Record<str
         org_logo_overrides: request.org_logo_overrides,
         sponsor_logo_overrides: request.sponsor_logo_overrides,
         social_overrides: request.social_overrides,
+        footer_overrides: clientOverridesForPython(
+            request.footer_overrides as Record<string, unknown> | null | undefined,
+        ),
         font_customization: fontCustomizationForPython(
             request.font_customization as Record<string, unknown> | null | undefined,
         ),

@@ -677,6 +677,7 @@ export class QuickExportService extends BaseService {
             orgLogoUrl: options.orgLogoUrl,
             sponsorLogoUrl: options.sponsorLogoUrl,
             socialOverrides: options.socialOverrides,
+            footerOverrides: options.footerOverrides,
             fontCustomization: options.fontCustomization,
             advancedConfig: options.advancedConfig,
             showBranding: options.showBranding,

@@ -1187,6 +1187,9 @@ components:
           $ref: "#/components/schemas/PythonLogoOverrides"
         social_overrides:
           $ref: "#/components/schemas/PythonSocialOverrides"
+        footer_overrides:
+          type: object
+          additionalProperties: true
         font_customization:
           $ref: "#/components/schemas/FontCustomization"
         options:
@@ -1347,6 +1350,11 @@ components:
           $ref: "#/components/schemas/LogoOverridesConfig"
         socialOverrides:
           $ref: "#/components/schemas/SocialOverridesConfig"
+        footerOverrides:
+          type: object
+          nullable: true
+          description: Footer social handle text (snake_case keys inside) — forwarded as `footer_overrides`
+          additionalProperties: true
         fontCustomization:
           $ref: "#/components/schemas/FontCustomization"
         showBranding:

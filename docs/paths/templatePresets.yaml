@@ -465,12 +465,12 @@ components:
         `teamLogoGap`, `teamShiftRight`, `chickenDinnerIconSize`, `chickenIconGap`,
         `eventName`, `organiserName`, `sponsorName`, `weekInfo`, `dayInfo`,
         `elementOverrides`, `columnOverrides`, `orgLogoOverrides`, `sponsorLogoOverrides`,
-        `socialOverrides`, `fontCustomization`, `advancedConfig`
+        `socialOverrides`, `footerOverrides`, `fontCustomization`, `advancedConfig`
 
         **SLOT_LIST** — same as `SlotListGraphicRequest` minus `template`, `formatType`, `showBranding`:
         `outputFilename`, `headerOverrides`, `elementOverrides`, `slotNumberFontSize`, `teamNameFontSize`,
         `slotNumberColor`, `teamNameColor`, `teamLogoGap`, `teamLogoSize`, `gridOverrides`,
-        `orgLogoOverrides`, `sponsorLogoOverrides`, `socialOverrides`, `fontCustomization`
+        `orgLogoOverrides`, `sponsorLogoOverrides`, `socialOverrides`, `footerOverrides`, `fontCustomization`
 
         **ROSTER** — same as `RosterGraphicRequest` minus `template`, `formatType`, `showBranding`:
         `outputFilename`, `headerOverrides`, `headerStyle`, `footerOverrides`, `footerStyle`,

@@ -34,6 +34,9 @@ export const logoOverridesSchema = z.object({
     offsetY: z.number().nullable().optional(),
 }).optional().nullable();
 
+/** Footer social handle text — forwarded as footer_overrides to Python (snake_case keys inside) */
+export const footerOverridesSchema = z.record(z.string(), z.any()).optional().nullable();
+
 /** Footer social icon/text layout — forwarded as social_overrides to Python */
 export const socialOverridesSchema = z.object({
     iconSize: z.number().nullable().optional(),
