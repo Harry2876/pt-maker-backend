@@ -31,11 +31,11 @@ export interface MatchSlotListInput extends SlotListExportOptions {
     formatType: string;
 }
 
-/** Response returned to Android — load previewUrl directly (signed /files/ URL) */
+/** Response returned to Android — previewUrl for display, signedUrl for full-res download */
 export interface SlotListGenerationResult {
     assetId: string;
     previewUrl: string;
-    /** Same as previewUrl (Android fallback) */
+    /** Full-resolution original PNG — use for download / share */
     signedUrl: string;
     generationTimeMs: number;
     slotCount: number;
@@ -52,7 +52,7 @@ export interface RosterGraphicImage {
     label: 'main' | 'overflow';
     assetId: string;
     previewUrl: string;
-    /** Same as previewUrl (Android fallback) */
+    /** Full-resolution original PNG — use for download / share */
     signedUrl: string;
     filename?: string;
     teamCount: number;
@@ -61,7 +61,7 @@ export interface RosterGraphicImage {
 export interface RosterGenerationResult {
     assetId: string;
     previewUrl: string;
-    /** Same as previewUrl (Android fallback) */
+    /** Full-resolution original PNG — use for download / share */
     signedUrl: string;
     generationTimeMs: number;
     totalTeams: number;
@@ -78,7 +78,7 @@ export interface MatchTop10Input extends Top10ExportOptions {
 export interface Top10GenerationResult {
     assetId: string;
     previewUrl: string;
-    /** Same as previewUrl (Android fallback) */
+    /** Full-resolution original PNG — use for download / share */
     signedUrl: string;
     generationTimeMs: number;
     rankCount: number;
@@ -184,7 +184,7 @@ export class QuickGraphicsService extends BaseService {
         return {
             assetId: preview.assetId,
             previewUrl: preview.previewUrl,
-            signedUrl: preview.previewUrl,
+            signedUrl: preview.signedUrl,
             generationTimeMs: Date.now() - start,
             slotCount: slotData.length,
         };
@@ -316,7 +316,7 @@ export class QuickGraphicsService extends BaseService {
                 label: isOverflow ? 'overflow' : 'main',
                 assetId: preview.assetId,
                 previewUrl: preview.previewUrl,
-                signedUrl: preview.previewUrl,
+                signedUrl: preview.signedUrl,
                 filename: chunkOutputFilename,
                 teamCount: chunk.length,
             });
@@ -326,7 +326,7 @@ export class QuickGraphicsService extends BaseService {
         return {
             assetId: first.assetId,
             previewUrl: first.previewUrl,
-            signedUrl: first.previewUrl,
+            signedUrl: first.signedUrl,
             generationTimeMs: Date.now() - start,
             totalTeams: teamData.length,
             imageCount: images.length,
@@ -417,7 +417,7 @@ export class QuickGraphicsService extends BaseService {
         return {
             assetId: preview.assetId,
             previewUrl: preview.previewUrl,
-            signedUrl: preview.previewUrl,
+            signedUrl: preview.signedUrl,
             generationTimeMs: Date.now() - start,
             rankCount: rankData.length,
         };

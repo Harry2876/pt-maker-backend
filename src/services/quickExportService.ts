@@ -69,7 +69,7 @@ export interface ExportStandingsImage {
     label: 'main' | 'overflow';
     assetId: string;
     previewUrl: string;
-    /** @deprecated Use previewUrl with Authorization header */
+    /** Full-resolution original PNG — use for download / share */
     signedUrl: string;
     filename?: string;
     teamCount: number;
@@ -440,18 +440,19 @@ export class QuickExportService extends BaseService {
 
             const generationTimeMs = Date.now() - startTime;
             const clientImages: ExportStandingsImage[] = generatedImages.map(
-                ({ part, label, assetId, previewUrl, filename, teamCount }) => ({
+                ({ part, label, assetId, previewUrl, signedUrl, filename, teamCount }) => ({
                     part,
                     label,
                     assetId,
                     previewUrl,
-                    signedUrl: previewUrl,
+                    signedUrl,
                     filename,
                     teamCount,
                 }),
             );
 
             const firstPreview = clientImages[0]?.previewUrl ?? '';
+            const firstDownload = clientImages[0]?.signedUrl ?? '';
 
             return {
                 seriesId,
@@ -462,7 +463,7 @@ export class QuickExportService extends BaseService {
                 generationTimeMs,
                 images: clientImages,
                 previewImageUrl: firstPreview,
-                signedImageUrl: firstPreview,
+                signedImageUrl: firstDownload,
             };
         } catch (error) {
             this.logger.error(`exportSeriesLeaderboard failed for series ${seriesId}:`, error);
@@ -829,7 +830,7 @@ export class QuickExportService extends BaseService {
                 label: isOverflow ? 'overflow' : 'main',
                 assetId: preview.assetId,
                 previewUrl: preview.previewUrl,
-                signedUrl: preview.previewUrl,
+                signedUrl: preview.signedUrl,
                 originalUrl: rawImageUrl,
                 r2Key,
                 filename: chunkOutputFilename,
@@ -849,18 +850,19 @@ export class QuickExportService extends BaseService {
         images: GeneratedStandingsImage[]
     ): ExportPointsTableResponse {
         const clientImages: ExportStandingsImage[] = images.map(
-            ({ part, label, assetId, previewUrl, filename, teamCount }) => ({
+            ({ part, label, assetId, previewUrl, signedUrl, filename, teamCount }) => ({
                 part,
                 label,
                 assetId,
                 previewUrl,
-                signedUrl: previewUrl,
+                signedUrl,
                 filename,
                 teamCount,
             }),
         );
 
         const firstPreview = clientImages[0]?.previewUrl ?? '';
+        const firstDownload = clientImages[0]?.signedUrl ?? '';
 
         return {
             pointsTableId,
@@ -871,7 +873,7 @@ export class QuickExportService extends BaseService {
             generationTimeMs,
             images: clientImages,
             previewImageUrl: firstPreview,
-            signedImageUrl: firstPreview,
+            signedImageUrl: firstDownload,
         };
     }
 
@@ -887,24 +889,24 @@ export class QuickExportService extends BaseService {
                 const r2Key = extractR2KeyFromUrl(img.originalUrl);
 
                 if (img.assetId) {
-                    const preview = mediaAssetService.previewForAssetId(img.assetId);
+                    const preview = await mediaAssetService.previewForAssetId(img.assetId);
                     return {
                         ...img,
                         assetId: preview.assetId,
                         previewUrl: preview.previewUrl,
-                        signedUrl: preview.previewUrl,
+                        signedUrl: preview.signedUrl,
                         r2Key,
                     };
                 }
 
                 const existing = await mediaAssetService.findByR2Key(userId, r2Key);
                 if (existing) {
-                    const preview = mediaAssetService.previewForAssetId(existing.id);
+                    const preview = await mediaAssetService.previewForAssetId(existing.id);
                     return {
                         ...img,
                         assetId: preview.assetId,
                         previewUrl: preview.previewUrl,
-                        signedUrl: preview.previewUrl,
+                        signedUrl: preview.signedUrl,
                         r2Key,
                     };
                 }
@@ -928,7 +930,7 @@ export class QuickExportService extends BaseService {
                     ...img,
                     assetId: preview.assetId,
                     previewUrl: preview.previewUrl,
-                    signedUrl: preview.previewUrl,
+                    signedUrl: preview.signedUrl,
                     r2Key,
                 };
             }),
