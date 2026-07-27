@@ -3,6 +3,7 @@ dotenv.config();
 
 import sharp from 'sharp';
 import { r2Service } from '../services/cloudflareR2Service';
+import { templatePreviewKeyFromOriginal } from '../utils/r2UrlUtils';
 
 const PREVIEW_WIDTH = 600;
 const WEBP_QUALITY = 80;
@@ -19,20 +20,13 @@ async function run() {
     let failed = 0;
 
     for (const file of imageFiles) {
-        const parts = file.key.split('/');
-        const filename = parts[parts.length - 1];
-        const nameWithoutExt = filename.replace(/\.(png|jpg|jpeg)$/i, '');
-
         // Skip if already inside a "previews" folder
-        if (parts.includes('previews')) {
+        if (file.key.split('/').includes('previews')) {
             skipped++;
             continue;
         }
 
-        // Build preview key: templates/16_teams/tmplate_1.png
-        //                  → templates/16_teams/previews/tmplate_1.webp
-        const previewParts = [...parts.slice(0, -1), 'previews', `${nameWithoutExt}.webp`];
-        const previewKey = previewParts.join('/');
+        const previewKey = templatePreviewKeyFromOriginal(file.key);
 
         try {
             // Download original

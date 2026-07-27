@@ -8,45 +8,45 @@ datasource db {
 }
 
 model User {
-  id                    String                   @id @default(cuid())
-  username              String                   @unique
-  subscriptionId        String?
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  phoneNumber           String                   @unique
-  credits               Int                      @default(0)
-  otp                   String?
-  otpExpiresAt          DateTime?
-  passwordHash          String?
-  subscriptionEndDate   DateTime?
-  subscriptionStatus    SubscriptionStatus       @default(INACTIVE)
-  fullName              String
-  organization          String?
-  accounts              Account[]
-  activityLogs          ActivityLog[]
-  verifiedResults       MatchResult[]
-  payments              Payment[]
-  sessions              Session[]
-  slotAssignments       SlotAssignment[]
-  teams                 Team[]
-  templates             Template[]
-  invitedCollaborators  TournamentCollaborator[] @relation("InvitedCollaborators")
-  collaborations        TournamentCollaborator[]
-  tournaments           Tournament[]
-  quickMatches          QuickMatch[]
-  subscription          Subscription?            @relation(fields: [subscriptionId], references: [id])
-  quickTournamentSeries QuickTournamentSeries[]
-  tieBreakingConfigs    TieBreakingConfig[]
-  resolvedConflicts     ConflictGroup[]
-  teamLogoPresets       TeamLogoPreset[]
-  quickMediaAssets      QuickMediaAsset[]
-  revenueCatAppUserId     String?   @unique
-  proProductIdentifier    String?   
-  revenueCatLastEventId   String?   
+  id                      String                   @id @default(cuid())
+  username                String                   @unique
+  subscriptionId          String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  phoneNumber             String                   @unique
+  credits                 Int                      @default(0)
+  otp                     String?
+  otpExpiresAt            DateTime?
+  passwordHash            String?
+  subscriptionEndDate     DateTime?
+  subscriptionStatus      SubscriptionStatus       @default(INACTIVE)
+  fullName                String
+  organization            String?
+  accounts                Account[]
+  activityLogs            ActivityLog[]
+  verifiedResults         MatchResult[]
+  payments                Payment[]
+  sessions                Session[]
+  slotAssignments         SlotAssignment[]
+  teams                   Team[]
+  templates               Template[]
+  invitedCollaborators    TournamentCollaborator[] @relation("InvitedCollaborators")
+  collaborations          TournamentCollaborator[]
+  tournaments             Tournament[]
+  quickMatches            QuickMatch[]
+  subscription            Subscription?            @relation(fields: [subscriptionId], references: [id])
+  quickTournamentSeries   QuickTournamentSeries[]
+  tieBreakingConfigs      TieBreakingConfig[]
+  resolvedConflicts       ConflictGroup[]
+  teamLogoPresets         TeamLogoPreset[]
+  quickMediaAssets        QuickMediaAsset[]
+  revenueCatAppUserId     String?                  @unique
+  proProductIdentifier    String?
+  revenueCatLastEventId   String?
   revenueCatLastSyncedAt  DateTime?
   revenueCatWebhookEvents RevenueCatWebhookEvent[]
-  templatePresets       TemplatePreset[]
-  aiScanEvents          AiScanEvent[]
+  templatePresets         TemplatePreset[]
+  aiScanEvents            AiScanEvent[]
 
   @@map("users")
 }
@@ -207,34 +207,34 @@ model Subscription {
 }
 
 model Tournament {
-  id                 String                   @id @default(cuid())
-  name               String
-  game               String
-  status             TournamentStatus         @default(UPCOMING)
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
-  userId             String
-  entryFee           Float?
-  maxTeams           Int?
-  prizePool          Float?
-  tournamentType     TournamentType           @default(TOURNAMENT)
-  allowCollaborators Boolean                  @default(false)
-  currentStage       Int                      @default(1)
-  maxTeamsPerGroup   Int                      @default(25)
-  registrationFields Json?
-  totalStages        Int                      @default(1)
-  tournamentFormat   TournamentFormat         @default(ELIMINATION)
+  id                   String                   @id @default(cuid())
+  name                 String
+  game                 String
+  status               TournamentStatus         @default(UPCOMING)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  userId               String
+  entryFee             Float?
+  maxTeams             Int?
+  prizePool            Float?
+  tournamentType       TournamentType           @default(TOURNAMENT)
+  allowCollaborators   Boolean                  @default(false)
+  currentStage         Int                      @default(1)
+  maxTeamsPerGroup     Int                      @default(25)
+  registrationFields   Json?
+  totalStages          Int                      @default(1)
+  tournamentFormat     TournamentFormat         @default(ELIMINATION)
   positionPointsConfig Json?
-  killPointsValue      Int                    @default(1)
+  killPointsValue      Int                      @default(1)
   scoringDescription   String?
-  groups             Group[]
-  matches            Match[]
-  playerStats        PlayerStat[]
-  scoringRule        ScoringRule[]
-  teamRegistrations  TeamRegistration[]
-  collaborators      TournamentCollaborator[]
-  stages             TournamentStage[]
-  user               User                     @relation(fields: [userId], references: [id])
+  groups               Group[]
+  matches              Match[]
+  playerStats          PlayerStat[]
+  scoringRule          ScoringRule[]
+  teamRegistrations    TeamRegistration[]
+  collaborators        TournamentCollaborator[]
+  stages               TournamentStage[]
+  user                 User                     @relation(fields: [userId], references: [id])
 
   @@index([userId, status])
   @@index([userId, createdAt(sort: Desc)])
@@ -515,7 +515,7 @@ model QuickTournamentSeries {
 model QuickSeriesMatch {
   id           String    @id @default(cuid())
   seriesId     String
-  quickMatchId String    
+  quickMatchId String
   matchOrder   Int // 1st match, 2nd match, etc.
   isCompleted  Boolean   @default(false)
   completedAt  DateTime?
@@ -580,10 +580,15 @@ model QuickMatch {
   screenshots     QuickScreenshot[]
   results         QuickMatchResult[]
   pointsTable     QuickPointsTable?
-    seriesMatches   QuickSeriesMatch[]
+  seriesMatches   QuickSeriesMatch[]
   QuickMatchCrop  QuickMatchCrop[]
   mediaAssets     QuickMediaAsset[]
   aiScanEvents    AiScanEvent[]
+
+  organiserLogoR2Key      String?
+  organiserLogoStorageUrl String?
+  sponsorLogoR2Key        String?
+  sponsorLogoStorageUrl   String?
 
   // Indexes (rest stays same)
   @@index([userId, createdAt(sort: Desc)])
@@ -715,11 +720,11 @@ model QuickPointsTable {
 }
 
 model RevenueCatWebhookEvent {
-  id String @id @default(cuid())
-  eventId String @unique
-  eventType String
-  appUserId String
-  payload Json
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  eventType   String
+  appUserId   String
+  payload     Json
   processedAt DateTime @default(now())
 
   user User @relation(fields: [appUserId], references: [id], onDelete: Cascade)
@@ -747,7 +752,7 @@ enum QuickMediaAssetType {
 
 model QuickMediaAsset {
   id            String              @id @default(cuid())
-  userId        String?             // null = system/shared (templates)
+  userId        String? // null = system/shared (templates)
   quickMatchId  String?
   quickSeriesId String?
   assetType     QuickMediaAssetType
@@ -756,13 +761,17 @@ model QuickMediaAsset {
   filename      String?
   metadata      Json?
 
-  /** Links back to source row: QuickScreenshot.id, QuickMatchCrop.id, TeamLogoPresetEntry.id, etc. */
-  resourceId    String?
+  /**
+   * Links back to source row: QuickScreenshot.id, QuickMatchCrop.id, TeamLogoPresetEntry.id, etc.
+   */
+  resourceId String?
 
-  /** true = readable via valid sig without user ownership (templates). Step 3 uses this. */
-  isPublic      Boolean             @default(false)
+  /**
+   * true = readable via valid sig without user ownership (templates). Step 3 uses this.
+   */
+  isPublic Boolean @default(false)
 
-  createdAt     DateTime            @default(now())
+  createdAt DateTime @default(now())
 
   user        User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   quickMatch  QuickMatch?            @relation(fields: [quickMatchId], references: [id], onDelete: Cascade)
@@ -775,8 +784,6 @@ model QuickMediaAsset {
   @@index([r2Key])
   @@map("quick_media_assets")
 }
-
-
 
 enum OcrScanType {
   ATTENDANCE
@@ -1028,7 +1035,6 @@ model TeamLogoPresetEntry {
   @@index([presetId, sortOrder])
   @@map("team_logo_preset_entries")
 }
-
 
 enum TemplatePresetGraphicType {
   STANDINGS

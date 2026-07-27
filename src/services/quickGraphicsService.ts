@@ -22,6 +22,8 @@ import { QuickMatchResultCache } from '../types/quickResult';
 import { sortMatchResultsForStandings } from '../utils/standingsSort';
 import { getTemplateCapacity } from '../utils/templateConfigUtils';
 import { splitTeamDataIntoChunks, buildSplitOutputFilename } from '../utils/pythonErrorUtils';
+import { quickMatchBrandingService } from './quickMatchBrandingService';
+import { mergeBrandingIntoHeaderOverrides } from '../utils/brandingLogoUtils';
 
 /** Input from controller — template selection + styling opts */
 export interface MatchSlotListInput extends SlotListExportOptions {
@@ -147,13 +149,17 @@ export class QuickGraphicsService extends BaseService {
         }
 
         // 6. Build request + call Python (server overrides client showBranding)
+        const branding = await quickMatchBrandingService.getBrandingLogoUrls(quickMatchId);
         const styledInput = await this.withServerBranding(userId, input);
         const { template, formatType, ...stylingOpts } = styledInput;
         const request = buildSlotListRequest(
             resolved.templateUrl,
             resolved.configUrl,
             slotData,
-            stylingOpts,
+            {
+                ...stylingOpts,
+                headerOverrides: mergeBrandingIntoHeaderOverrides(stylingOpts.headerOverrides, branding),
+            },
         );
 
         const pyResponse = await pythonAIService.generateSlotList(request);
@@ -247,8 +253,13 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
+        const branding = await quickMatchBrandingService.getBrandingLogoUrls(quickMatchId);
         const styledInput = await this.withServerBranding(userId, input);
         const { template, formatType, ...stylingOpts } = styledInput;
+        const stylingWithBranding = {
+            ...stylingOpts,
+            headerOverrides: mergeBrandingIntoHeaderOverrides(stylingOpts.headerOverrides, branding),
+        };
         const images: RosterGraphicImage[] = [];
 
         for (let i = 0; i < teamChunks.length; i++) {
@@ -262,7 +273,7 @@ export class QuickGraphicsService extends BaseService {
             }));
 
             const chunkOutputFilename = buildSplitOutputFilename(
-                stylingOpts.outputFilename,
+                stylingWithBranding.outputFilename,
                 partIndex,
                 teamChunks.length
             );
@@ -271,7 +282,7 @@ export class QuickGraphicsService extends BaseService {
                 resolved.templateUrl,
                 resolved.configUrl,
                 chunkTeamData,
-                stylingOpts,
+                stylingWithBranding,
                 chunkOutputFilename
             );
 
@@ -371,13 +382,17 @@ export class QuickGraphicsService extends BaseService {
             );
         }
 
+        const branding = await quickMatchBrandingService.getBrandingLogoUrls(quickMatchId);
         const styledInput = await this.withServerBranding(userId, input);
         const { template, formatType, ...stylingOpts } = styledInput;
         const request = buildTop10Request(
             resolved.templateUrl,
             resolved.configUrl,
             rankData,
-            stylingOpts,
+            {
+                ...stylingOpts,
+                headerOverrides: mergeBrandingIntoHeaderOverrides(stylingOpts.headerOverrides, branding),
+            },
         );
 
         const pyResponse = await pythonAIService.generateTop10Rankings(request);

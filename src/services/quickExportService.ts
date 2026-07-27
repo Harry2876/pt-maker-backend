@@ -14,6 +14,8 @@ import { pythonAIService } from './pythonAIService';
 import { StandingsTeamData, StandingsExportOptions } from '../types/pythonAI';
 import { ServiceError } from '../utils/serviceError';
 import { buildStandingsRequest } from '../utils/standingsPayloadBuilder';
+import { mergeBrandingIntoStandingsOptions } from '../utils/brandingLogoUtils';
+import { quickMatchBrandingService } from './quickMatchBrandingService';
 import { quickSeriesService } from './quickSeriesService';
 import { SeriesTeamStanding } from '../types/quickSeries';
 import { teamsMatch } from '../utils/seriesSlotUtils';
@@ -119,18 +121,21 @@ export class QuickExportService extends BaseService {
         const startTime = Date.now();
         const { quickMatchId, userId, template, formatType } = request;
 
-        const stylingOptions = this.pickStylingOptions({
-            ...request,
-            showBranding: await entitlementService.resolveShowBranding(userId),
-        }
-        );
-
         try {
             // 1. Verify match ownership and completion
             const quickMatch = await quickMatchService.getQuickMatchById(quickMatchId, userId);
             if (!quickMatch) {
                 throw new ServiceError('Quick Match not found or access denied', 404, 'NOT_FOUND');
             }
+
+            const branding = await quickMatchBrandingService.getBrandingLogoUrls(quickMatchId);
+            const stylingOptions = mergeBrandingIntoStandingsOptions(
+                this.pickStylingOptions({
+                    ...request,
+                    showBranding: await entitlementService.resolveShowBranding(userId),
+                }),
+                branding,
+            );
 
             const results = await quickResultService.getMatchResults(quickMatchId, userId);
             if (results.length === 0) {
@@ -669,6 +674,8 @@ export class QuickExportService extends BaseService {
             columnOverrides: options.columnOverrides,
             orgLogoOverrides: options.orgLogoOverrides,
             sponsorLogoOverrides: options.sponsorLogoOverrides,
+            orgLogoUrl: options.orgLogoUrl,
+            sponsorLogoUrl: options.sponsorLogoUrl,
             socialOverrides: options.socialOverrides,
             fontCustomization: options.fontCustomization,
             advancedConfig: options.advancedConfig,

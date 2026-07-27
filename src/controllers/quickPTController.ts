@@ -14,6 +14,7 @@ import { templateService } from '../services/templateService';
 import { excelExportService } from '../services/excelExportService';
 import { pythonAIService } from '../services/pythonAIService';
 import { quickGraphicsService } from '../services/quickGraphicsService';
+import { quickMatchBrandingService } from '../services/quickMatchBrandingService';
 
 export class QuickPTController {
 
@@ -53,11 +54,15 @@ export class QuickPTController {
             return res.status(404).json(ResponseHelper.notFound('Quick Match not found'));
         }
 
-        const seriesContext = await quickSeriesService.getMatchSeriesContext(id, userId);
+        const [seriesContext, brandingLogos] = await Promise.all([
+            quickSeriesService.getMatchSeriesContext(id, userId),
+            quickMatchBrandingService.getBrandingLogosForClient(userId, id),
+        ]);
 
         return res.json(
             ResponseHelper.success('Quick Match retrieved successfully', {
                 ...quickMatch,
+                brandingLogos,
                 seriesContext,
             })
         );
@@ -1049,6 +1054,76 @@ export class QuickPTController {
 
         await quickSlotService.removeMatchLogo(userId, quickMatchId, parseInt(slotNumber, 10));
         return res.json(ResponseHelper.success('Match logo removed successfully', null));
+    });
+
+    /**
+     * POST /api/v1/quick-pt/matches/:id/branding/organiser-logo
+     * Upload organiser branding logo for a match
+     */
+    static attachOrganiserLogo = asyncHandler(async (req: Request, res: Response) => {
+        const userId = req.user!.id;
+        const { id: quickMatchId } = req.params;
+
+        if (!req.file) {
+            return res.status(400).json(ResponseHelper.error('Logo file is required', 'MISSING_FILE'));
+        }
+
+        const result = await quickMatchBrandingService.attachBrandingLogo(
+            userId,
+            quickMatchId,
+            'organiser',
+            req.file.buffer,
+            req.file.mimetype,
+        );
+
+        return res.json(ResponseHelper.success('Organiser logo attached successfully', result));
+    });
+
+    /**
+     * DELETE /api/v1/quick-pt/matches/:id/branding/organiser-logo
+     * Remove organiser branding logo from a match
+     */
+    static removeOrganiserLogo = asyncHandler(async (req: Request, res: Response) => {
+        const userId = req.user!.id;
+        const { id: quickMatchId } = req.params;
+
+        await quickMatchBrandingService.removeBrandingLogo(userId, quickMatchId, 'organiser');
+        return res.json(ResponseHelper.success('Organiser logo removed successfully', null));
+    });
+
+    /**
+     * POST /api/v1/quick-pt/matches/:id/branding/sponsor-logo
+     * Upload sponsor branding logo for a match
+     */
+    static attachSponsorLogo = asyncHandler(async (req: Request, res: Response) => {
+        const userId = req.user!.id;
+        const { id: quickMatchId } = req.params;
+
+        if (!req.file) {
+            return res.status(400).json(ResponseHelper.error('Logo file is required', 'MISSING_FILE'));
+        }
+
+        const result = await quickMatchBrandingService.attachBrandingLogo(
+            userId,
+            quickMatchId,
+            'sponsor',
+            req.file.buffer,
+            req.file.mimetype,
+        );
+
+        return res.json(ResponseHelper.success('Sponsor logo attached successfully', result));
+    });
+
+    /**
+     * DELETE /api/v1/quick-pt/matches/:id/branding/sponsor-logo
+     * Remove sponsor branding logo from a match
+     */
+    static removeSponsorLogo = asyncHandler(async (req: Request, res: Response) => {
+        const userId = req.user!.id;
+        const { id: quickMatchId } = req.params;
+
+        await quickMatchBrandingService.removeBrandingLogo(userId, quickMatchId, 'sponsor');
+        return res.json(ResponseHelper.success('Sponsor logo removed successfully', null));
     });
 
     /**

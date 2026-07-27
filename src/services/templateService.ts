@@ -3,7 +3,13 @@ import { BaseService } from './baseService';
 import { r2Service } from './cloudflareR2Service';
 import { storedFileService } from './storedFileService';
 import redis from '../config/redis';
-import { buildRawR2ObjectUrl, mimeTypeFromR2Key, templateNameToConfigFileName, resolveR2ObjectKey } from '../utils/r2UrlUtils';
+import {
+    buildRawR2ObjectUrl,
+    mimeTypeFromR2Key,
+    templateNameToConfigFileName,
+    templatePreviewKeyFromOriginal,
+    resolveR2ObjectKey,
+} from '../utils/r2UrlUtils';
 
 /**
  * Extract the first numeric run from a filename stem.
@@ -47,20 +53,23 @@ export class TemplateService extends BaseService {
 
     /**
      * Issue client-facing signed preview URLs for template image + config JSON.
+     * Thumbnails use compressed WebP previews; rawTemplateUrl still points at the full original.
      * Templates are registered as public files (no Bearer required when using sig).
      */
     private async issueTemplatePreviewUrls(
         imageKey: string,
         configKey: string,
     ): Promise<{ signedUrl: string; previewUrl: string; configUrl: string }> {
+        const previewImageKey = templatePreviewKeyFromOriginal(imageKey);
+
         const [imagePreview, configPreview] = await Promise.all([
             storedFileService.ensureClientPreview({
                 userId: null,
                 assetType: 'TEMPLATE',
-                r2Key: imageKey,
-                resourceId: imageKey,
+                r2Key: previewImageKey,
+                resourceId: previewImageKey,
                 isPublic: true,
-                mimeType: mimeTypeFromR2Key(imageKey),
+                mimeType: mimeTypeFromR2Key(previewImageKey),
             }),
             storedFileService.ensureClientPreview({
                 userId: null,

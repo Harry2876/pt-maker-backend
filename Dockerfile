@@ -21,7 +21,7 @@ RUN npm ci && npm cache clean --force
 COPY . .
 
 # Generate Prisma and build as root
-RUN npx prisma generate && npm run build && chmod +x entrypoint.sh
+RUN npx prisma generate && npm run build
 
 # Now change ownership of everything to nextjs
 RUN chown -R nextjs:nodejs /app
@@ -34,4 +34,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
-ENTRYPOINT ["sh", "entrypoint.sh"]
+CMD ["npm", "start"]

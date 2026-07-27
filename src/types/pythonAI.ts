@@ -169,6 +169,8 @@ export interface StandingsRequest {
     sponsor_name?: string | null;
     week_info?: string | null;
     day_info?: string | null;
+    org_logo_url?: string | null;
+    sponsor_logo_url?: string | null;
     table_font_size?: number | null;
     table_header_font_size?: number | null;
     table_header_label_mode?: string | null;
@@ -197,6 +199,8 @@ export interface StandingsExportOptions extends GraphicsOverrideOptions {
     eventName?: string | null;
     organiserName?: string | null;
     sponsorName?: string | null;
+    orgLogoUrl?: string | null;
+    sponsorLogoUrl?: string | null;
     tableFontSize?: number | null;
     tableHeaderFontSize?: number | null;
     tableHeaderLabelMode?: string | null;

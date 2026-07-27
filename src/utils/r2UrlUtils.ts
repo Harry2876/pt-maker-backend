@@ -11,6 +11,17 @@ export function templateNameToConfigFileName(templateName: string): string {
 }
 
 /**
+ * WebP preview key for a template original image (600px previews from generateTemplatePreviews).
+ * e.g. templates/16_teams/tmplate_1.jpeg → templates/16_teams/previews/tmplate_1.webp
+ */
+export function templatePreviewKeyFromOriginal(imageKey: string): string {
+    const parts = imageKey.replace(/^\/+/, '').split('/');
+    const filename = parts[parts.length - 1];
+    const nameWithoutExt = filename.replace(/\.(png|jpg|jpeg)$/i, '');
+    return [...parts.slice(0, -1), 'previews', `${nameWithoutExt}.webp`].join('/');
+}
+
+/**
  * Build a raw (unsigned) R2 object URL from a key relative to the bucket public base.
  * e.g. key "templates/16_teams/tmplate_1.jpeg"
  */

@@ -57,3 +57,20 @@ export interface QuickMatchWithDetails extends QuickMatchCache {
     resultsCount: number;
     hasPointsTable: boolean;
 }
+
+/** Signed preview fields for a match-level organiser or sponsor branding logo (GET match, upload response). */
+export interface MatchBrandingLogoView {
+    logoStorageUrl: string;
+    fileId: string;
+    previewUrl: string;
+    signedUrl: string;
+    signedLogoUrl: string;
+    expiresAt: string;
+    previewUrlExpiresInSeconds: number;
+}
+
+/** Organiser/sponsor branding logos on a match — null when not uploaded. */
+export interface MatchBrandingLogosView {
+    organiserLogo: MatchBrandingLogoView | null;
+    sponsorLogo: MatchBrandingLogoView | null;
+}

@@ -188,6 +188,18 @@ info:
     Each item's `status` field indicates origin: `MANUAL_ENTRY` or `PROCESSED`.
     `playerResults` is populated only for `PROCESSED` results.
 
+    #### Step 7b — Upload match branding logos (optional)
+    Upload organiser/sponsor logos once per match. Node injects them into Python payloads at export/generate time.
+    Do **not** pass logo URLs in export or graphics request bodies.
+    ```
+    POST /quick-pt/matches/{id}/branding/organiser-logo   multipart: logo=<file>
+    POST /quick-pt/matches/{id}/branding/sponsor-logo     multipart: logo=<file>
+    → { logoStorageUrl, previewUrl, fileId, ... }
+    ```
+    - Standings export → Python `org_logo_url` / `sponsor_logo_url` (top-level)
+    - Slot-list / roster / top-10 → Python `header_overrides.org_logo_url` / `sponsor_logo_url`
+    - Use `orgLogoOverrides` / `sponsorLogoOverrides` in export/generate bodies for **size/position only**
+
     #### Step 8 — Export Standings Image
     Choose a template, then generate the standings PNG.
     ```
@@ -230,6 +242,7 @@ info:
     Same auth and template flow. Endpoints under `/quick-pt/matches/{id}/graphics/*`.
     Optional override blocks (all camelCase at Node API, snake_case inside nested objects):
     - `elementOverrides`, `orgLogoOverrides`, `sponsorLogoOverrides`, `socialOverrides` (standings, slot-list, top-10)
+    - Match organiser/sponsor **logo images**: upload via Step 7b — auto-injected; do not pass URLs in the body
     - Roster uses `headerStyle` / `footerStyle` for logo and social layout instead of the blocks above.
     See **Quick-PT Graphics** tag in this docs UI for full schemas.
 
@@ -547,6 +560,8 @@ components:
       description: |
         Logo size and position overrides (Node API camelCase).
         Forwarded to Python as `org_logo_overrides` or `sponsor_logo_overrides`.
+        For **logo images**, upload via `POST /quick-pt/matches/{id}/branding/organiser-logo` or
+        `POST /quick-pt/matches/{id}/branding/sponsor-logo` — Node injects URLs at generate/export time.
       properties:
         size:
           type: number

@@ -9,7 +9,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "redis:start": "docker-compose -f docker-compose.dev.yml up -d",
     "redis:stop": "docker-compose -f docker-compose.dev.yml down",
-    "redis:logs": "docker-compose -f docker-compose.dev.yml logs -f"
+    "redis:logs": "docker-compose -f docker-compose.dev.yml logs -f",
+    "generate:template-previews": "ts-node src/scripts/generateTemplatePreviews.ts"
   },
   "keywords": [],
   "author": "",

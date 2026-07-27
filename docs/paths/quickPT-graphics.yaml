@@ -257,6 +257,171 @@ paths:
           $ref: "#/components/responses/NotFoundError"
 
   # ══════════════════════════════════════════════════════════════════════
+  # MATCH BRANDING LOGOS (organiser / sponsor)
+  # ══════════════════════════════════════════════════════════════════════
+
+  /quick-pt/matches/{id}/branding/organiser-logo:
+    post:
+      tags: [Quick-PT Graphics]
+      summary: Upload organiser branding logo for a match
+      description: |
+        Uploads a match-level **organiser** logo used in standings export and all match graphics
+        (slot-list, roster, top-10).
+
+        Stored in R2 under `match-branding-logos/{matchId}/organiser-{uuid}.{ext}`.
+
+        **Do not pass logo URLs in generate/export bodies.** Node injects them automatically:
+        - Standings → top-level `org_logo_url`
+        - Slot-list / roster / top-10 → `header_overrides.org_logo_url`
+
+        Use `orgLogoOverrides` in generate/export bodies for **size/position** only.
+
+        Allowed formats: JPEG, PNG, WebP — max **5 MB**.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [logo]
+              properties:
+                logo:
+                  type: string
+                  format: binary
+                  description: Organiser logo image (JPEG/PNG/WebP, max 5 MB)
+      responses:
+        "200":
+          description: Organiser logo uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: "Organiser logo attached successfully" }
+                  data:
+                    $ref: "#/components/schemas/MatchBrandingLogoUploadResponse"
+        "400":
+          description: No file uploaded or invalid file type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      tags: [Quick-PT Graphics]
+      summary: Remove organiser branding logo from a match
+      description: |
+        Deletes the organiser branding logo from R2 and clears the reference on the match.
+        Future exports/graphics will omit `org_logo_url` unless re-uploaded.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Organiser logo removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: "Organiser logo removed successfully" }
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /quick-pt/matches/{id}/branding/sponsor-logo:
+    post:
+      tags: [Quick-PT Graphics]
+      summary: Upload sponsor branding logo for a match
+      description: |
+        Uploads a match-level **sponsor** logo used in standings export and all match graphics
+        (slot-list, roster, top-10).
+
+        Stored in R2 under `match-branding-logos/{matchId}/sponsor-{uuid}.{ext}`.
+
+        **Do not pass logo URLs in generate/export bodies.** Node injects them automatically:
+        - Standings → top-level `sponsor_logo_url`
+        - Slot-list / roster / top-10 → `header_overrides.sponsor_logo_url`
+
+        Use `sponsorLogoOverrides` in generate/export bodies for **size/position** only.
+        Top-10 Python API has no `sponsor_logo_overrides` — sponsor logo URL still works via `header_overrides`.
+
+        Allowed formats: JPEG, PNG, WebP — max **5 MB**.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [logo]
+              properties:
+                logo:
+                  type: string
+                  format: binary
+                  description: Sponsor logo image (JPEG/PNG/WebP, max 5 MB)
+      responses:
+        "200":
+          description: Sponsor logo uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: "Sponsor logo attached successfully" }
+                  data:
+                    $ref: "#/components/schemas/MatchBrandingLogoUploadResponse"
+        "400":
+          description: No file uploaded or invalid file type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      tags: [Quick-PT Graphics]
+      summary: Remove sponsor branding logo from a match
+      description: |
+        Deletes the sponsor branding logo from R2 and clears the reference on the match.
+        Future exports/graphics will omit `sponsor_logo_url` unless re-uploaded.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MatchId"
+      responses:
+        "200":
+          description: Sponsor logo removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: "Sponsor logo removed successfully" }
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  # ══════════════════════════════════════════════════════════════════════
   # PRESET LOGO ASSIGNMENT TO SLOT
   # ══════════════════════════════════════════════════════════════════════
 
@@ -364,8 +529,9 @@ paths:
         1. Node loads slot assignments for the match (ordered by slot number).
         2. Only slots **1–24** are included (Python API limit).
         3. Team logos: match logo → preset entry logo → none (raw R2 URLs — Python fetches with its own credentials).
-        4. Node calls Python `POST /api/v1/slot-list/generate`.
-        5. Node registers the PNG as a media asset and returns `assetId` + `previewUrl`.
+        4. Organiser/sponsor branding logos: loaded from match DB if uploaded via `POST .../branding/organiser-logo` / `sponsor-logo`; merged into `header_overrides.org_logo_url` / `sponsor_logo_url`.
+        5. Node calls Python `POST /api/v1/slot-list/generate`.
+        6. Node registers the PNG as a media asset and returns `assetId` + `previewUrl`.
 
         **Preview:** load `data.previewUrl` directly (signed `/quick-pt/files/{fileId}?exp=&sig=` URL).
         **History:** `GET /quick-pt/matches/{id}/media`.
@@ -373,6 +539,7 @@ paths:
         ### Prerequisites
         - Match must have slot assignments (`POST /quick-pt/matches/{id}/slots`).
         - Optional team logos: upload per slot (`POST .../slots/{slotNumber}/logo`) or assign a preset entry (`POST .../slots/{slotId}/preset`).
+        - Optional match branding logos: `POST .../branding/organiser-logo` and `POST .../branding/sponsor-logo` (auto-injected into `header_overrides` at generate time).
 
         ### Tuning tips
         | Problem | Fix |
@@ -481,6 +648,9 @@ paths:
 
         Team logos are resolved per slot (match logo → preset entry logo → none).
         Set logos via `POST .../slots/{slotNumber}/logo` or `POST .../slots/{slotId}/preset` — not in this request body.
+
+        Match organiser/sponsor branding logos are injected from DB into `header_overrides`
+        when uploaded via `POST .../branding/organiser-logo` and `POST .../branding/sponsor-logo`.
 
         ### Customization groups
         | Group | Body fields | Python fields |
@@ -606,6 +776,9 @@ paths:
 
         Team logos are resolved per result slot (match logo → preset entry logo → none).
         Set logos via `POST .../slots/{slotNumber}/logo` or `POST .../slots/{slotId}/preset` — not in this request body.
+
+        Match organiser/sponsor branding logos are injected from DB into `header_overrides`
+        when uploaded via `POST .../branding/organiser-logo` and `POST .../branding/sponsor-logo`.
 
         ### Customization groups
         | Group | Body fields | Python fields |
@@ -741,6 +914,40 @@ components:
           type: string
           format: date-time
           description: ISO timestamp when previewUrl expires — re-call the generate/export API for a fresh URL
+        previewUrlExpiresInSeconds:
+          type: integer
+          example: 1800
+
+    MatchBrandingLogoUploadResponse:
+      type: object
+      description: |
+        Response from `POST .../branding/organiser-logo` or `POST .../branding/sponsor-logo`.
+        `logoStorageUrl` is the raw R2 URL Node sends to Python during generation.
+        `previewUrl` is for app display only (signed `/quick-pt/files/{fileId}`).
+      properties:
+        logoStorageUrl:
+          type: string
+          format: uri
+          description: Raw R2/CDN URL injected into Python payloads at generate/export time
+          example: "https://pub-xxx.r2.dev/match-branding-logos/clx123/organiser-abc.png"
+        fileId:
+          type: string
+          example: "cmqqnxb6t00038za1l2k7jnzo"
+        previewUrl:
+          type: string
+          format: uri
+          description: Signed preview URL for immediate display in the app
+        signedUrl:
+          type: string
+          format: uri
+          description: Same as previewUrl (Android fallback)
+        signedLogoUrl:
+          type: string
+          format: uri
+          description: Deprecated alias of previewUrl
+        expiresAt:
+          type: string
+          format: date-time
         previewUrlExpiresInSeconds:
           type: integer
           example: 1800
@@ -969,6 +1176,9 @@ components:
         header_overrides:
           type: object
           additionalProperties: true
+          description: |
+            Header text and logo URL overrides (snake_case). Node merges uploaded match branding logos here:
+            `org_logo_url`, `sponsor_logo_url` — do not pass these in the client body; upload via branding endpoints.
         element_overrides:
           $ref: "#/components/schemas/ElementOverridesConfig"
         org_logo_overrides:
@@ -1007,6 +1217,9 @@ components:
         header_overrides:
           type: object
           additionalProperties: true
+          description: |
+            Header text and logo URL overrides (snake_case). Node merges uploaded match branding logos here:
+            `org_logo_url`, `sponsor_logo_url` — do not pass these in the client body; upload via branding endpoints.
         element_overrides:
           $ref: "#/components/schemas/ElementOverridesConfig"
         footer_overrides:
@@ -1081,7 +1294,10 @@ components:
         headerOverrides:
           type: object
           nullable: true
-          description: Patch named header text fields (snake_case keys forwarded to Python)
+          description: |
+            Patch named header text fields (snake_case keys forwarded to Python).
+            Organiser/sponsor **logo URLs** are server-injected from uploaded match branding logos
+            (`POST .../branding/organiser-logo`, `POST .../branding/sponsor-logo`) — do not pass `org_logo_url` / `sponsor_logo_url` here.
           additionalProperties: true
           example:
             extra_text_info: "BGMI SCRIMS"

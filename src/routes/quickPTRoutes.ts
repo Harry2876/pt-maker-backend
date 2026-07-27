@@ -4486,6 +4486,146 @@ quickPTRouter.delete(
 
 /**
  * @swagger
+ * /api/v1/quick-pt/matches/{id}/branding/organiser-logo:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Upload organiser branding logo for a match
+ *     description: |
+ *       Uploads an organiser logo for match-level branding on standings and graphics.
+ *       Stored in R2 under `match-branding-logos/{matchId}/organiser-{uuid}.{ext}`.
+ *       At generate time, injected as `org_logo_url` (standings) or inside `header_overrides` (other graphics).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [logo]
+ *             properties:
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *                 description: Organiser logo image (JPEG, PNG, or WebP — max 5 MB)
+ *     responses:
+ *       200:
+ *         description: Organiser logo uploaded
+ *       400:
+ *         description: No file uploaded or invalid file type
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
+ *   delete:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Remove organiser branding logo from a match
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *     responses:
+ *       200:
+ *         description: Organiser logo removed
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.post(
+    '/matches/:id/branding/organiser-logo',
+    logoUpload.single('logo'),
+    QuickPTController.attachOrganiserLogo,
+);
+quickPTRouter.delete(
+    '/matches/:id/branding/organiser-logo',
+    QuickPTController.removeOrganiserLogo,
+);
+
+/**
+ * @swagger
+ * /api/v1/quick-pt/matches/{id}/branding/sponsor-logo:
+ *   post:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Upload sponsor branding logo for a match
+ *     description: |
+ *       Uploads a sponsor logo for match-level branding on standings and graphics.
+ *       Stored in R2 under `match-branding-logos/{matchId}/sponsor-{uuid}.{ext}`.
+ *       At generate time, injected as `sponsor_logo_url` (standings) or inside `header_overrides` (other graphics).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [logo]
+ *             properties:
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *                 description: Sponsor logo image (JPEG, PNG, or WebP — max 5 MB)
+ *     responses:
+ *       200:
+ *         description: Sponsor logo uploaded
+ *       400:
+ *         description: No file uploaded or invalid file type
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
+ *   delete:
+ *     tags: [Quick-PT Graphics]
+ *     summary: Remove sponsor branding logo from a match
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quick Match ID
+ *     responses:
+ *       200:
+ *         description: Sponsor logo removed
+ *       404:
+ *         description: Match not found
+ *       401:
+ *         description: Unauthorized
+ */
+quickPTRouter.post(
+    '/matches/:id/branding/sponsor-logo',
+    logoUpload.single('logo'),
+    QuickPTController.attachSponsorLogo,
+);
+quickPTRouter.delete(
+    '/matches/:id/branding/sponsor-logo',
+    QuickPTController.removeSponsorLogo,
+);
+
+/**
+ * @swagger
  * /api/v1/quick-pt/matches/{id}/graphics/slot-list:
  *   post:
  *     tags: [Quick-PT Graphics]

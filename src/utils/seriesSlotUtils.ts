@@ -21,3 +21,12 @@ export function buildSlotFingerprint(
 export function slotFingerprintsMatch(a: string, b: string): boolean {
     return a.length > 0 && a === b;
 }
+
+/** True when teamName is the auto-generated fallback, not a real slot-list entry. */
+export function isPlaceholderSlotTeamName(teamName: string, slotNumber: number): boolean {
+    const normalized = normalizeTeamName(teamName);
+    return (
+        normalized === `slot ${slotNumber}` ||
+        normalized === `slot ${String(slotNumber).padStart(2, '0')}`
+    );
+}

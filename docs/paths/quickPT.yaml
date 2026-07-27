@@ -152,6 +152,10 @@ paths:
     get:
       tags: [Quick-PT]
       summary: Get Quick Match by ID
+      description: |
+        Returns match metadata plus `brandingLogos` with signed preview URLs when organiser/sponsor
+        logos were uploaded via the branding endpoints. Use `data.brandingLogos.organiserLogo.previewUrl`
+        (and sponsor) to display logos in the app — same pattern as slot `previewUrl`.
       security:
         - bearerAuth: []
       parameters:
@@ -1462,12 +1466,17 @@ paths:
         All fields after `formatType` are optional. Use top-level `eventName`, `organiserName`, `sponsorName`,
         `weekInfo`, and `dayInfo` for header overlay text. Use `elementOverrides` to patch size/color on named
         elements (`week_info`, `day_info`, `live_indicator`, etc.). Use `columnOverrides` for table column styling.
-        Use `orgLogoOverrides`, `sponsorLogoOverrides`, and `socialOverrides` for logo/social layout (camelCase —
+        Use `orgLogoOverrides`, `sponsorLogoOverrides`, and `socialOverrides` for logo/social **layout** (camelCase —
         Node maps to Python snake_case). Use `advancedConfig` for legacy pixel-level overrides when no
         `template_config_url` is used (normally ignored when template config is resolved from R2).
 
+        **Organiser/sponsor logo images** are not passed in this body. Upload once per match:
+        `POST .../branding/organiser-logo` and `POST .../branding/sponsor-logo`.
+        Node injects `org_logo_url` / `sponsor_logo_url` into the Python standings payload automatically.
+
         ### Prerequisites
         - Match must have at least one result (`POST /process`, or manual entry via `POST /results/manual` / `POST /results/bulk`).
+        - Optional branding logos: upload via `POST .../branding/organiser-logo` and `POST .../branding/sponsor-logo` before export.
       security:
         - bearerAuth: []
       parameters:
@@ -3234,8 +3243,10 @@ components:
               weight: "bold"
         orgLogoOverrides:
           $ref: "#/components/schemas/LogoOverridesConfig"
+          description: Organiser logo size/position — image URL comes from `POST .../branding/organiser-logo`
         sponsorLogoOverrides:
           $ref: "#/components/schemas/LogoOverridesConfig"
+          description: Sponsor logo size/position — image URL comes from `POST .../branding/sponsor-logo`
         socialOverrides:
           $ref: "#/components/schemas/SocialOverridesConfig"
         fontCustomization:
@@ -3296,6 +3307,20 @@ components:
         day_info:
           type: string
           example: "Day 1"
+        org_logo_url:
+          type: string
+          format: uri
+          description: |
+            Raw R2 URL of organiser branding logo. **Server-injected** from match DB when uploaded via
+            `POST /quick-pt/matches/{id}/branding/organiser-logo` — not sent by the mobile client.
+          example: "https://pub-xxx.r2.dev/match-branding-logos/clx123/organiser-abc.png"
+        sponsor_logo_url:
+          type: string
+          format: uri
+          description: |
+            Raw R2 URL of sponsor branding logo. **Server-injected** from match DB when uploaded via
+            `POST /quick-pt/matches/{id}/branding/sponsor-logo` — not sent by the mobile client.
+          example: "https://pub-xxx.r2.dev/match-branding-logos/clx123/sponsor-def.png"
         table_font_size:
           type: number
           example: 55
@@ -3639,6 +3664,52 @@ components:
               type: string
               example: "Standard BGMI scoring"
               nullable: true
+            brandingLogos:
+              $ref: "#/components/schemas/MatchBrandingLogosView"
+
+    MatchBrandingLogoView:
+      type: object
+      description: |
+        One match-level organiser or sponsor branding logo with signed preview URL for the app.
+        Load `previewUrl` in Coil/browser (same pattern as slot `previewUrl`).
+      properties:
+        logoStorageUrl:
+          type: string
+          format: uri
+          description: Raw R2 URL used by Python at generate/export time — not for direct app display
+        fileId:
+          type: string
+        previewUrl:
+          type: string
+          format: uri
+          description: Signed `/quick-pt/files/{fileId}?exp=&sig=` URL for display
+        signedUrl:
+          type: string
+          format: uri
+          description: Same as previewUrl (Android fallback)
+        signedLogoUrl:
+          type: string
+          format: uri
+          description: Deprecated alias of previewUrl
+        expiresAt:
+          type: string
+          format: date-time
+        previewUrlExpiresInSeconds:
+          type: integer
+          example: 1800
+
+    MatchBrandingLogosView:
+      type: object
+      description: Match-level organiser/sponsor branding logos — `null` per side when not uploaded
+      properties:
+        organiserLogo:
+          allOf:
+            - $ref: "#/components/schemas/MatchBrandingLogoView"
+          nullable: true
+        sponsorLogo:
+          allOf:
+            - $ref: "#/components/schemas/MatchBrandingLogoView"
+          nullable: true
 
     # ── Slots ────────────────────────────────────────────────
 

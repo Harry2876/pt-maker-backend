@@ -454,6 +454,10 @@ components:
         Allowed keys inside `formValues` per `graphicType` (all optional unless noted).
         Nested override objects use **snake_case** keys (same as Python). Top-level keys are **camelCase**.
 
+        **Match organiser/sponsor logo images** are not stored in presets — upload per match via
+        `POST /quick-pt/matches/{id}/branding/organiser-logo` and `POST .../branding/sponsor-logo`.
+        Presets may still store `orgLogoOverrides` / `sponsorLogoOverrides` for layout (size/position).
+
         **STANDINGS / SERIES_STANDINGS** — same body as `ExportRequest` minus
         `template`, `formatType`, `showBranding` (and `format` for presets):
         `outputFilename`, `tableFontSize`, `tableHeaderFontSize`, `tableHeaderLabelMode`,

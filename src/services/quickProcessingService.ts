@@ -23,6 +23,8 @@ import {
 } from './ocrReconciliationService';
 import { aiScanEventService } from './aiScanEventService';
 import { OcrScanType } from '@prisma/client';
+import { isPlaceholderSlotTeamName } from '../utils/seriesSlotUtils';
+import { countRosterOverlap, requiredRosterMatchCount } from '../utils/playerNameMatcher';
 
 // Response interfaces
 export interface AttendanceProcessingResult {
@@ -183,37 +185,68 @@ export class QuickProcessingService extends BaseService {
             for (const team of attendanceTeams) {
                 try {
                     const playerNames = team.players.map(p => p.name).filter(Boolean);
-                    const teamName = playerNames[0] || `Slot ${team.slot_number}`;
-
+                    const fallbackTeamName = playerNames[0] || `Slot ${team.slot_number}`;
+            
+                    const existingSlot = await quickSlotService.getSlotByNumber(
+                        quickMatchId,
+                        team.slot_number
+                    );
+            
+                    const resolvedTeamName = this.resolveAttendanceTeamName(
+                        existingSlot,
+                        team.slot_number,
+                        fallbackTeamName
+                    );
+            
                     savedAudit.push({
                         slotNumber: team.slot_number,
-                        teamName,
+                        teamName: resolvedTeamName,
                         playerNames,
                     });
-
-                    const existingSlot = await quickSlotService.getSlotByNumber(quickMatchId, team.slot_number);
-
+            
                     if (!existingSlot) {
                         await quickSlotService.createSlot(quickMatchId, userId, {
                             slotNumber: team.slot_number,
-                            teamName,
+                            teamName: resolvedTeamName,
                             playerNames,
                         });
                         slotsCreated++;
                     } else {
-                        if (!existingSlot.detectedInAttendance) {
-                            await quickSlotService.updateSlot(existingSlot.id, userId, {
+                        // Re-process: warn on roster conflict, not team name vs player #1
+                        if (
+                            existingSlot.detectedInAttendance &&
+                            existingSlot.playerNames?.length &&
+                            playerNames.length
+                        ) {
+                            const overlap = countRosterOverlap(
                                 playerNames,
-                                detectedInAttendance: true,
-                                status: 'DETECTED',
-                            });
-                        } else if (existingSlot.teamName !== teamName) {
-                            warnings.push({
-                                type: 'TEAM_NAME_MISMATCH',
-                                message: `Slot ${team.slot_number} detected with a different first-player name`,
-                                details: { existing: existingSlot.teamName, detected: teamName },
-                            });
+                                existingSlot.playerNames
+                            );
+                            const required = Math.min(
+                                requiredRosterMatchCount(playerNames.length),
+                                requiredRosterMatchCount(existingSlot.playerNames.length)
+                            );
+            
+                            if (overlap < required) {
+                                warnings.push({
+                                    type: 'SLOT_ROSTER_CONFLICT',
+                                    message: `Slot ${team.slot_number} detected with a conflicting player roster`,
+                                    details: {
+                                        existingPlayers: existingSlot.playerNames,
+                                        detectedPlayers: playerNames,
+                                        overlap,
+                                        required,
+                                    },
+                                });
+                            }
                         }
+            
+                        await quickSlotService.updateSlot(existingSlot.id, userId, {
+                            playerNames,
+                            teamName: resolvedTeamName,
+                            detectedInAttendance: true,
+                            status: 'DETECTED',
+                        });
                     }
                 } catch (err) {
                     this.logger.error(`Error creating slot ${team.slot_number}:`, err);
@@ -641,6 +674,24 @@ export class QuickProcessingService extends BaseService {
             details: w.details,
         }));
     }
+
+    /**
+ * Slot-list name takes priority over OCR first-player name.
+ * Placeholder names (e.g. "Slot 3") fall back to detected first player.
+ */
+private resolveAttendanceTeamName(
+    existingSlot: QuickSlotCache | null,
+    slotNumber: number,
+    fallbackTeamName: string
+): string {
+    if (!existingSlot) {
+        return fallbackTeamName;
+    }
+    if (isPlaceholderSlotTeamName(existingSlot.teamName, slotNumber)) {
+        return fallbackTeamName;
+    }
+    return existingSlot.teamName;
+}
 }
 
 export const quickProcessingService = new QuickProcessingService();
