@@ -12,6 +12,8 @@ export interface ParseResult {
 export class SlotTextParser {
     // Regex patterns for different slot formats
     private static readonly PATTERNS = [
+        // Markdown table row: "| 4 | High Fliers |" or "|4|Team Name|"
+        /^\|\s*(\d{1,2})\s*\|\s*([^|]+?)\s*\|?\s*$/,
         // "Slot 01  ->  Team Name" or "Slot 1 -> Team Name" or "Slot 04 → Team Name"
         /^slot\s*-?\s*(\d{1,2})\s*(?:->|→|➡|➔|⟶|–|—|:)\s*(.+)$/i,
         // "1. Team Name" or "01. Team Name"
@@ -67,6 +69,10 @@ export class SlotTextParser {
         }
 
         lines.forEach((line, lineIndex) => {
+            if (this.isSkippableTableLine(line)) {
+                return;
+            }
+
             const parsed = this.parseLine(line);
 
             if (parsed) {
@@ -111,6 +117,15 @@ export class SlotTextParser {
      * @param line Single line of text
      * @returns ParsedSlot or null if line cannot be parsed
      */
+    /** Skip markdown table header/separator rows (e.g. | Slot | Team |, | --- | --- |). */
+    private static isSkippableTableLine(line: string): boolean {
+        if (/^\|?\s*[-—:\s|]+\s*\|?\s*$/.test(line) && line.includes('-')) {
+            return true;
+        }
+
+        return /^\|\s*(?:slot|#|no\.?|num(?:ber)?)\s*\|\s*(?:team(?:\s*name)?|name)\s*\|?\s*$/i.test(line);
+    }
+
     private static parseLine(line: string): ParsedSlot | null {
         for (const pattern of this.PATTERNS) {
             const match = line.match(pattern);
@@ -158,6 +173,7 @@ export class SlotTextParser {
     private static cleanTeamName(teamName: string): string {
         return teamName
             .replace(/^team\s+/i, '') // Remove "Team " prefix if present
+            .replace(/[\u200B\u200C\u200D\uFEFF\u00A0\u202F]/g, ' ') // Normalize invisible/narrow spaces
             .trim()
             .replace(/\s+/g, ' '); // Normalize whitespace
     }
